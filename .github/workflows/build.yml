@@ -1,0 +1,79 @@
+name: Build Minis IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 350
+    steps:
+      - name: 检出代码（含子模块）
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: 选择最新版 Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          xcodebuild -version
+
+      - name: 安装构建工具
+        run: |
+          brew install ninja llvm libarchive pkg-config
+          pip3 install meson
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: 初始化配置文件
+        run: |
+          cp src/ios/Configs/ProviderCustomization.xcconfig.example \
+             src/ios/Configs/ProviderCustomization.xcconfig
+
+      - name: 编译 LAME
+        run: ./deps/build_lame.sh
+
+      - name: 编译 FFmpeg
+        run: ./deps/build_ffmpeg.sh
+
+      - name: 编译 iSH 内核
+        run: ./deps/build_ish.sh
+
+      - name: 准备 Alpine rootfs
+        run: ./deps/prepare_alpine_rootfs.sh
+
+      - name: 编译 Rclone
+        run: ./deps/build_rclone_ios.sh
+
+      - name: 编译 Minis 主程序
+        run: |
+          xcodebuild -project src/ios/Minis.xcodeproj \
+            -scheme Minis \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
+      - name: 打包 IPA
+        run: |
+          APP="build/Build/Products/Release-iphoneos/Minis.app"
+          ls -la "build/Build/Products/Release-iphoneos/"
+          rm -rf Payload && mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry Minis-TrollStore.ipa Payload
+          ls -lh Minis-TrollStore.ipa
+
+      - name: 上传 IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Minis-TrollStore-IPA
+          path: Minis-TrollStore.ipa
