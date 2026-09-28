@@ -133,7 +133,7 @@ final class ToolboxInstaller: ObservableObject {
           case "$C" in *community*) echo "$C" >> "$REP";; *) echo 'https://dl-cdn.alpinelinux.org/alpine/v3.21/community' >> "$REP";; esac
         fi
         apk update
-        apk add --no-cache python3 py3-pip zip unzip git
+        apk add --no-cache python3 py3-pip zip unzip git make
         echo "[1] 源就绪 + 基础包完成"
         for p in py3-lief py3-capstone py3-keystone; do
           if apk add --no-cache "$p" >/dev/null 2>&1; then
@@ -144,18 +144,19 @@ final class ToolboxInstaller: ObservableObject {
         done
         if apk add --no-cache frida-tools py3-frida >/dev/null 2>&1 && command -v frida >/dev/null 2>&1; then
           echo "[3] frida-tools ✓（apk）"
+        elif python3 -m pip install --no-cache-dir --only-binary=:all: --break-system-packages frida-tools frida >/dev/null 2>&1 && command -v frida >/dev/null 2>&1; then
+          echo "[3] frida-tools ✓（pip wheel）"
         else
-          echo "[3] Alpine 没有可用 frida 包，尝试 pip wheel…"
-          python3 -m pip install --no-cache-dir --break-system-packages frida-tools frida
-          command -v frida >/dev/null 2>&1 || { echo "[fatal] frida 安装后仍不可执行"; exit 21; }
-          echo "[3] frida-tools ✓（pip）"
+          # frida-tools is a host-side convenience CLI. Gadget injection does
+          # not require it; never compile Frida from source on musl/aarch64.
+          echo "[3] frida-tools 跳过（无 Alpine/aarch64 wheel；Gadget 不受影响）"
         fi
-        if python3 -m pip install --no-cache-dir --no-deps --break-system-packages objection >/dev/null 2>&1; then
+        if python3 -m pip install --no-cache-dir --no-deps --only-binary=:all: --break-system-packages objection >/dev/null 2>&1; then
           echo "  objection ✓"
         else
           echo "  objection ✗（非核心，跳过）"
         fi
-        echo "frida $(frida --version)"
+        if command -v frida >/dev/null 2>&1; then echo "frida $(frida --version)"; fi
         \(r2Part)
         echo TOOLBOX_DONE
         """

@@ -167,7 +167,7 @@ enum IPAInjector {
     /// 宿主 App（有 no-sandbox 权限）在 Frida 日志页尾随读取同一文件。
     static func buildLoaderJS(scripts: [FridaScript]) -> String {
         var js = """
-        // KyTuT Frida loader —— 由目标 App 启动时自动加载
+        // KyTuT Frida loader. Keep Gadget startup independent from scripts.
         (function () {
           var __f = null;
           try { __f = new File("/var/tmp/kytuT-frida.log", "a"); } catch (e) {}
@@ -177,22 +177,29 @@ enum IPAInjector {
             } catch (e) {}
             try { console.log(msg); } catch (e) {}
           };
-          kylog("=== KyTuT Frida 已加载（__TOTAL__ 个脚本）===");
+          kylog("=== KyTuT Frida Gadget loaded (__TOTAL__ scripts) ===");
         })();
 
         """
         js = js.replacingOccurrences(of: "__TOTAL__", with: String(scripts.count))
 
+        // Delay hooks until the target has completed its earliest startup. A
+        // bad hook must be observable in the log, never a launch-time crash.
+        js += "\nsetTimeout(function () {\n"
         for s in scripts {
-            js += "\n// ════════ 脚本: \(s.name) ════════\n"
-            js += "(function () {\ntry {\n"
+            let safeName = s.name
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+                .replacingOccurrences(of: "\n", with: " ")
+            js += "\n// script: \(safeName)\n"
+            js += "try {\n"
             js += s.code
-            js += "\n} catch (e) {\ntry { kylog(\"[\(s.name)] 脚本出错: \" + e); } catch (_) {}\n}\n})();\n"
+            js += "\n} catch (e) {\ntry { kylog(\"[\(safeName)] script error: \" + e); } catch (_) {}\n}\n"
         }
-
         if scripts.isEmpty {
-            js += "\nkylog(\"警告: 没有勾选任何脚本，仅 Gadget 空载运行\");\n"
+            js += "kylog(\"warning: no enabled scripts; Gadget only\");\n"
         }
+        js += "}, 250);\n"
         return js
     }
 
