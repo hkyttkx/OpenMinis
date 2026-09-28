@@ -809,6 +809,18 @@ extension AIChatViewModel {
             }
             toolOutput = fridaResult
             toolSuccess = true
+
+        case "r2_execute":
+            // [T-r2-tool] radare2 静态分析：拼装 r2 命令行走 shell 执行管线
+            // （复用 executeCommand，输出流式回传到工具卡片）。工具只在
+            // 深度分析引擎开启时注册，这里不再重复判断开关。
+            if let r2Result = await executeR2Tool(from: argsJson, msgIdx: msgIdx, blockIdx: blockIdx) {
+                toolOutput = r2Result.output
+                toolSuccess = r2Result.success
+            } else {
+                toolOutput = "Error: invalid arguments for r2_execute"
+                toolSuccess = false
+            }
         default:
             toolOutput = "Error: Unknown tool '\(tu.name)'"
             toolSuccess = false

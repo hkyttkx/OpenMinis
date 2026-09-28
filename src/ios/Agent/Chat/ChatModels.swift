@@ -363,6 +363,13 @@ final class AssistantBlock: Identifiable, ObservableObject {
             return (!path.isEmpty && name != "/" && name.contains(".")) ? name : "Read image"
         case .memoryTool(let action):
             return action.isEmpty ? "Memory" : action
+        case .r2Tool(let commands):
+            if !commands.isEmpty { return commands }
+            if content.hasPrefix("r2 ") {
+                let firstLine = content.prefix(while: { $0 != "\n" })
+                return String(firstLine)
+            }
+            return "radare2"
         case .info:
             return ""
         }
@@ -379,6 +386,8 @@ enum AssistantBlockKind: Equatable {
     case browserTool(action: String)
     case readImageTool(path: String)
     case memoryTool(action: String)
+    /// [T-r2-tool] radare2 静态分析调用（深度分析引擎开启时注册的工具）。
+    case r2Tool(commands: String)
     case info
 }
 

@@ -697,6 +697,8 @@ struct ToolLiveSheet: View {
             return "read_image(\(truncateParam(path)))"
         case .memoryTool(let action):
             return "\(truncateParam(action))"
+        case .r2Tool(let commands):
+            return "r2(\(truncateParam(commands)))"
         case .info:
             return ""
         }
@@ -716,6 +718,7 @@ struct ToolLiveSheet: View {
         case .browserTool: Image(systemName: "globe")
         case .readImageTool: Image(systemName: "photo")
         case .memoryTool: Image(systemName: "brain.head.profile")
+        case .r2Tool: Image(systemName: "wand.and.stars")
         case .info: Image(systemName: "arrow.triangle.2.circlepath")
         case .text: Image(systemName: "text.alignleft")
         case .thinking: Image("ThinkingIcon")
@@ -1984,6 +1987,7 @@ struct ToolLiveSheet: View {
         case .browserTool: return "Minis is using Browser"
         case .readImageTool: return "Minis is reading Image"
         case .memoryTool: return "Minis is using Memory"
+        case .r2Tool: return "Minis is using R2"
         case .info: return "Minis"
         case .text: return "Minis"
         case .thinking: return "Minis"
@@ -2004,6 +2008,7 @@ struct ToolLiveSheet: View {
         case .browserTool(let a): return a
         case .readImageTool(let p): return (p as NSString).lastPathComponent
         case .memoryTool(let a): return a
+        case .r2Tool(let commands): return commands
         default: return ""
         }
     }
@@ -2017,6 +2022,7 @@ struct ToolLiveSheet: View {
         case .browserTool: return .blue
         case .readImageTool: return .purple
         case .memoryTool: return .pink
+        case .r2Tool: return .purple
         case .info: return .secondary
         case .text: return .primary
         case .thinking: return .blue
@@ -2339,6 +2345,7 @@ private struct ToolPreviewThumbnail: View {
             let name = (p as NSString).lastPathComponent
             return (!p.isEmpty && name != "/" && name.contains(".")) ? name : AppLocalized("Read image")
         case .memoryTool(let a): return a
+        case .r2Tool(let commands): return commands
         default: return ""
         }
     }
@@ -2357,6 +2364,7 @@ private struct ToolPreviewThumbnail: View {
         case .browserTool: return .blue
         case .readImageTool: return .purple
         case .memoryTool: return .pink
+        case .r2Tool: return .purple
         case .info: return .secondary
         case .text: return .primary
         case .thinking: return .blue

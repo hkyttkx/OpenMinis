@@ -66,6 +66,12 @@ struct AssistantBlockView: View {
             ToolCapsuleView(block: block, icon: "brain.head.profile", accentColor: .pink,
                             commandStartTime: commandStartTime, onStop: onStop,
                             toolSnapshots: toolSnapshots, detailBlock: $detailBlock)
+        case .r2Tool:
+            // [T-r2-tool] radare2 调用卡片：紫色放大镜，区别于 shell 的绿色终端，
+            // 用户一眼能认出「这步用的是 r2 在分析」。
+            ToolCapsuleView(block: block, icon: "wand.and.stars", accentColor: .purple,
+                            commandStartTime: commandStartTime, onStop: onStop,
+                            toolSnapshots: toolSnapshots, detailBlock: $detailBlock)
         case .info:
             let allLines = block.content.components(separatedBy: "\n").filter { !$0.isEmpty }
             // Separate reason lines (⚠️) from the final switched line (✅)
@@ -268,6 +274,7 @@ struct ToolCapsuleView: View {
         case .browserTool:   toolName = "browser_use"
         case .readImageTool: toolName = "read_image"
         case .memoryTool:    toolName = "memory"
+        case .r2Tool:        toolName = "r2_execute"
         case .text, .thinking, .info: toolName = "unknown"
         }
 

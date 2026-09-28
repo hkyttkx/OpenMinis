@@ -339,6 +339,7 @@ extension AIChatViewModel {
         case .browserTool: toolName = "browser"
         case .readImageTool: toolName = "read_image"
         case .memoryTool: toolName = "memory"
+        case .r2Tool: toolName = "r2_execute"
         case .info: toolName = "info"
         }
 

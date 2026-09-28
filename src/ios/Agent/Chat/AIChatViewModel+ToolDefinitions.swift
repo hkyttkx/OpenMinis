@@ -173,6 +173,24 @@ extension AIChatViewModel {
             propertyOrdering: ["tool_title", "action", "name", "description", "code"]
         ))
 
+        // [T-r2-tool] radare2 静态分析工具：由「设置 → Frida → 深度分析引擎」开关
+        // 决定是否注册。关闭时 AI 完全看不到这个工具（自然回落到原生
+        // shell_execute 分析路径）；开启后 AI 按需自主调用，无任何内置
+        // 提示词引导 —— 用不用、怎么用由模型和用户对话决定。
+        if UserDefaults.standard.bool(forKey: "frida.deepAnalysis") {
+            tools.append(AgentToolDefinition(
+                name: "r2_execute",
+                description: "Run radare2 (r2) commands against a binary file for static analysis. Executes `r2 -q -e scr.color=0 -e bin.relocs.apply=true -c \"<commands>\" <file>` and returns the text output. Requires the reverse toolbox (radare2 + r2ghidra) to be installed in the sandbox via Settings → Frida.",
+                parameters: [
+                    "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user (e.g. 'List functions in binary', 'Decompile function'). Use the same language as the user."),
+                    "file": AgentToolParam(type: .string, description: "Linux path to the binary to analyze (e.g. /var/minis/shared/HexIpa.dylib or /var/minis/attachments/uploads/foo). If omitted, commands run without a file (r2 bare mode)."),
+                    "commands": AgentToolParam(type: .string, description: "radare2 command string. Multiple commands separated by ';' (e.g. 'aaa; afl' or 'aaa; pdg @ sym.func'). Use 'aaa' first for full analysis, or 'aa' for faster partial analysis."),
+                ],
+                required: ["tool_title", "commands"],
+                propertyOrdering: ["tool_title", "file", "commands"]
+            ))
+        }
+
         // [T-ios-vision-group #182] Expose read_image when the model can see
         // images ITSELF, or when a Vision Group is configured to see them on its
         // behalf. Previously a text-only model simply never got this tool, so an

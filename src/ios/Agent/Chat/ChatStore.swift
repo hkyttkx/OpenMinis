@@ -4820,6 +4820,10 @@ extension RawMessage {
                 case "memory_write", "memory_get":
                     kind = .memoryTool(action: tu.name)
                     content = tu.name == "memory_write" ? "Writing memory..." : "Reading memory..."
+                case "r2_execute":
+                    let cmds = extractStringParam("commands", from: tu.input)
+                    kind = .r2Tool(commands: cmds)
+                    content = "r2 \(cmds)"
                 default:
                     kind = .shellTool(command: tu.name)
                     content = tu.name
