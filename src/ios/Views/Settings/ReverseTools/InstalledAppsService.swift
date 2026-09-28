@@ -22,13 +22,10 @@ struct InstalledAppInfo: Identifiable {
     let dataContainerURL: URL?  // /var/mobile/Containers/Data/Application/<UUID>
     let isSystem: Bool
     let icon: UIImage?
-
     /// 主二进制是否仍带 FairPlay 加密（App Store 包未砸壳）。
-    var isEncrypted: Bool {
-        guard let exe = mainExecutableURL,
-              let info = MachOInspector.inspect(url: exe) else { return false }
-        return info.cryptid != 0
-    }
+    /// 在 listApps 时后台算好存字段 —— 曾是 computed property，列表每行
+    /// 每次渲染都全量读主二进制，是"目标 App 管理卡顿"的根因。
+    let isEncrypted: Bool
 
     var mainExecutableURL: URL? {
         guard let plist = NSDictionary(contentsOf: bundleURL.appendingPathComponent("Info.plist")),
@@ -83,7 +80,8 @@ enum InstalledAppsService {
                 bundleURL: bundleURL,
                 dataContainerURL: container,
                 isSystem: isSystem,
-                icon: loadIcon(bundleURL: bundleURL)
+                icon: loadIcon(bundleURL: bundleURL),
+                isEncrypted: computeEncrypted(bundleURL: bundleURL)
             ))
         }
         appsLogger.info("已列出 \(result.count) 个 App（含系统: \(includeSystem)）")
@@ -91,6 +89,13 @@ enum InstalledAppsService {
     }
 
     // MARK: - 私有属性动态读取
+
+    /// 加密检测（listApps 后台批量算，流式读主二进制头部，轻量）。
+    private static func computeEncrypted(bundleURL: URL) -> Bool {
+        guard let plist = NSDictionary(contentsOf: bundleURL.appendingPathComponent("Info.plist")),
+              let exe = plist["CFBundleExecutable"] as? String else { return false }
+        return MachOInspector.inspect(url: bundleURL.appendingPathComponent(exe))?.cryptid != 0
+    }
 
     private static func kvcString(_ obj: NSObject, _ key: String) -> String? {
         (try? obj.value(forKey: key)) as? String
@@ -122,10 +127,26 @@ enum InstalledAppsService {
         for base in candidates.reversed() {
             for suffix in ["@3x.png", "@2x.png", ".png", ""] {
                 let p = bundleURL.appendingPathComponent(base + suffix).path
-                if let img = UIImage(contentsOfFile: p) { return img }
+                if let img = UIImage(contentsOfFile: p) {
+                    return Self.downscale(img, maxPixel: 120)
+                }
             }
         }
         return nil
+    }
+
+    /// 图标降采样：原图可能 1024×1024，几十个 App 全尺寸进内存会卡顿；
+    /// 列表只需 40pt（@3x = 120px）。
+    private static func downscale(_ img: UIImage, maxPixel: CGFloat) -> UIImage {
+        let biggest = max(img.size.width, img.size.height)
+        guard biggest > maxPixel, biggest > 0 else { return img }
+        let scale = maxPixel / biggest
+        let newSize = CGSize(width: img.size.width * scale, height: img.size.height * scale)
+        let fmt = UIGraphicsImageRendererFormat.default()
+        fmt.scale = 1
+        return UIGraphicsImageRenderer(size: newSize, format: fmt).image { _ in
+            img.draw(in: CGRect(origin: .zero, size: newSize))
+        }
     }
 }
 
@@ -140,8 +161,12 @@ enum MachOInspector {
     }
 
     static func inspect(url: URL) -> Info? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return parse(data: data)
+        // 流式只读头部：load commands 全在文件头（一般 <64KB），避免把
+        // 几百 MB 的主二进制全量载入内存（列表/详情页高频调用会卡顿甚至 OOM）。
+        guard let fh = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? fh.close() }
+        guard let head = try? fh.read(upToCount: 1_048_576), head.count >= 32 else { return nil }
+        return parse(data: head)
     }
 
     static func parse(data: Data) -> Info? {

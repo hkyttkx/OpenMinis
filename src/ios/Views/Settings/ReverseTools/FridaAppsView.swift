@@ -129,7 +129,9 @@ struct FridaAppDetailView: View {
     @State private var injectBusy = false
     @State private var progressLines: [String] = []
     @State private var result: Result<Void, Error>?
-    @State private var encrypted: Bool?
+    /// bundleSize 是递归枚举整个 Bundle（几千文件）的重操作，不能在 body 里
+    /// 直接触发（主线程卡顿）—— 后台算一次存这里。
+    @State private var bundleSizeText = "…"
 
     private var scripts: [FridaScript] { FridaStore.loadScripts().filter(\.enabled) }
 
@@ -144,7 +146,7 @@ struct FridaAppDetailView: View {
                             Text(app.bundleId).font(.caption.monospaced()).foregroundStyle(.secondary)
                             HStack(spacing: 8) {
                                 if !app.version.isEmpty { Text("v\(app.version)") }
-                                Text(ByteCountFormatter.string(fromByteCount: app.bundleSize, countStyle: .file))
+                                Text(bundleSizeText)
                             }
                             .font(.caption).foregroundStyle(.secondary)
                         }
@@ -153,15 +155,13 @@ struct FridaAppDetailView: View {
                 }
 
                 Section {
-                    if let enc = encrypted {
-                        if enc {
-                            Label("该 App 带 FairPlay 加密，需先砸壳（导入已解密的 IPA 注入）",
-                                  systemImage: "lock.fill")
-                                .font(.caption).foregroundStyle(.red)
-                        } else {
-                            Label("磁盘上已解密，可直接克隆注入", systemImage: "lock.open.fill")
-                                .font(.caption).foregroundStyle(.green)
-                        }
+                    if app.isEncrypted {
+                        Label("该 App 带 FairPlay 加密，需先砸壳（导入已解密的 IPA 注入）",
+                              systemImage: "lock.fill")
+                            .font(.caption).foregroundStyle(.red)
+                    } else {
+                        Label("磁盘上已解密，可直接克隆注入", systemImage: "lock.open.fill")
+                            .font(.caption).foregroundStyle(.green)
                     }
                     Button {
                         startInject()
@@ -173,7 +173,7 @@ struct FridaAppDetailView: View {
                                   systemImage: "syringe")
                         }
                     }
-                    .disabled(injectBusy || encrypted == true || scripts.isEmpty)
+                    .disabled(injectBusy || app.isEncrypted || scripts.isEmpty)
 
                     if scripts.isEmpty {
                         Text("未勾选任何脚本：先到 Frida 页面启用脚本（AI 生成后内置）")
@@ -231,13 +231,13 @@ struct FridaAppDetailView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
             }
             .task {
-                // 加密检测较重（读主二进制），后台算；只捕获 Sendable 的 URL
-                let exe = app.mainExecutableURL
-                let e = await Task.detached(priority: .utility) { () -> Bool in
-                    guard let exe else { return false }
-                    return MachOInspector.inspect(url: exe)?.cryptid != 0
+                // bundleSize 递归枚举整个 Bundle 目录（几千文件），后台算一次。
+                // 加密状态已是存储字段（listApps 时算好），body 零重 IO。
+                let bundleURL = app.bundleURL
+                let size = await Task.detached(priority: .utility) { () -> Int64 in
+                    FileManager.default.accumulatedFileSize(of: bundleURL)
                 }.value
-                encrypted = e
+                bundleSizeText = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
             }
         }
     }

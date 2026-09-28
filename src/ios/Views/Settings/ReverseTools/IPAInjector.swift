@@ -88,12 +88,16 @@ enum IPAInjector {
         let loader = buildLoaderJS(scripts: scripts)
         try loader.data(using: .utf8)?.write(to: appURL.appendingPathComponent("frida-loader.js"))
 
-        // 3. Gadget 配置：script 交互模式，启动即跑 loader
+        // 3. Gadget 配置：script 交互模式，启动即跑 loader。
+        //    on_load_failure 必须显式设为 "ignore"：Gadget 默认值是 "abort"，
+        //    脚本加载失败（拼接脚本语法错误等）会直接终止目标进程 ——
+        //    表现为注入后的 App 一打开就闪退。
         let config: [String: Any] = [
             "interaction": [
                 "type": "script",
                 "path": "frida-loader.js",
                 "on_change": "reload",
+                "on_load_failure": "ignore",
             ]
         ]
         let cfgData = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted])
