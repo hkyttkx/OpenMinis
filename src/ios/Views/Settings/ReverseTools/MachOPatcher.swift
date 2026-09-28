@@ -112,7 +112,10 @@ enum MachOPatcher {
             throw MachOPatchError.ioFailure("sizeofcmds(\(sizeofcmds)) 与实际命令区不匹配")
         }
 
-        // 写入新 LC_LOAD_DYLIB
+        // Write into the existing load-command padding. Do not insert bytes
+        // into the file: shifting the rest of a Mach-O without updating every
+        // segment/section file offset corrupts the executable and commonly
+        // causes an immediate dyld crash.
         var cmd = Data(capacity: cmdsize)
         cmd.appendLE32(0xC)                 // cmd
         cmd.appendLE32(UInt32(cmdsize))     // cmdsize
@@ -125,7 +128,10 @@ enum MachOPatcher {
         while cmd.count < cmdsize { cmd.append(0) }
 
         let insertAt = headerSize + sizeofcmds
-        data.replaceSubrange(Range(uncheckedBounds: (insertAt, insertAt)), with: cmd)
+        guard insertAt + cmdsize <= bound, insertAt + cmdsize <= data.count else {
+            throw MachOPatchError.noPadding(needed: sizeofcmds + cmdsize, available: available)
+        }
+        data.replaceSubrange(insertAt..<(insertAt + cmdsize), with: cmd)
         // 更新头部 ncmds / sizeofcmds
         data.writeLE32(UInt32(ncmds + 1), at: 16)
         data.writeLE32(UInt32(sizeofcmds + cmdsize), at: 20)

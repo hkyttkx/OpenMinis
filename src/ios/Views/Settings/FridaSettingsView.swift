@@ -114,27 +114,42 @@ final class ToolboxInstaller: ObservableObject {
         r2pm -U >/dev/null 2>&1; r2pm -ci r2ghidra 2>&1 | tail -2; \
         r2 -qc 'Lc' -- 2>/dev/null | grep -i ghidra >/dev/null && echo "r2ghidra ✅" || echo "r2ghidra 未加载（可重试或用内置 pdc）"
         """ : ""
-        // community 源修复：py3-lief/py3-capstone/py3-keystone/frida-tools/radare2
-        // 全在 community 仓库，不启用就回落 pip 源码编译（musl 上必失败）。
+        // Alpine's package set differs by release/architecture. The old
+        // script hid every error and printed TOOLBOX_DONE even without frida.
+        // Keep optional analysis packages best-effort, but fail hard when the
+        // runtime required by Frida is unavailable.
         let cmd = """
-        REP=/etc/apk/repositories; \
-        if ! grep -q '/community' $REP 2>/dev/null; then \
-          C=$(head -1 $REP | sed 's|/main$|/community|'); \
-          case "$C" in *community*) echo "$C" >> $REP;; *) echo 'https://dl-cdn.alpinelinux.org/alpine/v3.21/community' >> $REP;; esac; \
-        fi; \
-        apk update >/dev/null 2>&1; \
-        apk add --no-cache python3 py3-pip zip unzip git >/dev/null 2>&1; \
-        echo "[1] 源就绪 + 基础包完成"; \
-        apk add --no-cache py3-lief py3-capstone py3-keystone >/dev/null 2>&1 \
-          && echo "[2] Mach-O 库（lief/capstone/keystone）✓" || \
-          { for p in py3-lief py3-capstone py3-keystone; do apk add --no-cache $p >/dev/null 2>&1 \
-            && echo "  $p ✓" || echo "  $p ✗（非核心）"; done; }; \
-        apk add --no-cache frida-tools py3-frida >/dev/null 2>&1 \
-          && echo "[3] frida-tools ✓" || echo "[3] frida-tools ✗（检查网络后重试）"; \
-        { pip3 install --no-cache-dir --no-deps --break-system-packages objection >/dev/null 2>&1 \
-          || pip3 install --no-cache-dir --no-deps objection >/dev/null 2>&1; } \
-          && echo "  objection ✓" || echo "  objection ✗（非核心，跳过）"; \
-        frida --version 2>&1\(r2Part); \
+        set -eu
+        REP=/etc/apk/repositories
+        if ! grep -q '/community' "$REP" 2>/dev/null; then
+          C=$(head -1 "$REP" | sed 's|/main$|/community|')
+          case "$C" in *community*) echo "$C" >> "$REP";; *) echo 'https://dl-cdn.alpinelinux.org/alpine/v3.21/community' >> "$REP";; esac
+        fi
+        apk update
+        apk add --no-cache python3 py3-pip zip unzip git
+        echo "[1] 源就绪 + 基础包完成"
+        for p in py3-lief py3-capstone py3-keystone; do
+          if apk add --no-cache "$p" >/dev/null 2>&1; then
+            echo "  $p ✓"
+          else
+            echo "  $p ✗（非核心，跳过）"
+          fi
+        done
+        if apk add --no-cache frida-tools py3-frida >/dev/null 2>&1 && command -v frida >/dev/null 2>&1; then
+          echo "[3] frida-tools ✓（apk）"
+        else
+          echo "[3] Alpine 没有可用 frida 包，尝试 pip wheel…"
+          python3 -m pip install --no-cache-dir --break-system-packages frida-tools frida
+          command -v frida >/dev/null 2>&1 || { echo "[fatal] frida 安装后仍不可执行"; exit 21; }
+          echo "[3] frida-tools ✓（pip）"
+        fi
+        if python3 -m pip install --no-cache-dir --no-deps --break-system-packages objection >/dev/null 2>&1; then
+          echo "  objection ✓"
+        else
+          echo "  objection ✗（非核心，跳过）"
+        fi
+        echo "frida $(frida --version)"
+        \(r2Part)
         echo TOOLBOX_DONE
         """
         // r2ghidra 源码编译耗时 10~30 分钟，开启深度分析时放宽超时
@@ -162,9 +177,14 @@ final class ToolboxInstaller: ObservableObject {
                         }
                     }
                 }
-                let (out, _) = try await SandboxRunner.run(cmd, timeout: timeout, onLine: onLine)
-                FridaStore.logger.info("工具链安装输出尾: \(out.suffix(300))")
-                lines.append(out.contains("TOOLBOX_DONE") ? "✅ 安装结束" : "⚠️ 安装流程异常中断，可重试")
+                let (out, code) = try await SandboxRunner.run(cmd, timeout: timeout, onLine: onLine)
+                FridaStore.logger.info("工具链安装退出码 \(code)，输出尾: \(out.suffix(300))")
+                if code == 0, out.contains("TOOLBOX_DONE") {
+                    lines.append("✅ 安装结束")
+                } else {
+                    let tail = String(out.split(separator: "\\n").suffix(3).joined(separator: " | "))
+                    lines.append("❌ 安装失败（exit \(code)）: \(tail)")
+                }
             } catch {
                 lines.append("❌ \(error.localizedDescription)")
             }
