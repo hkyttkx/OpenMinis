@@ -79,6 +79,15 @@ jobs:
       - name: 编译 Rclone
         run: ./deps/build_rclone_ios.sh
 
+      - name: 下载 FridaGadget（逆向注入用）
+        run: |
+          VER=$(curl -fsSL https://api.github.com/repos/frida/frida/releases/latest | python3 -c "import json,sys;print(json.load(sys.stdin)['tag_name'])")
+          echo "Frida 版本: $VER"
+          curl -fsSL -o FridaGadget.dylib.gz "https://github.com/frida/frida/releases/download/${VER}/frida-gadget-${VER}-ios-arm64.dylib.gz"
+          gunzip -f FridaGadget.dylib.gz
+          ls -lh FridaGadget.dylib
+          file FridaGadget.dylib || true
+
       - name: 编译 Minis 主程序
         run: |
           xcodebuild -project src/ios/Minis.xcodeproj \
@@ -93,11 +102,13 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             build
 
-      - name: ldid 签名（注入原版 entitlements，App Group 容器随安装创建）
+      - name: ldid 签名（扩展 entitlements：原版权限 + 逆向权限）
         run: |
           APP="build/Build/Products/Release-iphoneos/Minis.app"
-          # 主程序：注入完整原版权限（App Group / HealthKit / HomeKit / NFC / iCloud）
-          ldid -Ssrc/ios/Minis.entitlements "$APP/Minis"
+          # 拷入 FridaGadget（IPAInjector 注入管线运行时取用）
+          cp FridaGadget.dylib "$APP/FridaGadget.dylib"
+          # 主程序：原版权限 + no-sandbox / 容器读取 / LSApplicationWorkspace 枚举
+          ldid -Ssrc/ios/Minis-Extended.entitlements "$APP/Minis"
           # 扩展：App Group 权限（三个扩展原文件内容一致）
           cat > /tmp/ext.entitlements <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>

@@ -91,7 +91,17 @@ struct FridaSettingsView: View {
     @State private var showAddSheet = false
     @State private var showImporter = false
     @State private var showTargetPicker = false
+    @State private var showIPAImporter = false
     @State private var fridaEnabled = UserDefaults.standard.bool(forKey: "frida.masterEnabled")
+
+    // IPA 导入注入
+    @State private var injectBusy = false
+    @State private var injectLines: [String] = []
+    @State private var injectResult: Result<Void, Error>?
+
+    // 逆向工具链安装
+    @State private var toolboxBusy = false
+    @State private var toolboxLines: [String] = []
 
     var enabledScripts: [FridaScript] { scripts.filter(\.enabled) }
 
@@ -115,12 +125,32 @@ struct FridaSettingsView: View {
                 } label: {
                     Label("目标 App 管理", systemImage: "app.badge")
                 }
-                Label("模式：TrollStore（Gadget 注入）", systemImage: "shippingbox")
-                    .foregroundStyle(.secondary)
+                Button {
+                    showIPAImporter = true
+                } label: {
+                    if injectBusy {
+                        HStack { ProgressView(); Text("注入中…") }
+                    } else {
+                        Label("导入 IPA 注入", systemImage: "square.and.arrow.down")
+                    }
+                }
+                .disabled(injectBusy || enabledScripts.isEmpty)
+
+                if !injectLines.isEmpty {
+                    ForEach(Array(injectLines.suffix(6).enumerated()), id: \.offset) { _, l in
+                        Text(l).font(.caption.monospaced()).foregroundStyle(.secondary)
+                    }
+                    if case .failure(let e)? = injectResult {
+                        Text("❌ \(e.localizedDescription)").font(.caption).foregroundStyle(.red)
+                    }
+                    if case .success? = injectResult {
+                        Text("✅ 已调起 TrollStore 安装").font(.caption).foregroundStyle(.green)
+                    }
+                }
             } header: {
                 Text("目标应用")
             } footer: {
-                Text("选择要分析的 App：自动完成砸壳 → 注入 FridaGadget → ldid 重签 → TrollStore 安装。")
+                Text("方式一：从已安装且已解密的 App 克隆注入（TrollStore 装的 App 磁盘上即解密）。方式二：导入已砸壳的 IPA。加密的 App Store 包需先砸壳。")
             }
 
             // MARK: 脚本库
@@ -154,6 +184,30 @@ struct FridaSettingsView: View {
                 Text("让 AI 在对话中生成脚本 → 审阅后「内置此脚本」。注入时仅运行已勾选的脚本，精准命中目标。")
             }
 
+            // MARK: 沙盒工具链
+            Section {
+                Button {
+                    installToolbox()
+                } label: {
+                    if toolboxBusy {
+                        HStack { ProgressView(); Text("安装中（数分钟）…") }
+                    } else {
+                        Label("安装逆向工具链", systemImage: "wrench.and.screwdriver")
+                    }
+                }
+                .disabled(toolboxBusy)
+
+                if !toolboxLines.isEmpty {
+                    ForEach(Array(toolboxLines.suffix(8).enumerated()), id: \.offset) { _, l in
+                        Text(l).font(.caption2.monospaced()).foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Text("沙盒工具链")
+            } footer: {
+                Text("在 Linux 沙盒安装 frida-tools、objection、lief、capstone、keystone。装好后 AI 可用 shell_execute 直接调用（Mach-O 分析 / 字节修补 / 脚本注入）。")
+            }
+
             // MARK: 会话日志
             Section {
                 NavigationLink {
@@ -164,7 +218,7 @@ struct FridaSettingsView: View {
             } header: {
                 Text("日志")
             } footer: {
-                Text("Frida 运行输出会写入系统日志（分类: Frida），与 App 其他日志隔离，点击查看实时内容。")
+                Text("本 App 日志（分类 Frida）+ 目标 App 内脚本回写（/var/tmp/kytuT-frida.log）都在这里实时显示。")
             }
         }
         .navigationTitle("Frida")
@@ -189,8 +243,68 @@ struct FridaSettingsView: View {
                 }
             }
         }
+        .fileImporter(isPresented: $showIPAImporter,
+                      allowedContentTypes: [UTType(filenameExtension: "ipa") ?? .data]) { result in
+            if case .success(let url) = result {
+                startIPAInject(url)
+            }
+        }
         .sheet(isPresented: $showTargetPicker) {
-            FridaTargetPickerView()
+            FridaAppsView()
+        }
+    }
+
+    // MARK: - IPA 导入注入
+
+    private func startIPAInject(_ url: URL) {
+        injectBusy = true
+        injectLines = []
+        injectResult = nil
+        let scripts = enabledScripts
+        Task {
+            do {
+                try await IPAInjector.importAndInject(ipaURL: url, scripts: scripts) { line in
+                    injectLines.append(line)
+                }
+                injectResult = .success(())
+            } catch {
+                injectResult = .failure(error)
+                FridaStore.logger.error("IPA 注入失败: \(error.localizedDescription)")
+            }
+            injectBusy = false
+        }
+    }
+
+    // MARK: - 工具链安装
+
+    private func installToolbox() {
+        toolboxBusy = true
+        toolboxLines = []
+        let cmd = """
+        apk add --no-cache python3 py3-pip zip unzip git >/dev/null 2>&1; \
+        echo "[1/3] 基础包完成"; \
+        apk add py3-lief py3-capstone 2>/dev/null || pip3 install --no-cache-dir lief capstone keystone-engine 2>&1 | tail -2; \
+        echo "[2/3] Mach-O 库完成"; \
+        pip3 install --no-cache-dir frida-tools objection 2>&1 | tail -2 || \
+        pip3 install --no-cache-dir --break-system-packages frida-tools objection 2>&1 | tail -2; \
+        echo "[3/3] frida-tools + objection 完成"; \
+        python3 -c "import lief; print('lief', lief.__version__)" 2>&1; \
+        frida --version 2>&1; \
+        echo TOOLBOX_DONE
+        """
+        Task {
+            do {
+                let (out, _) = try await SandboxRunner.run(cmd, timeout: 570) { line in
+                    toolboxLines.append(String(line.suffix(160)))
+                }
+                FridaStore.logger.info("工具链安装输出尾: \(out.suffix(300))")
+                if !out.contains("TOOLBOX_DONE") {
+                    toolboxLines.append("⚠️ 安装流程异常中断，可重试")
+                }
+            } catch {
+                toolboxLines.append("❌ \(error.localizedDescription)")
+            }
+            toolboxBusy = false
         }
     }
 }
@@ -256,46 +370,27 @@ struct FridaScriptEditView: View {
     }
 }
 
-// MARK: - 目标 App 选择（占位：后续接入砸壳+注入管线）
-struct FridaTargetPickerView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var placeholder = "砸壳 / Gadget 注入 / 重签 / TrollStore 安装管线将在此接入"
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 16) {
-                Image(systemName: "app.badge")
-                    .font(.system(size: 44))
-                    .foregroundStyle(.secondary)
-                Text("目标 App 管理")
-                    .font(.title3.bold())
-                Text(placeholder)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                Spacer()
-            }
-            .padding(.top, 60)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
-            }
-        }
-    }
-}
-
 // MARK: - Frida 实时日志
-/// 读取日志系统里 category == "Frida" 的行。
-/// 日志本体走 CrashReporter.shared.appendLog（与 App 日志同池，
-/// 在「设置 → 日志」里也能看到，按 Frida 分类标记区分）。
+/// 两个来源合并显示：
+///  1. 本 App 日志池里 category == "Frida" 的行（注入流程、工具链安装）
+///  2. /var/tmp/kytuT-frida.log —— 注入改造后的目标 App 里脚本 kylog() 的回写
+///     （Gadget script 模式，目标进程写，本进程有 no-sandbox 权限直读）
 struct FridaLogView: View {
     @State private var lines: [String] = []
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    /// 目标 App 回写日志（每次全量读，尾部截断）。
+    private static func targetLogLines() -> [String] {
+        guard let text = try? String(contentsOfFile: "/var/tmp/kytuT-frida.log",
+                                     encoding: .utf8) else { return [] }
+        return Array(text.components(separatedBy: "\n").filter { !$0.isEmpty }.suffix(300))
+    }
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 6) {
                 if lines.isEmpty {
-                    Text("暂无 Frida 日志。启用脚本并注入目标 App 后，运行输出会实时显示在这里（分类标记: [Frida]）。")
+                    Text("暂无 Frida 日志。\n\n来源一：本 App 的注入 / 工具链操作日志（标记 [Frida]）。\n来源二：被注入目标 App 内脚本的 kylog() 回写（/var/tmp/kytuT-frida.log），注入并启动目标 App 后出现。")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .padding()
@@ -312,7 +407,7 @@ struct FridaLogView: View {
         .navigationTitle("Frida 日志")
         .navigationBarTitleDisplayMode(.inline)
         .onReceive(timer) { _ in
-            lines = FridaStore.recentFridaLogLines()
+            lines = FridaStore.recentFridaLogLines() + Self.targetLogLines()
         }
     }
 }
