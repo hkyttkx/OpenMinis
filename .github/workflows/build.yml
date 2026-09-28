@@ -21,7 +21,7 @@ jobs:
 
       - name: 安装构建工具
         run: |
-          brew install ninja llvm libarchive pkg-config meson
+          brew install ninja llvm libarchive pkg-config meson lld
 
       - name: 安装 Go
         uses: actions/setup-go@v5
@@ -32,6 +32,17 @@ jobs:
         run: |
           cp src/ios/Configs/ProviderCustomization.xcconfig.example \
              src/ios/Configs/ProviderCustomization.xcconfig
+
+      - name: 修补 VDSO 链接器（Homebrew LLVM 已拆分 lld）
+        run: |
+          LDP=$(ls /opt/homebrew/opt/llvm/bin/ld.lld /opt/homebrew/opt/lld/bin/ld.lld 2>/dev/null | head -1)
+          if [ -z "$LDP" ]; then
+            brew install lld
+            LDP=/opt/homebrew/opt/lld/bin/ld.lld
+          fi
+          echo "使用 ld.lld: $LDP"
+          sed -i '' "s#'-fuse-ld=lld'#'--ld-path=$LDP'#" deps/ish/vdso/arm64/meson.build
+          grep -n "ld-path" deps/ish/vdso/arm64/meson.build
 
       - name: 编译 LAME
         run: ./deps/build_lame.sh
