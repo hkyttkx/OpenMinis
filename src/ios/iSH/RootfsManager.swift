@@ -41,8 +41,9 @@ class RootfsManager {
         return rootfsPath.appendingPathComponent("data")
     }
 
-    /// Current rootfs architecture tag — change this when switching guest arch
-    private let currentArch = "aarch64"
+    /// Rootfs compatibility tag. Bump when build-time tools change so an IPA
+    /// update replaces an older device rootfs instead of silently reusing it.
+    private let currentArch = "aarch64-r2-5.9.8"
 
     private var archTagPath: URL {
         return rootfsPath.appendingPathComponent(".arch")

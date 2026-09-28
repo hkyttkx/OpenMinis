@@ -4,7 +4,26 @@ on:
   workflow_dispatch:
 
 jobs:
+  build-r2-overlay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+      - name: 启用 ARM64 容器
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - name: 源码编译 radare2 并打包 Alpine overlay
+        run: ./deps/build_embedded_radare2.sh deps/resources/reverse-tools-overlay.tar.gz
+      - name: 上传 radare2 overlay
+        uses: actions/upload-artifact@v4
+        with:
+          name: reverse-tools-overlay
+          path: deps/resources/reverse-tools-overlay.tar.gz
+
   build:
+    needs: build-r2-overlay
     runs-on: macos-26
     timeout-minutes: 350
     steps:
@@ -21,7 +40,13 @@ jobs:
 
       - name: 安装构建工具
         run: |
-          brew install ninja llvm libarchive pkg-config meson lld ldid
+          brew install ninja llvm libarchive pkg-config meson lld ldid python
+
+      - name: 下载内置 radare2 overlay
+        uses: actions/download-artifact@v4
+        with:
+          name: reverse-tools-overlay
+          path: deps/resources
 
       - name: 安装 Go
         uses: actions/setup-go@v5
@@ -79,17 +104,6 @@ jobs:
       - name: 编译 Rclone
         run: ./deps/build_rclone_ios.sh
 
-      - name: 下载 FridaGadget（逆向注入用）
-        run: |
-          # 从 releases/latest 的 302 重定向取版本号，绕开 API（无鉴权/限流问题）
-          VER=$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/frida/frida/releases/latest | sed 's#.*/tag/##')
-          echo "Frida 版本: $VER"
-          # 官方资产名已改为 ios-universal（arm64 + arm64e 合一）
-          curl -fsSL -o FridaGadget.dylib.gz "https://github.com/frida/frida/releases/download/${VER}/frida-gadget-${VER}-ios-universal.dylib.gz"
-          gunzip -f FridaGadget.dylib.gz
-          ls -lh FridaGadget.dylib
-          file FridaGadget.dylib || true
-
       - name: 编译 Minis 主程序
         run: |
           xcodebuild -project src/ios/Minis.xcodeproj \
@@ -107,13 +121,6 @@ jobs:
       - name: ldid 签名（扩展 entitlements：原版权限 + 逆向权限）
         run: |
           APP="build/Build/Products/Release-iphoneos/Minis.app"
-          # 拷入 FridaGadget（IPAInjector 注入管线运行时取用）
-          cp FridaGadget.dylib "$APP/FridaGadget.dylib"
-          test -s "$APP/FridaGadget.dylib"
-          # Sign the embedded dylib independently. An unsigned nested dylib can
-          # be rejected by dyld before the target application's main runs.
-          ldid -S "$APP/FridaGadget.dylib"
-          ldid -e "$APP/FridaGadget.dylib" >/tmp/frida-gadget-entitlements.plist
           # 主程序：原版权限 + no-sandbox / 容器读取 / LSApplicationWorkspace 枚举
           ldid -Ssrc/ios/Minis-Extended.entitlements "$APP/Minis"
           # 扩展：App Group 权限（三个扩展原文件内容一致）

@@ -157,11 +157,11 @@ extension AIChatViewModel {
         }
 
         // [T-frida-tool] Frida 脚本工具：AI 生成脚本 → 用户在「设置 → Frida → 脚本库」
-        // 审阅后启用。工具本身不注入（注入走 Gadget 管线），只负责生成/管理，
-        // 保证「AI 不瞎猜、人不放行不生效」的安全边界。
+        // 审阅后启用。OpenMinis 只生成、管理和导出脚本，不修改目标 App；
+        // 外部巨魔注入器负责 Gadget、签名和安装。
         tools.append(AgentToolDefinition(
             name: "frida_script",
-            description: "Manage Frida hook scripts for dynamic analysis of iOS apps (TrollStore Gadget mode). Actions: 'generate' creates a Frida JS script from the user's description (e.g. hook CCCrypt to capture AES key/IV/ciphertext, trace a specific ObjC method, dump classes at runtime, bypass SSL pinning) — the script is added to the user's script library DISABLED so they can review and enable it in Settings → Frida; 'list' returns scripts in the library with their enabled state. Always generate complete, runnable Frida JS. Prefer hooking CommonCrypto (CCCrypt, CCCryptorCreate) for crypto, ObjC.classes for method tracing, and Interceptor for native functions.",
+            description: "Manage Frida hook scripts for external iOS injectors. Actions: 'generate' creates a complete Frida JS script from the user's description (for example hook CCCrypt, trace ObjC methods, inspect classes, or trace native functions) and stores it DISABLED for review; 'list' returns scripts and enabled state. OpenMinis does not inject or install target apps. Users export an external package from Settings → Frida, then use their own TrollStore injector. Every generated script must include send() or console.log() output so the OpenMinis Frida log can capture runtime messages.",
             parameters: [
                 "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user (e.g. 'Generate crypto hook script', 'List Frida scripts'). Use the same language as the user."),
                 "action": AgentToolParam(type: .string, description: "'generate' to create a new script, 'list' to show the library.", enumValues: ["generate", "list"]),
@@ -180,7 +180,7 @@ extension AIChatViewModel {
         if UserDefaults.standard.bool(forKey: "frida.deepAnalysis") {
             tools.append(AgentToolDefinition(
                 name: "r2_execute",
-                description: "Run radare2 (r2) commands against a binary file for static analysis. Executes `r2 -q -e scr.color=0 -e bin.relocs.apply=true -c \"<commands>\" <file>` and returns the text output. Requires the reverse toolbox (radare2 + r2ghidra) to be installed in the sandbox via Settings → Frida.",
+                description: "Run the built-in radare2 (r2) engine against a binary file for static analysis. Executes `r2 -q -e scr.color=0 -e bin.relocs.apply=true -c \"<commands>\" <file>` and returns text output. The engine is embedded in the iOS Alpine rootfs at build time; no device-side download is needed. Use `pdc` for built-in C-like decompilation; the feature is available only when Settings → Frida → 深度分析引擎 is enabled.",
                 parameters: [
                     "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user (e.g. 'List functions in binary', 'Decompile function'). Use the same language as the user."),
                     "file": AgentToolParam(type: .string, description: "Linux path to the binary to analyze (e.g. /var/minis/shared/HexIpa.dylib or /var/minis/attachments/uploads/foo). If omitted, commands run without a file (r2 bare mode)."),

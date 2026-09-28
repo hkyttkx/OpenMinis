@@ -171,18 +171,33 @@ create_fakefs() {
     local ROOTFS_PATH="$CACHE_DIR/$ROOTFS_FILE"
     local FAKEFSIFY="$ISH_DIR/build-native/tools/fakefsify"
     local OUTPUT_ROOTFS="$OUTPUT_DIR/alpine-rootfs"
+    local STAGE_ROOTFS="$CACHE_DIR/stage-rootfs"
 
-    # Remove existing rootfs
     if [ -d "$OUTPUT_ROOTFS" ]; then
         log_info "Removing existing rootfs..."
         rm -rf "$OUTPUT_ROOTFS"
     fi
+    rm -rf "$STAGE_ROOTFS"
+    mkdir -p "$STAGE_ROOTFS" "$OUTPUT_DIR"
 
-    mkdir -p "$OUTPUT_DIR"
+    log_info "Expanding Alpine rootfs for build-time tools..."
+    tar -xzf "$ROOTFS_PATH" -C "$STAGE_ROOTFS"
+    # radare2 is embedded into the iOS app's guest rootfs. Prefer the
+    # build-time source overlay produced by CI; local builds may fall back to
+    # resolving Alpine packages. The device never downloads or compiles it.
+    if [ "${MINIS_EMBED_R2:-1}" = "1" ]; then
+        if [ -f "$OUTPUT_DIR/reverse-tools-overlay.tar.gz" ]; then
+            log_info "Installing source-built radare2 overlay..."
+            tar -xzf "$OUTPUT_DIR/reverse-tools-overlay.tar.gz" -C "$STAGE_ROOTFS"
+        else
+            log_warning "Source-built overlay missing; using Alpine package fallback"
+            "$SCRIPT_DIR/embed_alpine_reverse_tools.sh" "$STAGE_ROOTFS" "$ALPINE_VERSION" "$ALPINE_ARCH" "$ALPINE_MIRROR" "$CACHE_DIR/apk-cache"
+        fi
+    fi
+    tar -czf "$CACHE_DIR/staged-rootfs.tar.gz" -C "$STAGE_ROOTFS" .
 
-    # Convert to fakefs format
-    log_info "Converting rootfs to fakefs format..."
-    "$FAKEFSIFY" "$ROOTFS_PATH" "$OUTPUT_ROOTFS"
+    log_info "Converting fakefs rootfs..."
+    "$FAKEFSIFY" "$CACHE_DIR/staged-rootfs.tar.gz" "$OUTPUT_ROOTFS"
 
     if [ ! -d "$OUTPUT_ROOTFS/data" ] || [ ! -f "$OUTPUT_ROOTFS/meta.db" ]; then
         log_error "Failed to create fakefs rootfs"

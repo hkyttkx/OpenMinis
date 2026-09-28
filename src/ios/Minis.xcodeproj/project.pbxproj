@@ -431,8 +431,6 @@
 		E5VMA0005 /* AIChatViewModel+MemoryTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMA0015 /* AIChatViewModel+MemoryTools.swift */; };
 		FRDA0002 /* FridaSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRDA0001 /* FridaSettingsView.swift */; };
 		FRTR0002 /* FridaAppsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRTR0001 /* FridaAppsView.swift */; };
-		FRTR0004 /* IPAInjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRTR0003 /* IPAInjector.swift */; };
-		FRTR0006 /* MachOPatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRTR0005 /* MachOPatcher.swift */; };
 		FRTR0008 /* InstalledAppsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRTR0007 /* InstalledAppsService.swift */; };
 		FRTR000A /* SandboxRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRTR0009 /* SandboxRunner.swift */; };
 		FRDA0004 /* AIChatViewModel+FridaTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRDA0003 /* AIChatViewModel+FridaTools.swift */; };
@@ -1113,8 +1111,6 @@
 		E5VMA0015 /* AIChatViewModel+MemoryTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+MemoryTools.swift"; sourceTree = "<group>"; };
 		FRDA0001 /* FridaSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FridaSettingsView.swift; sourceTree = "<group>"; };
 		FRTR0001 /* FridaAppsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FridaAppsView.swift; sourceTree = "<group>"; };
-		FRTR0003 /* IPAInjector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPAInjector.swift; sourceTree = "<group>"; };
-		FRTR0005 /* MachOPatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachOPatcher.swift; sourceTree = "<group>"; };
 		FRTR0007 /* InstalledAppsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstalledAppsService.swift; sourceTree = "<group>"; };
 		FRTR0009 /* SandboxRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SandboxRunner.swift; sourceTree = "<group>"; };
 		FRDA0003 /* AIChatViewModel+FridaTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+FridaTools.swift"; sourceTree = "<group>"; };
@@ -2218,8 +2214,6 @@
 			isa = PBXGroup;
 			children = (
 				FRTR0001 /* FridaAppsView.swift */,
-				FRTR0003 /* IPAInjector.swift */,
-				FRTR0005 /* MachOPatcher.swift */,
 				FRTR0007 /* InstalledAppsService.swift */,
 				FRTR0009 /* SandboxRunner.swift */,
 			);
@@ -2696,8 +2690,6 @@
 				AA0838A02F3B941A00049557 /* AboutView.swift in Sources */,
 				FRDA0002 /* FridaSettingsView.swift in Sources */,
 				FRTR0002 /* FridaAppsView.swift in Sources */,
-				FRTR0004 /* IPAInjector.swift in Sources */,
-				FRTR0006 /* MachOPatcher.swift in Sources */,
 				FRTR0008 /* InstalledAppsService.swift in Sources */,
 				FRTR000A /* SandboxRunner.swift in Sources */,
 

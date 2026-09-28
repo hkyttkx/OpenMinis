@@ -1,10 +1,12 @@
+import Foundation
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
+import CryptoKit
 
 // MARK: - Frida 脚本存储
-/// 内置 Frida 脚本库：脚本由 AI 生成 → 用户审阅后「内置」入库 → 注入时勾选启用。
-/// 存储在 App Group 容器，方便与改造后的目标 App（Gadget 回连）共享。
+/// Frida 脚本库：脚本由 AI 生成 → 用户审阅后入库 → 导出给外部注入器。
+/// OpenMinis 不修改目标 App；外部注入器负责 Gadget、签名和安装。
 struct FridaScript: Identifiable, Codable {
     var id: UUID = UUID()
     var name: String
@@ -12,6 +14,16 @@ struct FridaScript: Identifiable, Codable {
     var code: String
     var enabled: Bool = false
     var createdAt: Date = Date()
+}
+
+enum FridaExportError: LocalizedError {
+    case noEnabledScripts
+
+    var errorDescription: String? {
+        switch self {
+        case .noEnabledScripts: return "没有已启用的 Frida 脚本可导出"
+        }
+    }
 }
 
 enum FridaStore {
@@ -67,11 +79,133 @@ enum FridaStore {
         logger.info(message)
     }
 
-    /// 导出脚本为 .js 文件（分享给他人 / 备份）
+    /// 导出脚本为 .js 文件（分享给他人 / 备份）。
     static func exportScript(_ script: FridaScript) -> URL? {
-        let url = scriptsDir.appendingPathComponent("\(script.name).js")
+        let url = scriptsDir.appendingPathComponent("\(safeFileName(script.name)).js")
         try? script.code.write(to: url, atomically: true, encoding: .utf8)
         return url
+    }
+
+    /// 导出给外部 TrollStore/巨魔注入器使用的完整包。
+    /// 这里不绑定 Bundle ID，也不修改任何目标 App；外部注入器负责
+    /// 注入 Gadget、签名和安装，loader 只负责统一脚本执行与日志回写。
+    static func exportEnabledPackage() throws -> URL {
+        let enabled = loadScripts().filter(\.enabled)
+        guard !enabled.isEmpty else { throw FridaExportError.noEnabledScripts }
+
+        let packageDir = scriptsDir.appendingPathComponent("OpenMinis-Frida-Package", isDirectory: true)
+        try? FileManager.default.removeItem(at: packageDir)
+        try FileManager.default.createDirectory(at: packageDir.appendingPathComponent("scripts", isDirectory: true), withIntermediateDirectories: true)
+
+        var entries: [[String: Any]] = []
+        for (index, script) in enabled.enumerated() {
+            let fileName = String(format: "%02d-%@.js", index + 1, safeFileName(script.name))
+            let data = Data(script.code.utf8)
+            try data.write(to: packageDir.appendingPathComponent("scripts").appendingPathComponent(fileName), options: .atomic)
+            entries.append([
+                "name": script.name,
+                "description": script.desc,
+                "file": "scripts/\(fileName)",
+                "sha256": SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            ])
+        }
+
+        let loader = buildExternalLoader(scripts: enabled)
+        try Data(loader.utf8).write(to: packageDir.appendingPathComponent("frida-loader.js"), options: .atomic)
+        let config = """
+{
+  "interaction": {
+    "type": "script",
+    "path": "frida-loader.js",
+    "on_change": "reload",
+    "on_load": "resume"
+  }
+}
+"""
+        try Data(config.utf8).write(to: packageDir.appendingPathComponent("FridaGadget.config"), options: .atomic)
+
+        let manifest: [String: Any] = [
+            "format": 1,
+            "generatedBy": "OpenMinis",
+            "targetBundleId": NSNull(),
+            "scripts": entries,
+            "logPath": "/var/tmp/kytuT-frida.log",
+            "note": "Bundle ID intentionally omitted. Use this package with any compatible external injector."
+        ]
+        let manifestData = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
+        try manifestData.write(to: packageDir.appendingPathComponent("manifest.json"), options: .atomic)
+
+        let readme = """
+OpenMinis Frida 外部注入包
+
+1. 使用外部巨魔/TrollStore 注入器将 FridaGadget.dylib 注入目标 App。
+2. 将 FridaGadget.config、frida-loader.js 和 scripts/ 放到注入器要求的位置。
+3. 由外部注入器负责 Mach-O 修改、重签和安装。
+4. 启动目标 App 后，在 OpenMinis → 设置 → Frida → 会话日志查看：
+   /var/tmp/kytuT-frida.log
+
+此包不绑定 Bundle ID，也不会由 OpenMinis 修改或安装目标 App。
+"""
+        try Data(readme.utf8).write(to: packageDir.appendingPathComponent("README.txt"), options: .atomic)
+
+        let zipURL = scriptsDir.appendingPathComponent("OpenMinis-Frida-Package.zip")
+        try? FileManager.default.removeItem(at: zipURL)
+        let files = try recursivePackageFiles(packageDir)
+        let zipData = SkillStore.buildZipArchive(files: files)
+        try zipData.write(to: zipURL, options: .atomic)
+        return zipURL
+    }
+
+    private static func buildExternalLoader(scripts: [FridaScript]) -> String {
+        var js = """
+        (function () {
+          var logFile = null;
+          try { logFile = new File("/var/tmp/kytuT-frida.log", "a"); } catch (_) {}
+          function writeLog(value) {
+            var line = new Date().toISOString() + " " + value;
+            try { if (logFile) { logFile.write(line + "\\n"); logFile.flush(); } } catch (_) {}
+            try { console.log(line); } catch (_) {}
+          }
+          globalThis.kylog = function (value) { writeLog(String(value)); };
+          globalThis.console = globalThis.console || {};
+          var originalLog = globalThis.console.log;
+          globalThis.console.log = function () {
+            try { writeLog("[console] " + Array.prototype.slice.call(arguments).join(" ")); } catch (_) {}
+            if (originalLog) { try { originalLog.apply(globalThis.console, arguments); } catch (_) {} }
+          };
+          globalThis.send = (function (original) {
+            return function (message, data) {
+              try { writeLog("[send] " + JSON.stringify(message)); } catch (_) { writeLog("[send]"); }
+              if (original) { try { return original(message, data); } catch (_) {} }
+            };
+          })(globalThis.send);
+          writeLog("[OpenMinis] Gadget loader started; scripts=\(scripts.count)");
+        })();
+        setTimeout(function () {
+        """
+        for script in scripts {
+            let label = script.name.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "\n", with: " ")
+            js += "\n// script: \(label)\n(function () { try {\n\(script.code)\n} catch (e) { kylog(\"[script error] \(label): \" + e); } })();\n"
+        }
+        js += "\n}, 250);\n"
+        return js
+    }
+
+    private static func recursivePackageFiles(_ root: URL) throws -> [(relativePath: String, data: Data)] {
+        let base = root.deletingLastPathComponent()
+        guard let iterator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) else { return [] }
+        var files: [(String, Data)] = []
+        for case let url as URL in iterator {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue else { continue }
+            files.append((url.path.replacingOccurrences(of: base.path + "/", with: ""), try Data(contentsOf: url)))
+        }
+        return files
+    }
+
+    private static func safeFileName(_ value: String) -> String {
+        let cleaned = value.replacingOccurrences(of: "[^A-Za-z0-9._-]+", with: "-", options: .regularExpression)
+        return cleaned.isEmpty ? "script" : String(cleaned.prefix(80))
     }
 
     /// 读取日志池中 Frida 分类的行。
@@ -83,164 +217,17 @@ enum FridaStore {
     }
 }
 
-// MARK: - 工具链安装器（App 级单例）
-/// 安装任务脱离 Frida 设置页的生命周期：点一次「安装」后返回聊天、
-/// 切后台都继续跑。后台存活双保险：
-///   ① BackupKeepAlive 静音保活（App 已声明 audio 后台模式，进程保持调度）
-///   ② beginBackgroundTask 有限额度兜底（到期且保活仍在 → 重领）
-/// 极端内存压力下系统仍可能挂起进程：任务暂停而非终止，回前台续跑。
-@MainActor
-final class ToolboxInstaller: ObservableObject {
-    static let shared = ToolboxInstaller()
-
-    @Published private(set) var busy = false
-    @Published private(set) var lines: [String] = []
-
-    private var bgTaskID = UIBackgroundTaskIdentifier.invalid
-
-    func start(deepAnalysis: Bool) {
-        guard !busy else { return }   // 防重复点击；进行中的安装不受影响
-
-        busy = true
-        lines = []
-
-        // 深度分析开启时额外装 radare2 + r2ghidra（源码编译，一次性）
-        let r2Part = deepAnalysis ? """
-        echo "[4] 安装 radare2…"; \
-        if apk add --no-cache radare2 radare2-dev git cmake make g++ flex bison >/dev/null 2>&1; then \
-          echo "  radare2 $(r2 -v 2>/dev/null | head -1)"; \
-        else \
-          echo "  ⚠️ radare2 安装失败"; \
-        fi; \
-        echo "[5] 编译 r2ghidra（10~30 分钟，仅首次）…"; \
-        if command -v r2pm >/dev/null 2>&1; then \
-          r2pm -U >/dev/null 2>&1 || true; \
-          r2pm -ci r2ghidra 2>&1 | tail -2 || true; \
-          r2 -qc 'Lc' -- 2>/dev/null | grep -i ghidra >/dev/null && echo "r2ghidra ✅" || echo "r2ghidra 未加载（可重试或用内置 pdc）"; \
-        else \
-          echo "r2pm 不可用，跳过 r2ghidra"; \
-        fi
-        """ : ""
-        // Alpine's package set differs by release/architecture. The old
-        // script hid every error and printed TOOLBOX_DONE even without frida.
-        // Keep optional analysis packages best-effort, but fail hard when the
-        // runtime required by Frida is unavailable.
-        let cmd = """
-        set -eu
-        REP=/etc/apk/repositories
-        if ! grep -q '/community' "$REP" 2>/dev/null; then
-          C=$(head -1 "$REP" | sed 's|/main$|/community|')
-          case "$C" in *community*) echo "$C" >> "$REP";; *) echo 'https://dl-cdn.alpinelinux.org/alpine/v3.21/community' >> "$REP";; esac
-        fi
-        apk update
-        apk add --no-cache python3 py3-pip zip unzip git make
-        echo "[1] 源就绪 + 基础包完成"
-        for p in py3-lief py3-capstone py3-keystone; do
-          if apk add --no-cache "$p" >/dev/null 2>&1; then
-            echo "  $p ✓"
-          else
-            echo "  $p ✗（非核心，跳过）"
-          fi
-        done
-        if apk add --no-cache frida-tools py3-frida >/dev/null 2>&1 && command -v frida >/dev/null 2>&1; then
-          echo "[3] frida-tools ✓（apk）"
-        elif python3 -m pip install --no-cache-dir --only-binary=:all: --break-system-packages frida-tools frida >/dev/null 2>&1 && command -v frida >/dev/null 2>&1; then
-          echo "[3] frida-tools ✓（pip wheel）"
-        else
-          # frida-tools is a host-side convenience CLI. Gadget injection does
-          # not require it; never compile Frida from source on musl/aarch64.
-          echo "[3] frida-tools 跳过（无 Alpine/aarch64 wheel；Gadget 不受影响）"
-        fi
-        if python3 -m pip install --no-cache-dir --no-deps --only-binary=:all: --break-system-packages objection >/dev/null 2>&1; then
-          echo "  objection ✓"
-        else
-          echo "  objection ✗（非核心，跳过）"
-        fi
-        if command -v frida >/dev/null 2>&1; then echo "frida $(frida --version)"; fi
-        \(r2Part)
-        echo TOOLBOX_DONE
-        """
-        // r2ghidra 源码编译耗时 10~30 分钟，开启深度分析时放宽超时
-        let timeout: TimeInterval = deepAnalysis ? 2400 : 570
-
-        // 后台双保险：静音保活 + 有限后台任务
-        BackupKeepAlive.begin()
-        armBackgroundTask()
-
-        Task {
-            defer {
-                busy = false
-                endBackgroundTask()
-                BackupKeepAlive.end()
-            }
-            do {
-                // onLine 由 SandboxRunner 在主线程同步回调（其内部
-                // MainActor.assumeIsolated），这里同样assume MainActor 追加。
-                let onLine: (String) -> Void = { [weak self] line in
-                    MainActor.assumeIsolated {
-                        guard let self else { return }
-                        self.lines.append(String(line.suffix(160)))
-                        if self.lines.count > 200 {
-                            self.lines.removeFirst(self.lines.count - 200)
-                        }
-                    }
-                }
-                let (out, code) = try await SandboxRunner.run(cmd, timeout: timeout, onLine: onLine)
-                FridaStore.logger.info("工具链安装退出码 \(code)，输出尾: \(out.suffix(300))")
-                if code == 0, out.contains("TOOLBOX_DONE") {
-                    lines.append("✅ 安装结束")
-                } else {
-                    let tail = String(out.split(separator: "\\n").suffix(3).joined(separator: " | "))
-                    lines.append("❌ 安装失败（exit \(code)）: \(tail)")
-                }
-            } catch {
-                lines.append("❌ \(error.localizedDescription)")
-            }
-        }
-    }
-
-    /// 领一个有限后台任务；到期时若静音保活仍持有进程 → 重领续命。
-    private func armBackgroundTask() {
-        guard bgTaskID == .invalid else { return }
-        bgTaskID = UIApplication.shared.beginBackgroundTask(withName: "ToolboxInstall") { [weak self] in
-            // 到期回调在主队列；系统挂起前必须结束该任务避免看门狗杀进程。
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                let expiring = self.bgTaskID
-                self.bgTaskID = .invalid
-                if expiring != .invalid { UIApplication.shared.endBackgroundTask(expiring) }
-                if BackupKeepAlive.isActive { self.armBackgroundTask() }
-            }
-        }
-    }
-
-    private func endBackgroundTask() {
-        guard bgTaskID != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(bgTaskID)
-        bgTaskID = .invalid
-    }
-}
-
 // MARK: - Frida 设置主页
 /// 入口在「设置 → 逆向工具（Frida）」。
-/// 巨魔（TrollStore）模式：先对目标 IPA 注入 FridaGadget.dylib → 重签 → 安装，
-/// 目标 App 启动时自动加载勾选的脚本。
+/// OpenMinis 只负责脚本生成、校验、导出和日志回读；外部巨魔注入器负责 Gadget、签名和安装。
 struct FridaSettingsView: View {
     @State private var scripts: [FridaScript] = []
     @State private var showAddSheet = false
     @State private var showImporter = false
-    @State private var showTargetPicker = false
-    @State private var showIPAImporter = false
     @State private var fridaEnabled = UserDefaults.standard.bool(forKey: "frida.masterEnabled")
     @State private var deepAnalysis = UserDefaults.standard.bool(forKey: "frida.deepAnalysis")
-
-    // IPA 导入注入
-    @State private var injectBusy = false
-    @State private var injectLines: [String] = []
-    @State private var injectResult: Result<Void, Error>?
-
-    // 逆向工具链安装（App 级单例：离开本页/切后台安装都继续）
-    @ObservedObject private var toolbox = ToolboxInstaller.shared
+    @State private var exportURL: URL?
+    @State private var exportError: String?
 
     var enabledScripts: [FridaScript] { scripts.filter(\.enabled) }
 
@@ -254,42 +241,18 @@ struct FridaSettingsView: View {
                         FridaStore.logger.info(on ? "Frida 已启用" : "Frida 已停用")
                     }
             } footer: {
-                Text("启用后，通过 Gadget 注入改造的目标 App 将在启动时自动运行已勾选的脚本。TrollStore 模式无需越狱。")
+                Text("启用 Frida 只控制脚本与日志能力；目标 App 的 Gadget 注入、重签和安装由外部巨魔注入器完成。")
             }
 
-            // MARK: 目标 App
+            // MARK: 设备 App 读取
             Section {
-                Button {
-                    showTargetPicker = true
+                NavigationLink {
+                    FridaAppsView()
                 } label: {
-                    Label("目标 App 管理", systemImage: "app.badge")
+                    Label("读取手机上的 App", systemImage: "app.badge")
                 }
-                Button {
-                    showIPAImporter = true
-                } label: {
-                    if injectBusy {
-                        HStack { ProgressView(); Text("注入中…") }
-                    } else {
-                        Label("导入 IPA 注入", systemImage: "square.and.arrow.down")
-                    }
-                }
-                .disabled(injectBusy || enabledScripts.isEmpty)
-
-                if !injectLines.isEmpty {
-                    ForEach(Array(injectLines.suffix(6).enumerated()), id: \.offset) { _, l in
-                        Text(l).font(.caption.monospaced()).foregroundStyle(.secondary)
-                    }
-                    if case .failure(let e)? = injectResult {
-                        Text("❌ \(e.localizedDescription)").font(.caption).foregroundStyle(.red)
-                    }
-                    if case .success? = injectResult {
-                        Text("✅ 已调起 TrollStore 安装").font(.caption).foregroundStyle(.green)
-                    }
-                }
-            } header: {
-                Text("目标应用")
             } footer: {
-                Text("方式一：从已安装且已解密的 App 克隆注入（TrollStore 装的 App 磁盘上即解密）。方式二：导入已砸壳的 IPA。加密的 App Store 包需先砸壳。")
+                Text("仅读取已安装 App 的 Bundle、数据容器和路径信息。注入、重签、打包由外部巨魔注入器完成。")
             }
 
             // MARK: 脚本库
@@ -317,41 +280,45 @@ struct FridaSettingsView: View {
                 } label: {
                     Label("导入 .js 文件", systemImage: "square.and.arrow.down")
                 }
+                Button {
+                    do {
+                        exportURL = try FridaStore.exportEnabledPackage()
+                        exportError = nil
+                    } catch {
+                        exportError = error.localizedDescription
+                    }
+                } label: {
+                    Label("导出外部注入包（\(enabledScripts.count) 个脚本）", systemImage: "shippingbox")
+                }
+                .disabled(enabledScripts.isEmpty)
+                if let exportError {
+                    Text("❌ \(exportError)").font(.caption).foregroundStyle(.red)
+                }
+                if let exportURL {
+                    ShareLink(item: exportURL) {
+                        Label("分享最新注入包", systemImage: "square.and.arrow.up")
+                    }
+                }
             } header: {
                 Text("脚本库 (\(enabledScripts.count)/\(scripts.count) 已启用)")
             } footer: {
-                Text("让 AI 在对话中生成脚本 → 审阅后「内置此脚本」。注入时仅运行已勾选的脚本，精准命中目标。")
+                Text("脚本不绑定 Bundle ID。启用后导出外部注入包，由你的巨魔注入器负责 Gadget、重签和安装。")
             }
 
-            // MARK: 沙盒工具链
+            // MARK: 内置深度分析
             Section {
-                Toggle("深度分析引擎（radare2 + r2ghidra）", isOn: $deepAnalysis)
+                Toggle("深度分析引擎（内置 radare2）", isOn: $deepAnalysis)
                     .onChange(of: deepAnalysis) { on in
                         UserDefaults.standard.set(on, forKey: "frida.deepAnalysis")
-                        FridaStore.logger.info(on ? "深度分析引擎已启用" : "深度分析引擎已停用（AI 使用 strings/hexdump 轻量分析）")
+                        FridaStore.logger.info(on ? "内置 radare2 深度分析已启用" : "深度分析已关闭，使用轻量分析")
                     }
-
-                Button {
-                    toolbox.start(deepAnalysis: deepAnalysis)
-                } label: {
-                    if toolbox.busy {
-                        HStack { ProgressView(); Text("后台安装中（可离开本页 / 切后台）…") }
-                    } else {
-                        Label(deepAnalysis ? "安装逆向工具链（含 r2ghidra 源码编译）" : "安装逆向工具链",
-                              systemImage: "wrench.and.screwdriver")
-                    }
-                }
-                .disabled(toolbox.busy)
-
-                if !toolbox.lines.isEmpty {
-                    ForEach(Array(toolbox.lines.suffix(8).enumerated()), id: \.offset) { _, l in
-                        Text(l).font(.caption2.monospaced()).foregroundStyle(.secondary)
-                    }
-                }
+                Label("radare2 随 iOS IPA 的 Alpine rootfs 内置，设备端不下载、不编译。开启后 AI 可调用 r2 做函数级分析；关闭时保持轻量 strings/hexdump 路径。", systemImage: "internaldrive")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             } header: {
                 Text("沙盒工具链")
             } footer: {
-                Text("关闭时：AI 用 strings/hexdump 做轻量情报分析（默认，零成本）。开启时：安装并使用 radare2 + r2ghidra，AI 可输出函数级 C 伪代码（代码级深挖，首次安装 r2ghidra 需源码编译约 10~30 分钟，一次性）。两种模式都包含 frida-tools、objection、lief、capstone、keystone。点击安装后可返回聊天或切后台，安装继续进行，回到本页查看进度。")
+                Text("当前版本内置 radare2 与 pdc 反编译器。r2ghidra 不在设备上现场编译，避免网络、make 和 musl/aarch64 构建失败。")
             }
 
             // MARK: 会话日志
@@ -388,36 +355,6 @@ struct FridaSettingsView: View {
                     scripts = FridaStore.loadScripts()
                 }
             }
-        }
-        .fileImporter(isPresented: $showIPAImporter,
-                      allowedContentTypes: [UTType(filenameExtension: "ipa") ?? .data]) { result in
-            if case .success(let url) = result {
-                startIPAInject(url)
-            }
-        }
-        .sheet(isPresented: $showTargetPicker) {
-            FridaAppsView()
-        }
-    }
-
-    // MARK: - IPA 导入注入
-
-    private func startIPAInject(_ url: URL) {
-        injectBusy = true
-        injectLines = []
-        injectResult = nil
-        let scripts = enabledScripts
-        Task {
-            do {
-                try await IPAInjector.importAndInject(ipaURL: url, scripts: scripts) { line in
-                    injectLines.append(line)
-                }
-                injectResult = .success(())
-            } catch {
-                injectResult = .failure(error)
-                FridaStore.logger.error("IPA 注入失败: \(error.localizedDescription)")
-            }
-            injectBusy = false
         }
     }
 }
@@ -485,9 +422,9 @@ struct FridaScriptEditView: View {
 
 // MARK: - Frida 实时日志
 /// 两个来源合并显示：
-///  1. 本 App 日志池里 category == "Frida" 的行（注入流程、工具链安装）
-///  2. /var/tmp/kytuT-frida.log —— 注入改造后的目标 App 里脚本 kylog() 的回写
-///     （Gadget script 模式，目标进程写，本进程有 no-sandbox 权限直读）
+///  1. 本 App 日志池里 category == "Frida" 的行（脚本、导出和分析状态）
+///  2. /var/tmp/kytuT-frida.log —— 外部注入目标 App 后，loader 回写的
+///     kylog、console.log 和 send 内容（本 App 有 no-sandbox 权限直读）
 struct FridaLogView: View {
     @State private var lines: [String] = []
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -503,7 +440,7 @@ struct FridaLogView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 6) {
                 if lines.isEmpty {
-                    Text("暂无 Frida 日志。\n\n来源一：本 App 的注入 / 工具链操作日志（标记 [Frida]）。\n来源二：被注入目标 App 内脚本的 kylog() 回写（/var/tmp/kytuT-frida.log），注入并启动目标 App 后出现。")
+                    Text("暂无 Frida 日志。\n\n来源一：本 App 的脚本、导出和分析日志（标记 [Frida]）。\n来源二：外部注入目标 App 后，loader 回写到 /var/tmp/kytuT-frida.log 的 kylog、console.log 和 send 内容。")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .padding()

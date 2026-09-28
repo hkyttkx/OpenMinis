@@ -7666,7 +7666,7 @@ private struct SettingsSheet: View {
                 } header: {
                     Text("Reverse Engineering")
                 } footer: {
-                    Text("Frida 动态分析：脚本库管理、目标 App 注入（TrollStore Gadget 模式）、会话日志。让 AI 在对话中生成脚本，审阅后内置。")
+                    Text("Frida 动态分析：脚本库管理、外部注入包导出、手机 App 读取和会话日志。让 AI 在对话中生成脚本，审阅后导出给外部巨魔注入器。")
                 }
 
                 Section("Logs") {

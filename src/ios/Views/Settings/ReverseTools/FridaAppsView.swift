@@ -2,10 +2,10 @@
 //  FridaAppsView.swift
 //  KyTuT
 //
-//  目标 App 管理（真实实现）：
+// 设备 App 读取（只读）：
 //   - 列出全部已安装 App（LSApplicationWorkspace，图标/名称/版本/加密状态）
-//   - 详情页：路径信息 / 浏览沙盒（数据容器 + Bundle）/ 克隆注入
-//   - 注入走 IPAInjector：克隆 .app → 塞 Gadget+脚本 → 沙盒打包 → TrollStore 安装
+//   - 详情页：路径信息 / 浏览沙盒（数据容器 + Bundle）
+//   - 注入、重签、打包和安装由外部巨魔注入器负责
 //
 
 import SwiftUI
@@ -126,14 +126,9 @@ struct FridaAppDetailView: View {
     @Environment(\.dismiss) private var dismiss
     let app: InstalledAppInfo
 
-    @State private var injectBusy = false
-    @State private var progressLines: [String] = []
-    @State private var result: Result<Void, Error>?
     /// bundleSize 是递归枚举整个 Bundle（几千文件）的重操作，不能在 body 里
     /// 直接触发（主线程卡顿）—— 后台算一次存这里。
     @State private var bundleSizeText = "…"
-
-    private var scripts: [FridaScript] { FridaStore.loadScripts().filter(\.enabled) }
 
     var body: some View {
         NavigationStack {
@@ -155,49 +150,15 @@ struct FridaAppDetailView: View {
                 }
 
                 Section {
-                    if app.isEncrypted {
-                        Label("该 App 带 FairPlay 加密，需先砸壳（导入已解密的 IPA 注入）",
-                              systemImage: "lock.fill")
-                            .font(.caption).foregroundStyle(.red)
-                    } else {
-                        Label("磁盘上已解密，可直接克隆注入", systemImage: "lock.open.fill")
-                            .font(.caption).foregroundStyle(.green)
-                    }
-                    Button {
-                        startInject()
-                    } label: {
-                        if injectBusy {
-                            HStack { ProgressView(); Text("注入中…") }
-                        } else {
-                            Label("克隆并注入（\(scripts.count) 个脚本）",
-                                  systemImage: "syringe")
-                        }
-                    }
-                    .disabled(injectBusy || app.isEncrypted || scripts.isEmpty)
-
-                    if scripts.isEmpty {
-                        Text("未勾选任何脚本：先到 Frida 页面启用脚本（AI 生成后内置）")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+                    Label(app.isEncrypted ? "主二进制带 FairPlay 加密" : "主二进制已解密",
+                          systemImage: app.isEncrypted ? "lock.fill" : "lock.open.fill")
+                        .font(.caption)
+                        .foregroundStyle(app.isEncrypted ? .red : .green)
+                    Text("这里只读取目标 App 信息。需要注入时，请在外部巨魔注入器中选择此 App，并使用 Frida 页面导出的脚本包。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 } header: {
-                    Text("注入（TrollStore Gadget 模式）")
-                } footer: {
-                    Text("流程：克隆 .app → 注入 FridaGadget + 已启用脚本 → 沙盒打包 IPA → 调起 TrollStore 安装（安装时自动重签）。")
-                }
-
-                if !progressLines.isEmpty {
-                    Section("进度") {
-                        ForEach(Array(progressLines.enumerated()), id: \.offset) { _, l in
-                            Text(l).font(.caption.monospaced()).foregroundStyle(.secondary)
-                        }
-                        if case .failure(let e)? = result {
-                            Text("❌ \(e.localizedDescription)").font(.caption).foregroundStyle(.red)
-                        }
-                        if case .success? = result {
-                            Text("✅ 已调起 TrollStore，确认安装后打开目标 App 即生效")
-                                .font(.caption).foregroundStyle(.green)
-                        }
-                    }
+                    Text("只读诊断")
                 }
 
                 Section("沙盒") {
@@ -239,25 +200,6 @@ struct FridaAppDetailView: View {
                 }.value
                 bundleSizeText = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
             }
-        }
-    }
-
-    private func startInject() {
-        injectBusy = true
-        progressLines = []
-        result = nil
-        let app = self.app
-        let scripts = self.scripts
-        Task {
-            do {
-                try await IPAInjector.cloneAndInject(app: app, scripts: scripts) { line in
-                    progressLines.append(line)
-                }
-                result = .success(())
-            } catch {
-                result = .failure(error)
-            }
-            injectBusy = false
         }
     }
 }

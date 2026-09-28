@@ -103,10 +103,10 @@ extension AIChatViewModel {
         let filePart = file.isEmpty ? "" : " '\(file)'"
         let cmd = "r2 -q -e scr.color=0 -e bin.relocs.apply=true -c '\(escaped)'\(filePart)"
 
-        // 先检查 r2 是否已安装（工具链未装时给出明确指引）
+        // 先检查内置 radare2 是否可用。它由 iOS rootfs 构建期嵌入，设备端不下载。
         let check = try? await executeCommand("command -v r2 >/dev/null 2>&1 && echo R2_OK || echo R2_MISSING", timeout: 30) { _ in }
         if check?.output.contains("R2_MISSING") == true {
-            return ("radare2 未安装。请到 [设置 → Frida → 沙盒工具链](minis://settings/frida) 点击「安装逆向工具链」（需开启深度分析引擎）。", false)
+            return ("内置 radare2 不存在。请安装包含内置深度分析引擎的最新 iOS IPA；设备端不会联网下载。", false)
         }
 
         if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
