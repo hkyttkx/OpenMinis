@@ -21,7 +21,7 @@ jobs:
 
       - name: 安装构建工具
         run: |
-          brew install ninja llvm libarchive pkg-config meson lld
+          brew install ninja llvm libarchive pkg-config meson lld ldid
 
       - name: 安装 Go
         uses: actions/setup-go@v5
@@ -73,10 +73,37 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             build
 
+      - name: ldid 签名（注入原版 entitlements，App Group 容器随安装创建）
+        run: |
+          APP="build/Build/Products/Release-iphoneos/Minis.app"
+          # 主程序：注入完整原版权限（App Group / HealthKit / HomeKit / NFC / iCloud）
+          ldid -Ssrc/ios/Minis.entitlements "$APP/Minis"
+          # 扩展：App Group 权限（三个扩展原文件内容一致）
+          cat > /tmp/ext.entitlements <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.security.application-groups</key>
+              <array>
+                  <string>group.com.openminis.app</string>
+              </array>
+          </dict>
+          </plist>
+          PLIST
+          find "$APP/PlugIns" -maxdepth 1 -name "*.appex" | while read appex; do
+            exe=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$appex/Info.plist")
+            echo "签名: $appex/$exe"
+            ldid -S/tmp/ext.entitlements "$appex/$exe"
+          done
+          # 打印签名摘要供核对
+          ldid -e "$APP/Minis" | head -20
+
       - name: 打包 IPA
         run: |
           APP="build/Build/Products/Release-iphoneos/Minis.app"
           ls -la "build/Build/Products/Release-iphoneos/"
+          ls -la "$APP/PlugIns/" 2>/dev/null || echo "(无 PlugIns)"
           rm -rf Payload && mkdir Payload
           cp -R "$APP" Payload/
           zip -qry Minis-TrollStore.ipa Payload
