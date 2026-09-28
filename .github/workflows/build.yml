@@ -109,6 +109,11 @@ jobs:
           APP="build/Build/Products/Release-iphoneos/Minis.app"
           # 拷入 FridaGadget（IPAInjector 注入管线运行时取用）
           cp FridaGadget.dylib "$APP/FridaGadget.dylib"
+          test -s "$APP/FridaGadget.dylib"
+          # Sign the embedded dylib independently. An unsigned nested dylib can
+          # be rejected by dyld before the target application's main runs.
+          ldid -S "$APP/FridaGadget.dylib"
+          ldid -e "$APP/FridaGadget.dylib" >/tmp/frida-gadget-entitlements.plist
           # 主程序：原版权限 + no-sandbox / 容器读取 / LSApplicationWorkspace 枚举
           ldid -Ssrc/ios/Minis-Extended.entitlements "$APP/Minis"
           # 扩展：App Group 权限（三个扩展原文件内容一致）

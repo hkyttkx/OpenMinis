@@ -106,13 +106,20 @@ final class ToolboxInstaller: ObservableObject {
 
         // 深度分析开启时额外装 radare2 + r2ghidra（源码编译，一次性）
         let r2Part = deepAnalysis ? """
-        ; \
         echo "[4] 安装 radare2…"; \
-        apk add --no-cache radare2 radare2-dev git cmake make g++ flex bison >/dev/null 2>&1 \
-          && echo "  radare2 $(r2 -v 2>/dev/null | head -1)" || echo "  ⚠️ radare2 安装失败"; \
+        if apk add --no-cache radare2 radare2-dev git cmake make g++ flex bison >/dev/null 2>&1; then \
+          echo "  radare2 $(r2 -v 2>/dev/null | head -1)"; \
+        else \
+          echo "  ⚠️ radare2 安装失败"; \
+        fi; \
         echo "[5] 编译 r2ghidra（10~30 分钟，仅首次）…"; \
-        r2pm -U >/dev/null 2>&1; r2pm -ci r2ghidra 2>&1 | tail -2; \
-        r2 -qc 'Lc' -- 2>/dev/null | grep -i ghidra >/dev/null && echo "r2ghidra ✅" || echo "r2ghidra 未加载（可重试或用内置 pdc）"
+        if command -v r2pm >/dev/null 2>&1; then \
+          r2pm -U >/dev/null 2>&1 || true; \
+          r2pm -ci r2ghidra 2>&1 | tail -2 || true; \
+          r2 -qc 'Lc' -- 2>/dev/null | grep -i ghidra >/dev/null && echo "r2ghidra ✅" || echo "r2ghidra 未加载（可重试或用内置 pdc）"; \
+        else \
+          echo "r2pm 不可用，跳过 r2ghidra"; \
+        fi
         """ : ""
         // Alpine's package set differs by release/architecture. The old
         // script hid every error and printed TOOLBOX_DONE even without frida.
