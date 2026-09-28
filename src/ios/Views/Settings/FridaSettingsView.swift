@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 // MARK: - Frida 脚本存储
@@ -82,6 +83,116 @@ enum FridaStore {
     }
 }
 
+// MARK: - 工具链安装器（App 级单例）
+/// 安装任务脱离 Frida 设置页的生命周期：点一次「安装」后返回聊天、
+/// 切后台都继续跑。后台存活双保险：
+///   ① BackupKeepAlive 静音保活（App 已声明 audio 后台模式，进程保持调度）
+///   ② beginBackgroundTask 有限额度兜底（到期且保活仍在 → 重领）
+/// 极端内存压力下系统仍可能挂起进程：任务暂停而非终止，回前台续跑。
+@MainActor
+final class ToolboxInstaller: ObservableObject {
+    static let shared = ToolboxInstaller()
+
+    @Published private(set) var busy = false
+    @Published private(set) var lines: [String] = []
+
+    private var bgTaskID = UIBackgroundTaskIdentifier.invalid
+
+    func start(deepAnalysis: Bool) {
+        guard !busy else { return }   // 防重复点击；进行中的安装不受影响
+
+        busy = true
+        lines = []
+
+        // 深度分析开启时额外装 radare2 + r2ghidra（源码编译，一次性）
+        let r2Part = deepAnalysis ? """
+        ; \
+        echo "[4] 安装 radare2…"; \
+        apk add --no-cache radare2 radare2-dev git cmake make g++ flex bison >/dev/null 2>&1 \
+          && echo "  radare2 $(r2 -v 2>/dev/null | head -1)" || echo "  ⚠️ radare2 安装失败"; \
+        echo "[5] 编译 r2ghidra（10~30 分钟，仅首次）…"; \
+        r2pm -U >/dev/null 2>&1; r2pm -ci r2ghidra 2>&1 | tail -2; \
+        r2 -qc 'Lc' -- 2>/dev/null | grep -i ghidra >/dev/null && echo "r2ghidra ✅" || echo "r2ghidra 未加载（可重试或用内置 pdc）"
+        """ : ""
+        // community 源修复：py3-lief/py3-capstone/py3-keystone/frida-tools/radare2
+        // 全在 community 仓库，不启用就回落 pip 源码编译（musl 上必失败）。
+        let cmd = """
+        REP=/etc/apk/repositories; \
+        if ! grep -q '/community' $REP 2>/dev/null; then \
+          C=$(head -1 $REP | sed 's|/main$|/community|'); \
+          case "$C" in *community*) echo "$C" >> $REP;; *) echo 'https://dl-cdn.alpinelinux.org/alpine/v3.21/community' >> $REP;; esac; \
+        fi; \
+        apk update >/dev/null 2>&1; \
+        apk add --no-cache python3 py3-pip zip unzip git >/dev/null 2>&1; \
+        echo "[1] 源就绪 + 基础包完成"; \
+        apk add --no-cache py3-lief py3-capstone py3-keystone >/dev/null 2>&1 \
+          && echo "[2] Mach-O 库（lief/capstone/keystone）✓" || \
+          { for p in py3-lief py3-capstone py3-keystone; do apk add --no-cache $p >/dev/null 2>&1 \
+            && echo "  $p ✓" || echo "  $p ✗（非核心）"; done; }; \
+        apk add --no-cache frida-tools py3-frida >/dev/null 2>&1 \
+          && echo "[3] frida-tools ✓" || echo "[3] frida-tools ✗（检查网络后重试）"; \
+        { pip3 install --no-cache-dir --no-deps --break-system-packages objection >/dev/null 2>&1 \
+          || pip3 install --no-cache-dir --no-deps objection >/dev/null 2>&1; } \
+          && echo "  objection ✓" || echo "  objection ✗（非核心，跳过）"; \
+        frida --version 2>&1\(r2Part); \
+        echo TOOLBOX_DONE
+        """
+        // r2ghidra 源码编译耗时 10~30 分钟，开启深度分析时放宽超时
+        let timeout: TimeInterval = deepAnalysis ? 2400 : 570
+
+        // 后台双保险：静音保活 + 有限后台任务
+        BackupKeepAlive.begin()
+        armBackgroundTask()
+
+        Task {
+            defer {
+                busy = false
+                endBackgroundTask()
+                BackupKeepAlive.end()
+            }
+            do {
+                // onLine 由 SandboxRunner 在主线程同步回调（其内部
+                // MainActor.assumeIsolated），这里同样assume MainActor 追加。
+                let onLine: (String) -> Void = { [weak self] line in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        self.lines.append(String(line.suffix(160)))
+                        if self.lines.count > 200 {
+                            self.lines.removeFirst(self.lines.count - 200)
+                        }
+                    }
+                }
+                let (out, _) = try await SandboxRunner.run(cmd, timeout: timeout, onLine: onLine)
+                FridaStore.logger.info("工具链安装输出尾: \(out.suffix(300))")
+                lines.append(out.contains("TOOLBOX_DONE") ? "✅ 安装结束" : "⚠️ 安装流程异常中断，可重试")
+            } catch {
+                lines.append("❌ \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// 领一个有限后台任务；到期时若静音保活仍持有进程 → 重领续命。
+    private func armBackgroundTask() {
+        guard bgTaskID == .invalid else { return }
+        bgTaskID = UIApplication.shared.beginBackgroundTask(withName: "ToolboxInstall") { [weak self] in
+            // 到期回调在主队列；系统挂起前必须结束该任务避免看门狗杀进程。
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let expiring = self.bgTaskID
+                self.bgTaskID = .invalid
+                if expiring != .invalid { UIApplication.shared.endBackgroundTask(expiring) }
+                if BackupKeepAlive.isActive { self.armBackgroundTask() }
+            }
+        }
+    }
+
+    private func endBackgroundTask() {
+        guard bgTaskID != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(bgTaskID)
+        bgTaskID = .invalid
+    }
+}
+
 // MARK: - Frida 设置主页
 /// 入口在「设置 → 逆向工具（Frida）」。
 /// 巨魔（TrollStore）模式：先对目标 IPA 注入 FridaGadget.dylib → 重签 → 安装，
@@ -100,9 +211,8 @@ struct FridaSettingsView: View {
     @State private var injectLines: [String] = []
     @State private var injectResult: Result<Void, Error>?
 
-    // 逆向工具链安装
-    @State private var toolboxBusy = false
-    @State private var toolboxLines: [String] = []
+    // 逆向工具链安装（App 级单例：离开本页/切后台安装都继续）
+    @ObservedObject private var toolbox = ToolboxInstaller.shared
 
     var enabledScripts: [FridaScript] { scripts.filter(\.enabled) }
 
@@ -194,26 +304,26 @@ struct FridaSettingsView: View {
                     }
 
                 Button {
-                    installToolbox()
+                    toolbox.start(deepAnalysis: deepAnalysis)
                 } label: {
-                    if toolboxBusy {
-                        HStack { ProgressView(); Text("安装中（数分钟）…") }
+                    if toolbox.busy {
+                        HStack { ProgressView(); Text("后台安装中（可离开本页 / 切后台）…") }
                     } else {
                         Label(deepAnalysis ? "安装逆向工具链（含 r2ghidra 源码编译）" : "安装逆向工具链",
                               systemImage: "wrench.and.screwdriver")
                     }
                 }
-                .disabled(toolboxBusy)
+                .disabled(toolbox.busy)
 
-                if !toolboxLines.isEmpty {
-                    ForEach(Array(toolboxLines.suffix(8).enumerated()), id: \.offset) { _, l in
+                if !toolbox.lines.isEmpty {
+                    ForEach(Array(toolbox.lines.suffix(8).enumerated()), id: \.offset) { _, l in
                         Text(l).font(.caption2.monospaced()).foregroundStyle(.secondary)
                     }
                 }
             } header: {
                 Text("沙盒工具链")
             } footer: {
-                Text("关闭时：AI 用 strings/hexdump 做轻量情报分析（默认，零成本）。开启时：安装并使用 radare2 + r2ghidra，AI 可输出函数级 C 伪代码（代码级深挖，首次安装 r2ghidra 需源码编译约 10~30 分钟，一次性）。两种模式都包含 frida-tools、objection、lief、capstone、keystone。")
+                Text("关闭时：AI 用 strings/hexdump 做轻量情报分析（默认，零成本）。开启时：安装并使用 radare2 + r2ghidra，AI 可输出函数级 C 伪代码（代码级深挖，首次安装 r2ghidra 需源码编译约 10~30 分钟，一次性）。两种模式都包含 frida-tools、objection、lief、capstone、keystone。点击安装后可返回聊天或切后台，安装继续进行，回到本页查看进度。")
             }
 
             // MARK: 会话日志
@@ -280,66 +390,6 @@ struct FridaSettingsView: View {
                 FridaStore.logger.error("IPA 注入失败: \(error.localizedDescription)")
             }
             injectBusy = false
-        }
-    }
-
-    // MARK: - 工具链安装
-
-    private func installToolbox() {
-        toolboxBusy = true
-        toolboxLines = []
-        // 深度分析开启时额外装 radare2 + r2ghidra（源码编译，一次性）
-        let r2Part = deepAnalysis ? """
-        ; \
-        echo "[4] 安装 radare2…"; \
-        apk add --no-cache radare2 radare2-dev git cmake make g++ flex bison >/dev/null 2>&1 \
-          && echo "  radare2 $(r2 -v 2>/dev/null | head -1)" || echo "  ⚠️ radare2 安装失败"; \
-        echo "[5] 编译 r2ghidra（10~30 分钟，仅首次）…"; \
-        r2pm -U >/dev/null 2>&1; r2pm -ci r2ghidra 2>&1 | tail -2; \
-        r2 -qc 'Lc' -- 2>/dev/null | grep -i ghidra >/dev/null && echo "r2ghidra ✅" || echo "r2ghidra 未加载（可重试或用内置 pdc）"
-        """ : ""
-        // 根因修复：沙盒 minirootfs 默认只启用 main 仓库，而 py3-lief/py3-capstone/
-        // py3-keystone/frida-tools/radare2 全在 community 源 —— 不启用就全回落到
-        // pip 源码编译，musl 上编译 lief/capstone/keystone-engine 必失败（用户截图
-        // 的 keystone 报错即此因）。改为：先从 main 行派生追加 community 源，apk
-        // 直接装二进制包；pip 只兜底 apk 没有的 objection（--no-deps：frida 依赖
-        // 由 apk 的 py3-frida 满足，musl 上 pip 装 frida 无 musllinux wheel 必失败）。
-        let cmd = """
-        REP=/etc/apk/repositories; \
-        if ! grep -q '/community' $REP 2>/dev/null; then \
-          C=$(head -1 $REP | sed 's|/main$|/community|'); \
-          case "$C" in *community*) echo "$C" >> $REP;; *) echo 'https://dl-cdn.alpinelinux.org/alpine/v3.21/community' >> $REP;; esac; \
-        fi; \
-        apk update >/dev/null 2>&1; \
-        apk add --no-cache python3 py3-pip zip unzip git >/dev/null 2>&1; \
-        echo "[1] 源就绪 + 基础包完成"; \
-        apk add --no-cache py3-lief py3-capstone py3-keystone >/dev/null 2>&1 \
-          && echo "[2] Mach-O 库（lief/capstone/keystone）✓" || \
-          { for p in py3-lief py3-capstone py3-keystone; do apk add --no-cache $p >/dev/null 2>&1 \
-            && echo "  $p ✓" || echo "  $p ✗（非核心）"; done; }; \
-        apk add --no-cache frida-tools py3-frida >/dev/null 2>&1 \
-          && echo "[3] frida-tools ✓" || echo "[3] frida-tools ✗（检查网络后重试）"; \
-        { pip3 install --no-cache-dir --no-deps --break-system-packages objection >/dev/null 2>&1 \
-          || pip3 install --no-cache-dir --no-deps objection >/dev/null 2>&1; } \
-          && echo "  objection ✓" || echo "  objection ✗（非核心，跳过）"; \
-        frida --version 2>&1\(r2Part); \
-        echo TOOLBOX_DONE
-        """
-        // r2ghidra 源码编译耗时 10~30 分钟，开启深度分析时放宽超时
-        let timeout: TimeInterval = deepAnalysis ? 2400 : 570
-        Task {
-            do {
-                let (out, _) = try await SandboxRunner.run(cmd, timeout: timeout) { line in
-                    toolboxLines.append(String(line.suffix(160)))
-                }
-                FridaStore.logger.info("工具链安装输出尾: \(out.suffix(300))")
-                if !out.contains("TOOLBOX_DONE") {
-                    toolboxLines.append("⚠️ 安装流程异常中断，可重试")
-                }
-            } catch {
-                toolboxLines.append("❌ \(error.localizedDescription)")
-            }
-            toolboxBusy = false
         }
     }
 }
