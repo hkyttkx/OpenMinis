@@ -291,21 +291,37 @@ struct FridaSettingsView: View {
         // 深度分析开启时额外装 radare2 + r2ghidra（源码编译，一次性）
         let r2Part = deepAnalysis ? """
         ; \
-        echo "[4/5] 安装 radare2…"; \
-        apk add --no-cache radare2 radare2-dev git cmake make g++ flex bison >/dev/null 2>&1 && r2 -v | head -1; \
-        echo "[5/5] 编译 r2ghidra（10~30 分钟，仅首次）…"; \
-        r2pm -U >/dev/null 2>&1; r2pm -ci r2ghidra 2>&1 | tail -3; \
-        r2 -qc 'Lc' -- 2>/dev/null | grep -i ghidra && echo "r2ghidra ✅" || echo "r2ghidra 未加载（可重试或用内置 pdc）"
+        echo "[4] 安装 radare2…"; \
+        apk add --no-cache radare2 radare2-dev git cmake make g++ flex bison >/dev/null 2>&1 \
+          && echo "  radare2 $(r2 -v 2>/dev/null | head -1)" || echo "  ⚠️ radare2 安装失败"; \
+        echo "[5] 编译 r2ghidra（10~30 分钟，仅首次）…"; \
+        r2pm -U >/dev/null 2>&1; r2pm -ci r2ghidra 2>&1 | tail -2; \
+        r2 -qc 'Lc' -- 2>/dev/null | grep -i ghidra >/dev/null && echo "r2ghidra ✅" || echo "r2ghidra 未加载（可重试或用内置 pdc）"
         """ : ""
+        // 根因修复：沙盒 minirootfs 默认只启用 main 仓库，而 py3-lief/py3-capstone/
+        // py3-keystone/frida-tools/radare2 全在 community 源 —— 不启用就全回落到
+        // pip 源码编译，musl 上编译 lief/capstone/keystone-engine 必失败（用户截图
+        // 的 keystone 报错即此因）。改为：先从 main 行派生追加 community 源，apk
+        // 直接装二进制包；pip 只兜底 apk 没有的 objection（--no-deps：frida 依赖
+        // 由 apk 的 py3-frida 满足，musl 上 pip 装 frida 无 musllinux wheel 必失败）。
         let cmd = """
+        REP=/etc/apk/repositories; \
+        if ! grep -q '/community' $REP 2>/dev/null; then \
+          C=$(head -1 $REP | sed 's|/main$|/community|'); \
+          case "$C" in *community*) echo "$C" >> $REP;; *) echo 'https://dl-cdn.alpinelinux.org/alpine/v3.21/community' >> $REP;; esac; \
+        fi; \
+        apk update >/dev/null 2>&1; \
         apk add --no-cache python3 py3-pip zip unzip git >/dev/null 2>&1; \
-        echo "[1/3] 基础包完成"; \
-        apk add py3-lief py3-capstone 2>/dev/null || pip3 install --no-cache-dir lief capstone keystone-engine 2>&1 | tail -2; \
-        echo "[2/3] Mach-O 库完成"; \
-        pip3 install --no-cache-dir frida-tools objection 2>&1 | tail -2 || \
-        pip3 install --no-cache-dir --break-system-packages frida-tools objection 2>&1 | tail -2; \
-        echo "[3/3] frida-tools + objection 完成"; \
-        python3 -c "import lief; print('lief', lief.__version__)" 2>&1; \
+        echo "[1] 源就绪 + 基础包完成"; \
+        apk add --no-cache py3-lief py3-capstone py3-keystone >/dev/null 2>&1 \
+          && echo "[2] Mach-O 库（lief/capstone/keystone）✓" || \
+          { for p in py3-lief py3-capstone py3-keystone; do apk add --no-cache $p >/dev/null 2>&1 \
+            && echo "  $p ✓" || echo "  $p ✗（非核心）"; done; }; \
+        apk add --no-cache frida-tools py3-frida >/dev/null 2>&1 \
+          && echo "[3] frida-tools ✓" || echo "[3] frida-tools ✗（检查网络后重试）"; \
+        { pip3 install --no-cache-dir --no-deps --break-system-packages objection >/dev/null 2>&1 \
+          || pip3 install --no-cache-dir --no-deps objection >/dev/null 2>&1; } \
+          && echo "  objection ✓" || echo "  objection ✗（非核心，跳过）"; \
         frida --version 2>&1\(r2Part); \
         echo TOOLBOX_DONE
         """
