@@ -48,9 +48,10 @@ extension AIChatViewModel {
             - 说明: \(script.desc)
             - 代码行数: \(code.components(separatedBy: "\n").count)
 
-            下一步：用户需要在「设置 → Frida → 脚本库」中审阅该脚本并勾选启用，
+            下一步：告诉用户去 [设置 → Frida → 脚本库](minis://settings/frida) 审阅该脚本并勾选启用，
             启用后脚本才会随 Gadget 注入在目标 App 中运行。
-            运行输出（send/console.log 的内容）会出现在「设置 → Frida → 会话日志」，分类标记 [Frida]。
+            运行输出（send/console.log 的内容）会出现在 [设置 → Frida → 会话日志](minis://settings/frida)，分类标记 [Frida]。
+            （给用户的链接必须用 minis://settings/frida，不要用 skills 路径）
             """
 
         case "list":
@@ -63,7 +64,7 @@ extension AIChatViewModel {
                 lines.append("\(i + 1). [\(s.enabled ? "✅ 已启用" : "⬜️ 未启用")] \(s.name) — \(s.desc)")
             }
             lines.append("")
-            lines.append("在「设置 → Frida → 脚本库」中切换启用状态。")
+            lines.append("在 [设置 → Frida → 脚本库](minis://settings/frida) 中切换启用状态。")
             return lines.joined(separator: "\n")
 
         default:

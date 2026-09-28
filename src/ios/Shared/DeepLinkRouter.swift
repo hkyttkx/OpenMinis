@@ -130,6 +130,11 @@ enum DeepLinkRouter {
         case "skills":
             coord.pendingSettingsTarget = .skills
 
+        // Frida 逆向工具（脚本库 / 目标 App 注入 / 会话日志）。
+        // 之前缺失时 AI 会把「Frida 脚本库」链接错误映射到 skills。
+        case "frida", "frida-scripts", "reverse", "reverse-engineering":
+            coord.pendingSettingsTarget = .frida
+
         // [T-ios-assistant-header-open-soul] Previously fell through to the
         // `default` branch and landed on Settings home, even though the Soul
         // screen exists — so a `minis://settings/soul` link (or the agent

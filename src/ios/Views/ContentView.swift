@@ -7394,6 +7394,9 @@ private enum SettingsDestination: Hashable {
     case modelGroupDetail(groupId: String)
     case usage
     case skills
+    /// Frida 逆向工具（脚本库 / 目标 App 注入 / 会话日志），
+    /// 供 minis://settings/frida 深链使用。
+    case frida
     // [T-ios-assistant-header-open-soul]
     case soul
     case memory
@@ -7757,6 +7760,8 @@ private struct SettingsSheet: View {
                     UsageStatsView()
                 case .skills:
                     SkillsManagementView()
+                case .frida:
+                    FridaSettingsView()
                 case .soul:
                     SoulSettingsView()
                 case .memory:
