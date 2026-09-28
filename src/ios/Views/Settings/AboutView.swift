@@ -43,7 +43,7 @@ struct AboutView: View {
                                     .stroke(Color(UIColor.separator), lineWidth: 0.5)
                             )
                     }
-                    Text("Minis")
+                    Text("ky")
                         .font(.title2.bold())
                     Text("Version \(appVersion)")
                         .font(.subheadline)
@@ -53,7 +53,7 @@ struct AboutView: View {
                         .foregroundStyle(.tertiary)
                         // Selectable so it can be copied into a bug report.
                         .textSelection(.enabled)
-                    Text("Minis is Your Fully Local, Fully Private On-Device Agent.")
+                    Text("ky — Your Fully Local, Fully Private On-Device Agent.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -64,7 +64,7 @@ struct AboutView: View {
 
             // MARK: - Links
             Section("Links") {
-                Link(destination: URL(string: "https://github.com/OpenMinis")!) {
+                Link(destination: URL(string: "https://github.com/hkyttkx/OpenMinis")!) {
                     Label {
                         HStack {
                             Text("GitHub Repository")
@@ -78,7 +78,7 @@ struct AboutView: View {
                         Image(systemName: "link.circle.fill")
                     }
                 }
-                Link(destination: URL(string: "https://github.com/OpenMinis/OpenMinis/issues")!) {
+                Link(destination: URL(string: "https://github.com/hkyttkx/OpenMinis/issues")!) {
                     Label {
                         HStack {
                             Text("Report an Issue")

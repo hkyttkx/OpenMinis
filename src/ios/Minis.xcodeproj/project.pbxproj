@@ -429,6 +429,8 @@
 		E5VMA0003 /* AIChatViewModel+MentionMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMA0013 /* AIChatViewModel+MentionMenu.swift */; };
 		E5VMA0004 /* AIChatViewModel+TitleGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMA0014 /* AIChatViewModel+TitleGeneration.swift */; };
 		E5VMA0005 /* AIChatViewModel+MemoryTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMA0015 /* AIChatViewModel+MemoryTools.swift */; };
+		FRDA0002 /* FridaSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRDA0001 /* FridaSettingsView.swift */; };
+		FRDA0004 /* AIChatViewModel+FridaTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRDA0003 /* AIChatViewModel+FridaTools.swift */; };
 		E5VMA0006 /* AIChatViewModel+ProviderFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMA0016 /* AIChatViewModel+ProviderFactory.swift */; };
 		E5VMA0007 /* AIChatViewModel+ToolDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMA0017 /* AIChatViewModel+ToolDefinitions.swift */; };
 		E5VMA0008 /* AIChatViewModel+ToolPreflight.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMA0018 /* AIChatViewModel+ToolPreflight.swift */; };
@@ -1104,6 +1106,8 @@
 		E5VMA0013 /* AIChatViewModel+MentionMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+MentionMenu.swift"; sourceTree = "<group>"; };
 		E5VMA0014 /* AIChatViewModel+TitleGeneration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+TitleGeneration.swift"; sourceTree = "<group>"; };
 		E5VMA0015 /* AIChatViewModel+MemoryTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+MemoryTools.swift"; sourceTree = "<group>"; };
+		FRDA0001 /* FridaSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FridaSettingsView.swift; sourceTree = "<group>"; };
+		FRDA0003 /* AIChatViewModel+FridaTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+FridaTools.swift"; sourceTree = "<group>"; };
 		E5VMA0016 /* AIChatViewModel+ProviderFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+ProviderFactory.swift"; sourceTree = "<group>"; };
 		E5VMA0017 /* AIChatViewModel+ToolDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+ToolDefinitions.swift"; sourceTree = "<group>"; };
 		E5VMA0018 /* AIChatViewModel+ToolPreflight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+ToolPreflight.swift"; sourceTree = "<group>"; };
@@ -2009,6 +2013,7 @@
 				E5VMA0013 /* AIChatViewModel+MentionMenu.swift */,
 				E5VMA0014 /* AIChatViewModel+TitleGeneration.swift */,
 				E5VMA0015 /* AIChatViewModel+MemoryTools.swift */,
+				FRDA0003 /* AIChatViewModel+FridaTools.swift */,
 				E5VMA0016 /* AIChatViewModel+ProviderFactory.swift */,
 				E5VMA0017 /* AIChatViewModel+ToolDefinitions.swift */,
 				E5VMA0018 /* AIChatViewModel+ToolPreflight.swift */,
@@ -2203,6 +2208,7 @@
 			isa = PBXGroup;
 			children = (
 				AA0838A12F3B941A00049557 /* AboutView.swift */,
+				FRDA0001 /* FridaSettingsView.swift */,
 				E5S000014 /* CloudSyncSettingsView.swift */,
 				E5G000013 /* EnhancedBackgroundSettingsView.swift */,
 				E5P000012 /* EnvironmentVariablesView.swift */,
@@ -2665,6 +2671,8 @@
 				E54000AC1 /* DebugSkillGenerated.swift in Sources */,
 				E5FP00100 /* AppGroupChangeWatcher.swift in Sources */,
 				AA0838A02F3B941A00049557 /* AboutView.swift in Sources */,
+				FRDA0002 /* FridaSettingsView.swift in Sources */,
+
 				BB1000100F700000000000AA /* ContextPolicy.swift in Sources */,
 				AADDA9E12F6ECCF400B66649 /* ThumbnailCache.swift in Sources */,
 				E51000002 /* ContentView.swift in Sources */,
@@ -2728,6 +2736,8 @@
 				E5VMA0003 /* AIChatViewModel+MentionMenu.swift in Sources */,
 				E5VMA0004 /* AIChatViewModel+TitleGeneration.swift in Sources */,
 				E5VMA0005 /* AIChatViewModel+MemoryTools.swift in Sources */,
+				FRDA0004 /* AIChatViewModel+FridaTools.swift in Sources */,
+
 				E5VMA0006 /* AIChatViewModel+ProviderFactory.swift in Sources */,
 				E5VMA0007 /* AIChatViewModel+ToolDefinitions.swift in Sources */,
 				E5VMA0008 /* AIChatViewModel+ToolPreflight.swift in Sources */,

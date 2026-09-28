@@ -156,6 +156,23 @@ extension AIChatViewModel {
             ))
         }
 
+        // [T-frida-tool] Frida 脚本工具：AI 生成脚本 → 用户在「设置 → Frida → 脚本库」
+        // 审阅后启用。工具本身不注入（注入走 Gadget 管线），只负责生成/管理，
+        // 保证「AI 不瞎猜、人不放行不生效」的安全边界。
+        tools.append(AgentToolDefinition(
+            name: "frida_script",
+            description: "Manage Frida hook scripts for dynamic analysis of iOS apps (TrollStore Gadget mode). Actions: 'generate' creates a Frida JS script from the user's description (e.g. hook CCCrypt to capture AES key/IV/ciphertext, trace a specific ObjC method, dump classes at runtime, bypass SSL pinning) — the script is added to the user's script library DISABLED so they can review and enable it in Settings → Frida; 'list' returns scripts in the library with their enabled state. Always generate complete, runnable Frida JS. Prefer hooking CommonCrypto (CCCrypt, CCCryptorCreate) for crypto, ObjC.classes for method tracing, and Interceptor for native functions.",
+            parameters: [
+                "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user (e.g. 'Generate crypto hook script', 'List Frida scripts'). Use the same language as the user."),
+                "action": AgentToolParam(type: .string, description: "'generate' to create a new script, 'list' to show the library.", enumValues: ["generate", "list"]),
+                "name": AgentToolParam(type: .string, description: "Script name (for generate), e.g. 'AES key/IV capture'"),
+                "description": AgentToolParam(type: .string, description: "What the script does, one line (for generate)"),
+                "code": AgentToolParam(type: .string, description: "Complete Frida JS source code (for generate). Must be valid JavaScript using the Frida API (Java not available on iOS; use ObjC, Interceptor, Module). Include send() calls so captured data appears in Frida logs."),
+            ],
+            required: ["tool_title", "action"],
+            propertyOrdering: ["tool_title", "action", "name", "description", "code"]
+        ))
+
         // [T-ios-vision-group #182] Expose read_image when the model can see
         // images ITSELF, or when a Vision Group is configured to see them on its
         // behalf. Previously a text-only model simply never got this tool, so an

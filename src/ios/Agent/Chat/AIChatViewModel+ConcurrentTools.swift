@@ -799,6 +799,16 @@ extension AIChatViewModel {
             toolOutput = memResult.output
             toolSuccess = memResult.success
 
+
+        case "frida_script":
+            // [T-frida-tool] AI 生成/管理 Frida 脚本。生成的脚本入库但默认停用，
+            // 用户在「设置 → Frida → 脚本库」审阅启用后才参与注入。
+            let fridaResult = executeFridaScriptTool(from: argsJson)
+            if msgIdx < messages.count, blockIdx < messages[blockIdx].blocks.count {
+                messages[msgIdx].blocks[blockIdx].content = fridaResult
+            }
+            toolOutput = fridaResult
+            toolSuccess = true
         default:
             toolOutput = "Error: Unknown tool '\(tu.name)'"
             toolSuccess = false

@@ -7644,6 +7644,28 @@ private struct SettingsSheet: View {
                     }
                 }
 
+                // MARK: - 逆向工具（Frida）
+                // 巨魔模式：Gadget 注入 + 内置脚本库；运行日志写入日志系统（分类: Frida）
+                Section {
+                    NavigationLink {
+                        FridaSettingsView()
+                    } label: {
+                        Label {
+                            Text("Frida")
+                        } icon: {
+                            Image(systemName: "bolt.horizontal.circle")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.white)
+                                .frame(width: 21, height: 21)
+                                .background(.purple, in: Circle())
+                        }
+                    }
+                } header: {
+                    Text("Reverse Engineering")
+                } footer: {
+                    Text("Frida 动态分析：脚本库管理、目标 App 注入（TrollStore Gadget 模式）、会话日志。让 AI 在对话中生成脚本，审阅后内置。")
+                }
+
                 Section("Logs") {
                     NavigationLink {
                         LogManagementView()
@@ -7665,7 +7687,7 @@ private struct SettingsSheet: View {
                         AboutView()
                     } label: {
                         Label {
-                            Text("About Minis")
+                            Text("About ky")
                         } icon: {
                             Image(systemName: "info")
                                 .font(.system(size: 9))
@@ -7896,7 +7918,7 @@ private struct SettingsSheet: View {
         components.scheme = "mailto"
         components.path = "dev@openminis.app"
         components.queryItems = [
-            URLQueryItem(name: "subject", value: "Minis Feedback"),
+            URLQueryItem(name: "subject", value: "ky Feedback"),
             URLQueryItem(name: "body", value: body),
         ]
         return components.url
@@ -7924,7 +7946,7 @@ private struct SettingsSheet: View {
         |-------|-------|
         | Platform | iOS |
         | OS Version | iOS \(iosVersion) |
-        | Minis Version | \(appVersion) (build \(build)) |
+        | ky Version | \(appVersion) (build \(build)) |
         | Device Model | \(device) |
 
         ## 🔁 Steps to Reproduce
@@ -7947,7 +7969,7 @@ private struct SettingsSheet: View {
 
         """
 
-        var components = URLComponents(string: "https://github.com/OpenMinis/OpenMinis/issues/new")
+        var components = URLComponents(string: "https://github.com/hkyttkx/OpenMinis/issues/new")
         components?.queryItems = [
             URLQueryItem(name: "template", value: "bug_report.md"),
             URLQueryItem(name: "title", value: "[Bug] "),
