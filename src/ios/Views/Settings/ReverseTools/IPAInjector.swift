@@ -130,7 +130,7 @@ enum IPAInjector {
             "zip -qry ../out.ipa Payload && echo ZIP_OK_$(du -h ../out.ipa | cut -f1)"
         let (out, code) = try await SandboxRunner.run(cmd, timeout: 570, onLine: onLine)
         guard code == 0, out.contains("ZIP_OK") else {
-            throw IPAInjectError.sandboxFailed(out.isEmpty ? "exit \(code)" : out.suffix(400))
+            throw IPAInjectError.sandboxFailed(out.isEmpty ? "exit \(code)" : String(out.suffix(400)))
         }
         return hostInjectDir.appendingPathComponent("out.ipa")
     }
@@ -142,7 +142,7 @@ enum IPAInjector {
             "cd work && unzip -q ../in.ipa && echo UNZIP_OK"
         let (out, code) = try await SandboxRunner.run(cmd, timeout: 570, onLine: onLine)
         guard code == 0, out.contains("UNZIP_OK") else {
-            throw IPAInjectError.sandboxFailed(out.isEmpty ? "exit \(code)" : out.suffix(400))
+            throw IPAInjectError.sandboxFailed(out.isEmpty ? "exit \(code)" : String(out.suffix(400)))
         }
         return hostInjectDir.appendingPathComponent("work", isDirectory: true)
     }

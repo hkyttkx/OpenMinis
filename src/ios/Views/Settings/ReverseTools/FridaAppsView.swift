@@ -152,7 +152,7 @@ struct FridaAppDetailView: View {
                     .padding(.vertical, 4)
                 }
 
-                Section("注入（TrollStore Gadget 模式）") {
+                Section {
                     if let enc = encrypted {
                         if enc {
                             Label("该 App 带 FairPlay 加密，需先砸壳（导入已解密的 IPA 注入）",
@@ -179,6 +179,8 @@ struct FridaAppDetailView: View {
                         Text("未勾选任何脚本：先到 Frida 页面启用脚本（AI 生成后内置）")
                             .font(.caption).foregroundStyle(.secondary)
                     }
+                } header: {
+                    Text("注入（TrollStore Gadget 模式）")
                 } footer: {
                     Text("流程：克隆 .app → 注入 FridaGadget + 已启用脚本 → 沙盒打包 IPA → 调起 TrollStore 安装（安装时自动重签）。")
                 }
@@ -347,7 +349,7 @@ struct SandboxBrowserView: View {
         }
         .onAppear { if dirStack.isEmpty { dirStack = [root] }; reload() }
         .sheet(item: $previewFile) { p in
-            FilePreviewSheet(file: p)
+            SandboxFilePreviewSheet(file: p)
         }
     }
 
@@ -394,7 +396,7 @@ struct FilePreview: Identifiable {
     var id: String { url.path }
 }
 
-struct FilePreviewSheet: View {
+struct SandboxFilePreviewSheet: View {
     @Environment(\.dismiss) private var dismiss
     let file: FilePreview
     @State private var text: String?
@@ -477,7 +479,7 @@ struct FilePreviewSheet: View {
         let ext = file.url.pathExtension.lowercased()
         if ext == "plist" {
             if let dict = NSDictionary(contentsOf: file.url),
-               let d = try? PropertyListSerialization.data(fromPropertyList: dict, format: .prettyPrinted, options: 0),
+               let d = try? PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0),
                let s = String(data: d, encoding: .utf8) {
                 text = s
                 return
@@ -488,7 +490,7 @@ struct FilePreviewSheet: View {
             text = s
         } else if let d = try? Data(contentsOf: file.url),
                   let dict = try? PropertyListSerialization.propertyList(from: d, format: nil) {
-            if let data = try? PropertyListSerialization.data(fromPropertyList: dict, format: .prettyPrinted, options: 0),
+            if let data = try? PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0),
                let s = String(data: data, encoding: .utf8) {
                 text = s
             }

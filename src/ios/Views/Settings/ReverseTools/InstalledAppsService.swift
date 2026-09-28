@@ -51,8 +51,10 @@ enum InstalledAppsService {
         dlopen("/System/Library/Frameworks/MobileCoreServices.framework/MobileCoreServices", RTLD_LAZY)
         guard
             let wsClass = NSClassFromString("LSApplicationWorkspace"),
-            let workspace = wsClass.perform(NSSelectorFromString("defaultWorkspace"))?.takeUnretainedValue(),
-            let rawApps = workspace.perform(NSSelectorFromString("allApplications"))?.takeUnretainedValue() as? [NSObject]
+            let workspace = (wsClass as AnyObject)
+                .perform(NSSelectorFromString("defaultWorkspace"))?.takeUnretainedValue() as? NSObject,
+            let rawApps = workspace
+                .perform(NSSelectorFromString("allApplications"))?.takeUnretainedValue() as? [NSObject]
         else {
             appsLogger.error("LSApplicationWorkspace 不可用（权限不足或框架加载失败）")
             return []
@@ -117,7 +119,7 @@ enum InstalledAppsService {
             return names
         }()
         // CFBundleIconFiles 按尺寸升序，末尾最大；优先无后缀名条目补 @3x/@2x
-        for base in names.reversed() {
+        for base in candidates.reversed() {
             for suffix in ["@3x.png", "@2x.png", ".png", ""] {
                 let p = bundleURL.appendingPathComponent(base + suffix).path
                 if let img = UIImage(contentsOfFile: p) { return img }
@@ -185,7 +187,7 @@ extension FileManager {
         for case let item as URL in en {
             if let size = try? item.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
                size.isRegularFile == true {
-                total += Int64(size.fileSize)
+                total += Int64(size.fileSize ?? 0)
             }
         }
         return total
