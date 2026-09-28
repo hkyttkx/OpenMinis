@@ -7865,6 +7865,8 @@ private struct SettingsSheet: View {
             navPath.append(SettingsDestination.usage)
         case .skills:
             navPath.append(SettingsDestination.skills)
+        case .frida:
+            navPath.append(SettingsDestination.frida)
         case .soul:
             navPath.append(SettingsDestination.soul)
         case .memory:

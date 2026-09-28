@@ -93,6 +93,7 @@ struct FridaSettingsView: View {
     @State private var showTargetPicker = false
     @State private var showIPAImporter = false
     @State private var fridaEnabled = UserDefaults.standard.bool(forKey: "frida.masterEnabled")
+    @State private var deepAnalysis = UserDefaults.standard.bool(forKey: "frida.deepAnalysis")
 
     // IPA 导入注入
     @State private var injectBusy = false
@@ -186,13 +187,20 @@ struct FridaSettingsView: View {
 
             // MARK: 沙盒工具链
             Section {
+                Toggle("深度分析引擎（radare2 + r2ghidra）", isOn: $deepAnalysis)
+                    .onChange(of: deepAnalysis) { on in
+                        UserDefaults.standard.set(on, forKey: "frida.deepAnalysis")
+                        FridaStore.logger.info(on ? "深度分析引擎已启用" : "深度分析引擎已停用（AI 使用 strings/hexdump 轻量分析）")
+                    }
+
                 Button {
                     installToolbox()
                 } label: {
                     if toolboxBusy {
                         HStack { ProgressView(); Text("安装中（数分钟）…") }
                     } else {
-                        Label("安装逆向工具链", systemImage: "wrench.and.screwdriver")
+                        Label(deepAnalysis ? "安装逆向工具链（含 r2ghidra 源码编译）" : "安装逆向工具链",
+                              systemImage: "wrench.and.screwdriver")
                     }
                 }
                 .disabled(toolboxBusy)
@@ -205,7 +213,7 @@ struct FridaSettingsView: View {
             } header: {
                 Text("沙盒工具链")
             } footer: {
-                Text("在 Linux 沙盒安装 frida-tools、objection、lief、capstone、keystone。装好后 AI 可用 shell_execute 直接调用（Mach-O 分析 / 字节修补 / 脚本注入）。")
+                Text("关闭时：AI 用 strings/hexdump 做轻量情报分析（默认，零成本）。开启时：安装并使用 radare2 + r2ghidra，AI 可输出函数级 C 伪代码（代码级深挖，首次安装 r2ghidra 需源码编译约 10~30 分钟，一次性）。两种模式都包含 frida-tools、objection、lief、capstone、keystone。")
             }
 
             // MARK: 会话日志
@@ -280,6 +288,15 @@ struct FridaSettingsView: View {
     private func installToolbox() {
         toolboxBusy = true
         toolboxLines = []
+        // 深度分析开启时额外装 radare2 + r2ghidra（源码编译，一次性）
+        let r2Part = deepAnalysis ? """
+        ; \
+        echo "[4/5] 安装 radare2…"; \
+        apk add --no-cache radare2 radare2-dev git cmake make g++ flex bison >/dev/null 2>&1 && r2 -v | head -1; \
+        echo "[5/5] 编译 r2ghidra（10~30 分钟，仅首次）…"; \
+        r2pm -U >/dev/null 2>&1; r2pm -ci r2ghidra 2>&1 | tail -3; \
+        r2 -qc 'Lc' -- 2>/dev/null | grep -i ghidra && echo "r2ghidra ✅" || echo "r2ghidra 未加载（可重试或用内置 pdc）"
+        """ : ""
         let cmd = """
         apk add --no-cache python3 py3-pip zip unzip git >/dev/null 2>&1; \
         echo "[1/3] 基础包完成"; \
@@ -289,12 +306,14 @@ struct FridaSettingsView: View {
         pip3 install --no-cache-dir --break-system-packages frida-tools objection 2>&1 | tail -2; \
         echo "[3/3] frida-tools + objection 完成"; \
         python3 -c "import lief; print('lief', lief.__version__)" 2>&1; \
-        frida --version 2>&1; \
+        frida --version 2>&1\(r2Part); \
         echo TOOLBOX_DONE
         """
+        // r2ghidra 源码编译耗时 10~30 分钟，开启深度分析时放宽超时
+        let timeout: TimeInterval = deepAnalysis ? 2400 : 570
         Task {
             do {
-                let (out, _) = try await SandboxRunner.run(cmd, timeout: 570) { line in
+                let (out, _) = try await SandboxRunner.run(cmd, timeout: timeout) { line in
                     toolboxLines.append(String(line.suffix(160)))
                 }
                 FridaStore.logger.info("工具链安装输出尾: \(out.suffix(300))")

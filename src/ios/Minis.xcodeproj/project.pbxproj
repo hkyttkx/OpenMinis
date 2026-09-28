@@ -430,6 +430,11 @@
 		E5VMA0004 /* AIChatViewModel+TitleGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMA0014 /* AIChatViewModel+TitleGeneration.swift */; };
 		E5VMA0005 /* AIChatViewModel+MemoryTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMA0015 /* AIChatViewModel+MemoryTools.swift */; };
 		FRDA0002 /* FridaSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRDA0001 /* FridaSettingsView.swift */; };
+		FRTR0002 /* FridaAppsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRTR0001 /* FridaAppsView.swift */; };
+		FRTR0004 /* IPAInjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRTR0003 /* IPAInjector.swift */; };
+		FRTR0006 /* MachOPatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRTR0005 /* MachOPatcher.swift */; };
+		FRTR0008 /* InstalledAppsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRTR0007 /* InstalledAppsService.swift */; };
+		FRTR000A /* SandboxRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRTR0009 /* SandboxRunner.swift */; };
 		FRDA0004 /* AIChatViewModel+FridaTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRDA0003 /* AIChatViewModel+FridaTools.swift */; };
 		E5VMA0006 /* AIChatViewModel+ProviderFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMA0016 /* AIChatViewModel+ProviderFactory.swift */; };
 		E5VMA0007 /* AIChatViewModel+ToolDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMA0017 /* AIChatViewModel+ToolDefinitions.swift */; };
@@ -1107,6 +1112,11 @@
 		E5VMA0014 /* AIChatViewModel+TitleGeneration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+TitleGeneration.swift"; sourceTree = "<group>"; };
 		E5VMA0015 /* AIChatViewModel+MemoryTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+MemoryTools.swift"; sourceTree = "<group>"; };
 		FRDA0001 /* FridaSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FridaSettingsView.swift; sourceTree = "<group>"; };
+		FRTR0001 /* FridaAppsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FridaAppsView.swift; sourceTree = "<group>"; };
+		FRTR0003 /* IPAInjector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPAInjector.swift; sourceTree = "<group>"; };
+		FRTR0005 /* MachOPatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachOPatcher.swift; sourceTree = "<group>"; };
+		FRTR0007 /* InstalledAppsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstalledAppsService.swift; sourceTree = "<group>"; };
+		FRTR0009 /* SandboxRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SandboxRunner.swift; sourceTree = "<group>"; };
 		FRDA0003 /* AIChatViewModel+FridaTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+FridaTools.swift"; sourceTree = "<group>"; };
 		E5VMA0016 /* AIChatViewModel+ProviderFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+ProviderFactory.swift"; sourceTree = "<group>"; };
 		E5VMA0017 /* AIChatViewModel+ToolDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+ToolDefinitions.swift"; sourceTree = "<group>"; };
@@ -2204,11 +2214,24 @@
 			path = Chat;
 			sourceTree = "<group>";
 		};
+		FRTR000B /* ReverseTools */ = {
+			isa = PBXGroup;
+			children = (
+				FRTR0001 /* FridaAppsView.swift */,
+				FRTR0003 /* IPAInjector.swift */,
+				FRTR0005 /* MachOPatcher.swift */,
+				FRTR0007 /* InstalledAppsService.swift */,
+				FRTR0009 /* SandboxRunner.swift */,
+			);
+			path = ReverseTools;
+			sourceTree = "<group>";
+		};
 		F1V00011 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
 				AA0838A12F3B941A00049557 /* AboutView.swift */,
 				FRDA0001 /* FridaSettingsView.swift */,
+				FRTR000B /* ReverseTools */,
 				E5S000014 /* CloudSyncSettingsView.swift */,
 				E5G000013 /* EnhancedBackgroundSettingsView.swift */,
 				E5P000012 /* EnvironmentVariablesView.swift */,
@@ -2672,6 +2695,11 @@
 				E5FP00100 /* AppGroupChangeWatcher.swift in Sources */,
 				AA0838A02F3B941A00049557 /* AboutView.swift in Sources */,
 				FRDA0002 /* FridaSettingsView.swift in Sources */,
+				FRTR0002 /* FridaAppsView.swift in Sources */,
+				FRTR0004 /* IPAInjector.swift in Sources */,
+				FRTR0006 /* MachOPatcher.swift in Sources */,
+				FRTR0008 /* InstalledAppsService.swift in Sources */,
+				FRTR000A /* SandboxRunner.swift in Sources */,
 
 				BB1000100F700000000000AA /* ContextPolicy.swift in Sources */,
 				AADDA9E12F6ECCF400B66649 /* ThumbnailCache.swift in Sources */,

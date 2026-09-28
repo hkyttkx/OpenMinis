@@ -12,6 +12,9 @@ enum SettingsDeepLinkTarget: Equatable {
     case modelGroupDetail(groupId: String)
     case usage
     case skills
+    /// Frida 逆向工具（脚本库 / 目标 App 注入 / 会话日志），
+    /// 供 minis://settings/frida 深链使用。
+    case frida
     /// [T-ios-assistant-header-open-soul] Soul settings (SOUL.md identity:
     /// name, icon, style, personality body). Reachable as
     /// `minis://settings/soul`, and used by the assistant identity row in the

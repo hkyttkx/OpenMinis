@@ -399,28 +399,49 @@ struct FilePreviewSheet: View {
     let file: FilePreview
     @State private var text: String?
     @State private var tooLarge = false
+    @State private var copiedToSandbox = false
 
     var body: some View {
         NavigationStack {
-            Group {
-                if let text {
-                    ScrollView {
-                        Text(text)
-                            .font(.system(size: 11, design: .monospaced))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal)
-                            .textSelection(.enabled)
+            VStack(spacing: 0) {
+                Group {
+                    if let text {
+                        ScrollView {
+                            Text(text)
+                                .font(.system(size: 11, design: .monospaced))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal)
+                                .textSelection(.enabled)
+                        }
+                    } else if tooLarge {
+                        VStack(spacing: 10) {
+                            Image(systemName: "doc").font(.largeTitle).foregroundStyle(.secondary)
+                            Text("文件过大或为二进制，不支持预览")
+                            ShareLink(item: file.url) { Label("导出分享", systemImage: "square.and.arrow.up") }
+                                .buttonStyle(.bordered)
+                        }
+                    } else {
+                        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                } else if tooLarge {
-                    VStack(spacing: 10) {
-                        Image(systemName: "doc").font(.largeTitle).foregroundStyle(.secondary)
-                        Text("文件过大或为二进制，不支持预览")
-                        ShareLink(item: file.url) { Label("导出分享", systemImage: "square.and.arrow.up") }
-                            .buttonStyle(.bordered)
-                    }
-                } else {
-                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+                // [T-r2-deep-analysis] 把目标文件送进沙盒 /var/minis/shared/，
+                // 供 AI 用 strings/radare2 分析（深度分析引擎的输入通道）。
+                VStack(spacing: 6) {
+                    Button {
+                        copyToSandbox()
+                    } label: {
+                        Label(copiedToSandbox
+                              ? "已复制，可在对话中让 AI 分析它"
+                              : "复制到沙盒（供 AI 分析）",
+                              systemImage: copiedToSandbox ? "checkmark.circle.fill" : "arrow.triangle.branch")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(copiedToSandbox)
+                    Text("沙盒路径: /var/minis/shared/\(file.url.lastPathComponent)")
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 10)
             }
             .navigationTitle(file.url.lastPathComponent)
             .navigationBarTitleDisplayMode(.inline)
@@ -431,6 +452,18 @@ struct FilePreviewSheet: View {
                 }
             }
             .task { load() }
+        }
+    }
+
+    private func copyToSandbox() {
+        let dest = SandboxRunner.hostSharedDir.appendingPathComponent(file.url.lastPathComponent)
+        do {
+            try? FileManager.default.removeItem(at: dest)
+            try FileManager.default.copyItem(at: file.url, to: dest)
+            copiedToSandbox = true
+            FridaStore.logger.info("已复制到沙盒: /var/minis/shared/\(file.url.lastPathComponent)")
+        } catch {
+            FridaStore.logger.error("复制到沙盒失败: \(error.localizedDescription)")
         }
     }
 
