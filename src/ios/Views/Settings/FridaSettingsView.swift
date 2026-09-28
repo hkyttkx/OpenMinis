@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Frida 脚本存储
 /// 内置 Frida 脚本库：脚本由 AI 生成 → 用户审阅后「内置」入库 → 注入时勾选启用。
@@ -174,7 +175,8 @@ struct FridaSettingsView: View {
                 scripts = FridaStore.loadScripts()
             }
         }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.javascript]) { result in
+        // UTType.javascript 是 iOS 17+ 才有的符号；用扩展名动态解析保持 iOS 16 兼容
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: [UTType(filenameExtension: "js") ?? .plainText]) { result in
             if case .success(let url) = result {
                 let secured = url.startAccessingSecurityScopedResource()
                 defer { if secured { url.stopAccessingSecurityScopedResource() } }
