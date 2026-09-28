@@ -33,6 +33,26 @@ jobs:
           cp src/ios/Configs/ProviderCustomization.xcconfig.example \
              src/ios/Configs/ProviderCustomization.xcconfig
 
+      - name: 品牌改名为 KyTuT
+        run: |
+          # 1. 桌面显示名
+          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string KyTuT" src/ios/Info.plist
+          # 2. 权限弹窗文案 + About 页（仅显示文本，不动 bundle ID / App Group / URL scheme）
+          sed -i '' 's/Minis/KyTuT/g' src/ios/Info.plist src/ios/Views/Settings/AboutView.swift
+          for f in src/ios/*.lproj/InfoPlist.strings; do
+            sed -i '' 's/Minis/KyTuT/g' "$f"
+          done
+          # 3. 三个扩展的显示名（若存在则改）
+          for p in src/ios/ShareExtension/Info.plist src/ios/AgentWidget/Info.plist src/ios/FileProvider/Info.plist; do
+            if /usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$p" >/dev/null 2>&1; then
+              /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName KyTuT" "$p"
+            fi
+            sed -i '' 's/Minis/KyTuT/g' "$p"
+          done
+          echo "=== 改名结果抽查 ==="
+          /usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" src/ios/Info.plist
+          grep -m1 "KyTuT" src/ios/Views/Settings/AboutView.swift
+
       - name: 修补 VDSO 链接器（Homebrew LLVM 已拆分 lld）
         run: |
           LDP=$(ls /opt/homebrew/opt/llvm/bin/ld.lld /opt/homebrew/opt/lld/bin/ld.lld 2>/dev/null | head -1)
