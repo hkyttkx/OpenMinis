@@ -81,7 +81,8 @@ jobs:
 
       - name: 下载 FridaGadget（逆向注入用）
         run: |
-          VER=$(curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/repos/frida/frida/releases/latest | python3 -c "import json,sys;print(json.load(sys.stdin)['tag_name'])")
+          # 从 releases/latest 的 302 重定向取版本号，绕开 API（无鉴权/限流问题）
+          VER=$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/frida/frida/releases/latest | sed 's#.*/tag/##')
           echo "Frida 版本: $VER"
           # 官方资产名已改为 ios-universal（arm64 + arm64e 合一）
           curl -fsSL -o FridaGadget.dylib.gz "https://github.com/frida/frida/releases/download/${VER}/frida-gadget-${VER}-ios-universal.dylib.gz"
