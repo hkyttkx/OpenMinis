@@ -800,15 +800,6 @@ extension AIChatViewModel {
             toolSuccess = memResult.success
 
 
-        case "frida_script":
-            // [T-frida-tool] AI 生成/管理 Frida 脚本。生成的脚本入库但默认停用，
-            // 用户在「设置 → Frida → 脚本库」审阅启用后才参与注入。
-            let fridaResult = executeFridaScriptTool(from: argsJson)
-            if msgIdx < messages.count, blockIdx < messages[blockIdx].blocks.count {
-                messages[msgIdx].blocks[blockIdx].content = fridaResult
-            }
-            toolOutput = fridaResult
-            toolSuccess = true
 
         case "r2_execute":
             // [T-r2-tool] radare2 静态分析：拼装 r2 命令行走 shell 执行管线

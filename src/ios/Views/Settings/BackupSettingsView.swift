@@ -119,6 +119,39 @@ struct BackupSettingsView: View {
     var body: some View {
         Form {
             deviceNameSection
+
+            // MARK: iCloud 云端备份
+            // 独立的 iCloud 备份通道：把 minis.db / skills.db / media / skills /
+            // memory 打包成 zip 写进 iCloud 容器，换机时直接拉回来。
+            // 与下面这套 .minisbak 导出是两条互补路径：这里走 iCloud 容器，
+            // 全程无需用户手动选目录。
+            Section {
+                NavigationLink {
+                    ICloudBackupView()
+                } label: {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("iCloud 云端备份")
+                            Text(ICloudBackupManager.shared.isICloudAvailable
+                                 ? "已连接，可备份到 iCloud"
+                                 : "iCloud 不可用，请检查登录状态")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "icloud.and.arrow.up")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 28, height: 28)
+                            .background(Color.cyan, in: Circle())
+                    }
+                }
+            } header: {
+                Text("云端备份")
+            } footer: {
+                Text("把会话记录、技能与记忆打包上传到 iCloud，换机或重装后可直接恢复。与下方的本地备份包互不影响，可同时使用。")
+            }
+
             Section {
                 // Row styling mirrors the iCloud Sync category list
                 // (CloudSyncSettingsV2View): a 28pt rounded-square badge with a

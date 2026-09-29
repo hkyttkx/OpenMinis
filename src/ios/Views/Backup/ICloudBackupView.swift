@@ -1,4 +1,3 @@
-#if DEBUG
 import SwiftUI
 
 struct ICloudBackupView: View {
@@ -232,4 +231,3 @@ struct ICloudBackupView: View {
         }
     }
 }
-#endif

@@ -145,6 +145,14 @@ enum BackupDelivery {
         let dest = root.appendingPathComponent(packageURL.lastPathComponent)
         let partial = root.appendingPathComponent(".\(packageURL.lastPathComponent).partial")
 
+        // A backup package on an iCloud-backed destination is the one case where
+        // the write is both large and latency-bound, so the destination root
+        // itself is materialised first: writing into a directory that is still
+        // an undownloaded placeholder fails with a confusing "file not found"
+        // or a silent no-op, which the user reads as "iCloud just doesn't work".
+        try? MountedFolderCoordinator.ensureDownloaded(root,
+                                                       timeout: MountedFolderCoordinator.largeDownloadTimeout)
+
         try? FileManager.default.removeItem(at: partial)
         do {
             try MountedFolderCoordinator.copy(from: packageURL, to: partial)
@@ -167,8 +175,12 @@ enum BackupDelivery {
             try? FileManager.default.removeItem(at: partial)
             throw error
         }
+        // Rename the verified scratch file into place. The mounted-folder
+        // coordinator handles both the local fast path and the coordinated
+        // cross-volume case; doing the final hop through it as well keeps the
+        // FileProvider in sync instead of bypassing it with a raw move.
         try? FileManager.default.removeItem(at: dest)
-        try FileManager.default.moveItem(at: partial, to: dest)
+        try MountedFolderCoordinator.move(from: partial, to: dest)
         logger.info("[Backup] package copied to mounted folder at \(root.lastPathComponent)")
         return dest
     }

@@ -22,6 +22,18 @@ enum MountedFolderCoordinator {
     /// small avoids pinning the main thread or coordinator actor for long.
     private static let downloadTimeout: TimeInterval = 8
 
+    /// Generous timeout used when the item being fetched is a BACKUP PACKAGE.
+    ///
+    /// A `.minisbak` is routinely hundreds of MB and may be a pure placeholder
+    /// on an iCloud-backed mount (the user restored onto a new iPhone, or the
+    /// local copy was evicted under storage pressure). The 8s budget above is
+    /// sized for previewing a single document; against a 236 MB package it
+    /// always expires, `ensureDownloaded` throws "Timed out downloading file
+    /// from iCloud.", and the restore fails with a message that blames the
+    /// network rather than the timeout. This ceiling is what a real download of
+    /// that size needs on a slow link.
+    static let largeDownloadTimeout: TimeInterval = 600
+
     // MARK: - Mount detection
 
     /// Returns true if `url` resolves to a location under any active mount.
@@ -192,7 +204,8 @@ enum MountedFolderCoordinator {
     /// from the main thread. `FileBrowserView` already dispatches reads/writes
     /// through background queues; if a future caller needs main-thread safety
     /// they should hop to a background queue first.
-    static func ensureDownloaded(_ url: URL) throws {
+    static func ensureDownloaded(_ url: URL,
+                                 timeout: TimeInterval = MountedFolderCoordinator.downloadTimeout) throws {
         let keys: Set<URLResourceKey> = [
             .isUbiquitousItemKey,
             .ubiquitousItemDownloadingStatusKey,
@@ -206,11 +219,16 @@ enum MountedFolderCoordinator {
         // Never block the main thread waiting for iCloud — fire the download
         // request and return immediately; the caller will see a short read or
         // can retry later.
+        //
+        // A caller that KNOWS it needs the whole file (the backup restore path
+        // reading a multi-hundred-MB package) must therefore hop off the main
+        // thread first; it also passes `largeDownloadTimeout` so the wait is
+        // scaled to the payload instead of to a document preview.
         if Thread.isMainThread {
             return
         }
 
-        let deadline = Date().addingTimeInterval(downloadTimeout)
+        let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             let v = try url.resourceValues(forKeys: keys)
             if v.ubiquitousItemDownloadingStatus == .current { return }
@@ -279,16 +297,36 @@ enum MountedFolderCoordinator {
         var coordError: NSError?
         var innerError: Error?
         let coordinator = NSFileCoordinator()
+        var moved = false
         coordinator.coordinate(
             writingItemAt: src, options: .forMoving,
             writingItemAt: dst, options: .forReplacing,
             error: &coordError
         ) { srcNew, dstNew in
-            do { try FileManager.default.moveItem(at: srcNew, to: dstNew) }
-            catch { innerError = error }
+            do { try FileManager.default.moveItem(at: srcNew, to: dstNew); moved = true }
+            catch {
+                // `moveItem` is a rename, which only works within one volume.
+                // An iCloud Drive / FileProvider destination can report the
+                // scratch file and its final name as different volumes (the
+                // provider materialises them independently), so the rename
+                // fails with EXDEV even though the copy already succeeded —
+                // reported to the user as a bogus "can't save the backup".
+                // Fall back to copy + delete, which every provider supports.
+                if (error as NSError).code == NSFileWriteFileExistsError
+                    || (error as NSError).code == EXDEV {
+                    do {
+                        try FileManager.default.copyItem(at: srcNew, to: dstNew)
+                        try FileManager.default.removeItem(at: srcNew)
+                        moved = true
+                    } catch { innerError = error }
+                } else {
+                    innerError = error
+                }
+            }
         }
         if let coordError { throw coordError }
         if let innerError { throw innerError }
+        _ = moved
     }
 
     /// Copy an item, coordinating both src and dst when either is under a mount.

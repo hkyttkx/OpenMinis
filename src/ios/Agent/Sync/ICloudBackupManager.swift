@@ -1,4 +1,3 @@
-#if DEBUG
 import Foundation
 import SwiftUI
 import UIKit
@@ -628,8 +627,13 @@ final class ICloudBackupManager: ObservableObject {
 
         try fm.startDownloadingUbiquitousItem(at: url)
 
-        // Poll until downloaded (with timeout)
-        let deadline = Date().addingTimeInterval(120) // 2 min timeout
+        // Poll until downloaded. The ceiling is deliberately generous: a full
+        // backup archive runs to hundreds of MB, and the previous 2-minute cap
+        // expired on any link slower than ~2 MB/s — the user saw "download
+        // timeout" for a download that was still progressing normally. The loop
+        // exits as soon as the item reports `.current`, so a fast link is not
+        // made to wait.
+        let deadline = Date().addingTimeInterval(900) // 15 min ceiling
         while Date() < deadline {
             try await Task.sleep(nanoseconds: 500_000_000) // 0.5s
             let updated = try url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
@@ -674,4 +678,3 @@ extension Int64 {
         ByteCountFormatter.string(fromByteCount: self, countStyle: .file)
     }
 }
-#endif

@@ -79,17 +79,6 @@ jobs:
       - name: 编译 Rclone
         run: ./deps/build_rclone_ios.sh
 
-      - name: 下载 FridaGadget（逆向注入用）
-        run: |
-          # 从 releases/latest 的 302 重定向取版本号，绕开 API（无鉴权/限流问题）
-          VER=$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/frida/frida/releases/latest | sed 's#.*/tag/##')
-          echo "Frida 版本: $VER"
-          # 官方资产名已改为 ios-universal（arm64 + arm64e 合一）
-          curl -fsSL -o FridaGadget.dylib.gz "https://github.com/frida/frida/releases/download/${VER}/frida-gadget-${VER}-ios-universal.dylib.gz"
-          gunzip -f FridaGadget.dylib.gz
-          ls -lh FridaGadget.dylib
-          file FridaGadget.dylib || true
-
       - name: 编译 Minis 主程序
         run: |
           xcodebuild -project src/ios/Minis.xcodeproj \
@@ -107,8 +96,6 @@ jobs:
       - name: ldid 签名（扩展 entitlements：原版权限 + 逆向权限）
         run: |
           APP="build/Build/Products/Release-iphoneos/Minis.app"
-          # 拷入 FridaGadget（IPAInjector 注入管线运行时取用）
-          cp FridaGadget.dylib "$APP/FridaGadget.dylib"
           # 主程序：原版权限 + no-sandbox / 容器读取 / LSApplicationWorkspace 枚举
           ldid -Ssrc/ios/Minis-Extended.entitlements "$APP/Minis"
           # 扩展：App Group 权限（三个扩展原文件内容一致）

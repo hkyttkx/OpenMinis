@@ -7394,8 +7394,8 @@ private enum SettingsDestination: Hashable {
     case modelGroupDetail(groupId: String)
     case usage
     case skills
-    /// Frida 逆向工具（脚本库 / 目标 App 注入 / 会话日志），
-    /// 供 minis://settings/frida 深链使用。
+    /// 逆向工具（目标 App 管理 / 深度分析引擎），
+    /// 供 minis://settings/frida 深链使用（链接名保持兼容）。
     case frida
     // [T-ios-assistant-header-open-soul]
     case soul
@@ -7647,16 +7647,16 @@ private struct SettingsSheet: View {
                     }
                 }
 
-                // MARK: - 逆向工具（Frida）
-                // 巨魔模式：Gadget 注入 + 内置脚本库；运行日志写入日志系统（分类: Frida）
+                // MARK: - 逆向工具（静态分析）
+                // App 列表（静态目标选择）+ 沙盒工具链（radare2/r2ghidra）
                 Section {
                     NavigationLink {
-                        FridaSettingsView()
+                        AppAnalysisSettingsView()
                     } label: {
                         Label {
-                            Text("Frida")
+                            Text("逆向分析")
                         } icon: {
-                            Image(systemName: "bolt.horizontal.circle")
+                            Image(systemName: "magnifyingglass.circle")
                                 .font(.system(size: 9))
                                 .foregroundStyle(.white)
                                 .frame(width: 21, height: 21)
@@ -7664,9 +7664,9 @@ private struct SettingsSheet: View {
                         }
                     }
                 } header: {
-                    Text("Reverse Engineering")
+                    Text("逆向工具")
                 } footer: {
-                    Text("Frida 动态分析：脚本库管理、目标 App 注入（TrollStore Gadget 模式）、会话日志。让 AI 在对话中生成脚本，审阅后内置。")
+                    Text("目标 App 管理与深度分析引擎：枚举已安装 App、提取二进制，用 radare2 + r2ghidra 输出函数级 C 伪代码。")
                 }
 
                 Section("Logs") {
@@ -7761,7 +7761,7 @@ private struct SettingsSheet: View {
                 case .skills:
                     SkillsManagementView()
                 case .frida:
-                    FridaSettingsView()
+                    AppAnalysisSettingsView()
                 case .soul:
                     SoulSettingsView()
                 case .memory:
