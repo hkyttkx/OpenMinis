@@ -14,7 +14,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: toolchain-out
-          key: reverse-alpine321-aarch64-v2-${{ hashFiles('deps/build_reverse_toolchain.sh') }}
+          key: reverse-alpine321-aarch64-v2-${{ hashFiles('deps/build_reverse_toolchain.sh', 'deps/test_reverse_toolchain.py') }}
       - name: 在 Linux ARM64 编译并执行功能测试
         if: steps.tools-cache.outputs.cache-hit != 'true'
         shell: bash
@@ -22,13 +22,30 @@ jobs:
           set -euo pipefail
           mkdir -p toolchain-out
           docker create --name minis-reverse --platform linux/arm64 alpine:3.21 /bin/sh /root/build-reverse.sh
-          trap 'docker rm -f minis-reverse >/dev/null 2>&1 || true' EXIT
+          collect_diagnostics() {
+            mkdir -p toolchain-diagnostics
+            docker logs minis-reverse > toolchain-diagnostics/container.log 2>&1 || true
+            docker cp minis-reverse:/opt/minis-reverse toolchain-diagnostics/report || true
+            docker rm -f minis-reverse >/dev/null 2>&1 || true
+          }
+          trap collect_diagnostics EXIT
           docker cp deps/build_reverse_toolchain.sh minis-reverse:/root/build-reverse.sh
+          docker cp deps/test_reverse_toolchain.py minis-reverse:/root/test-reverse.py
+          # Script is available before the build, including after apk cleanup.
+          docker cp deps/test_reverse_toolchain.py minis-reverse:/tmp/test-reverse.py
           docker start --attach minis-reverse
           test "$(docker inspect -f '{{.State.ExitCode}}' minis-reverse)" = 0
           docker cp minis-reverse:/opt/minis-reverse toolchain-out/report
           docker export minis-reverse | gzip -1 > toolchain-out/alpine-tools-aarch64.tar.gz
           test -s toolchain-out/alpine-tools-aarch64.tar.gz
+      - name: 保留失败时的完整诊断报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: toolchain-diagnostics
+          path: toolchain-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
       - name: 上传通过功能测试的 rootfs
         uses: actions/upload-artifact@v4
         with:
