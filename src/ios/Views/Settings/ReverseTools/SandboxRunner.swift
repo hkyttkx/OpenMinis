@@ -10,7 +10,7 @@
 
 import Foundation
 
-private let logger = AppLogger(category: "Frida")
+private let logger = AppLogger(category: "Reverse")
 
 enum SandboxRunnerError: Error, LocalizedError {
     case bootFailed(Int)

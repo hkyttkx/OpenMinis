@@ -812,6 +812,27 @@ extension AIChatViewModel {
                 toolOutput = "Error: invalid arguments for r2_execute"
                 toolSuccess = false
             }
+        case "capstone_disasm":
+            // [T-reverse-tools] capstone 指令级反汇编：AI 给一段 Python，
+            // 在沙盒里跑并回传 stdout。
+            let capResult = await executeSandboxScriptTool(
+                from: argsJson, key: "code", msgIdx: msgIdx, blockIdx: blockIdx)
+            toolOutput = capResult.output
+            toolSuccess = capResult.success
+
+        case "binutils_query":
+            // [T-reverse-tools] nm/objdump/readelf/strings 结构查询。
+            let binResult = await executeBinutilsTool(
+                from: argsJson, msgIdx: msgIdx, blockIdx: blockIdx)
+            toolOutput = binResult.output
+            toolSuccess = binResult.success
+
+        case "file_query":
+            // [T-reverse-tools] file 类型识别 + sqlite3 数据库查询。
+            let fileResult = await executeFileQueryTool(
+                from: argsJson, msgIdx: msgIdx, blockIdx: blockIdx)
+            toolOutput = fileResult.output
+            toolSuccess = fileResult.success
         default:
             toolOutput = "Error: Unknown tool '\(tu.name)'"
             toolSuccess = false

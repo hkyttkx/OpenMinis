@@ -156,14 +156,17 @@ extension AIChatViewModel {
             ))
         }
 
-        // [T-r2-tool] radare2 静态分析工具：由「设置 → Frida → 深度分析引擎」开关
-        // 决定是否注册。关闭时 AI 完全看不到这个工具（自然回落到原生
-        // shell_execute 分析路径）；开启后 AI 按需自主调用，无任何内置
-        // 提示词引导 —— 用不用、怎么用由模型和用户对话决定。
+        // [T-r2-tool] 静态分析工具族：每个工具由「设置 → 逆向分析」里的
+        // 对应开关独立控制。工具链是**内置**在 App 里的（随 rootfs 预装），
+        // 开关只决定 AI 是否能看到该工具 —— 关闭时 AI 自然回落到原生
+        // shell_execute（strings/hexdump）分析路径，零开销。
+        //
+        // 开关键名与 AnalysisCapability.defaultsKey 一致；radare2 沿用了历史键
+        // "frida.deepAnalysis"（键名只是历史包袱，语义已是「深度分析引擎」）。
         if UserDefaults.standard.bool(forKey: "frida.deepAnalysis") {
             tools.append(AgentToolDefinition(
                 name: "r2_execute",
-                description: "Run radare2 (r2) commands against a binary file for static analysis. Executes `r2 -q -e scr.color=0 -e bin.relocs.apply=true -c \"<commands>\" <file>` and returns the text output. Requires the reverse toolbox (radare2 + r2ghidra) to be installed in the sandbox via Settings → Frida.",
+                description: "Run radare2 (r2) commands against a binary file for static analysis. Executes `r2 -q -e scr.color=0 -e bin.relocs.apply=true -c \"<commands>\" <file>` and returns the text output. radare2 and the r2ghidra decompiler plugin are bundled in the app — no install step is needed.",
                 parameters: [
                     "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user (e.g. 'List functions in binary', 'Decompile function'). Use the same language as the user."),
                     "file": AgentToolParam(type: .string, description: "Linux path to the binary to analyze (e.g. /var/minis/shared/HexIpa.dylib or /var/minis/attachments/uploads/foo). If omitted, commands run without a file (r2 bare mode)."),
@@ -171,6 +174,50 @@ extension AIChatViewModel {
                 ],
                 required: ["tool_title", "commands"],
                 propertyOrdering: ["tool_title", "file", "commands"]
+            ))
+        }
+
+        // capstone：指令级反汇编引擎（Python 绑定）。r2 适合「看整体」，
+        // capstone 适合 AI 写脚本精确解析一段字节的指令流。
+        if UserDefaults.standard.bool(forKey: "reverse.capstone") {
+            tools.append(AgentToolDefinition(
+                name: "capstone_disasm",
+                description: "Disassemble raw machine code or a binary region using the capstone engine (Python binding). Use this when you need instruction-level detail for a specific byte range, rather than r2's whole-binary view. Runs a Python snippet in the sandbox.",
+                parameters: [
+                    "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user. Use the same language as the user."),
+                    "code": AgentToolParam(type: .string, description: "Python code using the `capstone` module. Must print results (e.g. `from capstone import *; md = Cs(CS_ARCH_ARM64, CS_MODE_ARM); ...`). Available archs: CS_ARCH_ARM64, CS_ARCH_ARM, CS_ARCH_X86. Read bytes with open(path,'rb').read() or from a hex string."),
+                ],
+                required: ["tool_title", "code"],
+                propertyOrdering: ["tool_title", "code"]
+            ))
+        }
+
+        // binutils / file / sqlite：符号与结构层面的辅助查询。
+        if UserDefaults.standard.bool(forKey: "reverse.binutils") {
+            tools.append(AgentToolDefinition(
+                name: "binutils_query",
+                description: "Query binary symbols and structure with bundled binutils (nm, objdump, readelf, strings). Useful for symbol tables, section layout, linked libraries and embedded strings before deeper r2 analysis. Prefer this over plain shell commands when you want structured output.",
+                parameters: [
+                    "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user. Use the same language as the user."),
+                    "file": AgentToolParam(type: .string, description: "Linux path to the binary to inspect."),
+                    "tool": AgentToolParam(type: .string, description: "Which binutils tool to run, plus optional flags (e.g. 'nm -u', 'objdump -h', 'readelf -d', 'strings -a'). Use short flags only.", enumValues: ["nm", "nm -u", "objdump -h", "objdump -t", "readelf -h", "readelf -d", "readelf -s", "strings -a"]),
+                ],
+                required: ["tool_title", "file", "tool"],
+                propertyOrdering: ["tool_title", "file", "tool"]
+            ))
+        }
+
+        if UserDefaults.standard.bool(forKey: "reverse.fileTools") {
+            tools.append(AgentToolDefinition(
+                name: "file_query",
+                description: "Identify a file's real type and inspect its content with bundled `file` and `sqlite3`. Use it to confirm what a blob actually is (Mach-O slice, fat binary, plist, SQLite DB) and to explore SQLite databases found in a target app's data container.",
+                parameters: [
+                    "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user. Use the same language as the user."),
+                    "file": AgentToolParam(type: .string, description: "Linux path to the file to identify or open."),
+                    "sql": AgentToolParam(type: .string, description: "Optional: SQL to run when the file is a SQLite database (e.g. '.tables' or 'SELECT * FROM sqlite_master'). Omit to just identify the file type."),
+                ],
+                required: ["tool_title", "file"],
+                propertyOrdering: ["tool_title", "file", "sql"]
             ))
         }
 

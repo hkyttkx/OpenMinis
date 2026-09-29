@@ -3,135 +3,103 @@
 //
 //  「设置 → 逆向工具 → 逆向分析」。
 //
-//  本页只保留两条能力：
-//    ① 目标 App 管理 —— 枚举已安装 App、读 Bundle / 数据容器、把二进制
-//       与文件复制到沙盒，供 AI 用 strings / radare2 做静态分析。
-//    ② 深度分析引擎 —— 沙盒内安装 radare2 + r2ghidra，AI 可输出函数级
-//       C 伪代码。
+//  工具链是**内置**的：radare2 / capstone / binutils / file / sqlite 以及
+//  r2ghidra 插件都在 rootfs 镜像里预装好（见 deps/prepare_alpine_rootfs.sh），
+//  装完 App 即可用，完全离线，本页不提供也不需要任何「安装」动作。
+//
+//  本页只做两件事：
+//    ① 目标 App 管理 —— 枚举已安装 App、读 Bundle / 数据容器、把二进制或
+//       任意文件复制到沙盒，交给 AI 做静态分析。
+//    ② 分析能力开关 —— 每个能力一个开关，开则该工具对 AI 可见（注册对应的
+//       agent 工具），关则 AI 看不到、回落到 App 原生的 strings/hexdump 分析。
+//       「随开随关」在这里是纯粹的可见性切换，不触发任何下载或安装。
 //
 //  动态注入（Frida Gadget）已整体移除：注入后的目标 App 一律闪退，
-//  且注入链路本身不具备可维护性。静态分析 + 沙盒工具链是本页的完整边界。
+//  且注入链路本身不具备可维护性。静态分析是本页的完整边界。
 //
 
 import SwiftUI
-
-// MARK: - 工具链安装器（App 级单例）
-/// 安装任务脱离本页的生命周期：点一次「安装」后返回聊天、切后台都继续跑。
-/// 后台存活双保险：
-///   ① BackupKeepAlive 静音保活（App 已声明 audio 后台模式，进程保持调度）
-///   ② beginBackgroundTask 有限额度兜底（到期且保活仍在 → 重领）
-/// 极端内存压力下系统仍可能挂起进程：任务暂停而非终止，回前台续跑。
-@MainActor
-final class ToolboxInstaller: ObservableObject {
-    static let shared = ToolboxInstaller()
-
-    @Published private(set) var busy = false
-    @Published private(set) var lines: [String] = []
-
-    private var bgTaskID = UIBackgroundTaskIdentifier.invalid
-
-    func start(deepAnalysis: Bool) {
-        guard !busy else { return }   // 防重复点击；进行中的安装不受影响
-
-        busy = true
-        lines = []
-
-        // 深度分析开启时额外装 radare2 + r2ghidra（源码编译，一次性）
-        let r2Part = deepAnalysis ? """
-        ; \
-        echo "[4] 安装 radare2…"; \
-        apk add --no-cache radare2 radare2-dev git cmake make g++ flex bison >/dev/null 2>&1 \
-          && echo "  radare2 $(r2 -v 2>/dev/null | head -1)" || echo "  ⚠️ radare2 安装失败"; \
-        echo "[5] 编译 r2ghidra（10~30 分钟，仅首次）…"; \
-        r2pm -U >/dev/null 2>&1; r2pm -ci r2ghidra 2>&1 | tail -2; \
-        r2 -qc 'Lc' -- 2>/dev/null | grep -i ghidra >/dev/null && echo "r2ghidra ✅" || echo "r2ghidra 未加载（可重试或用内置 pdc）"
-        """ : ""
-        // community 源修复：py3-lief/py3-capstone/py3-keystone/radare2
-        // 全在 community 仓库，不启用就回落 pip 源码编译（musl 上必失败）。
-        let cmd = """
-        REP=/etc/apk/repositories; \
-        if ! grep -q '/community' $REP 2>/dev/null; then \
-          C=$(head -1 $REP | sed 's|/main$|/community|'); \
-          case "$C" in *community*) echo "$C" >> $REP;; *) echo 'https://dl-cdn.alpinelinux.org/alpine/v3.21/community' >> $REP;; esac; \
-        fi; \
-        apk update >/dev/null 2>&1; \
-        apk add --no-cache python3 py3-pip zip unzip git >/dev/null 2>&1; \
-        echo "[1] 源就绪 + 基础包完成"; \
-        apk add --no-cache py3-lief py3-capstone py3-keystone >/dev/null 2>&1 \
-          && echo "[2] Mach-O 库（lief/capstone/keystone）✓" || \
-          { for p in py3-lief py3-capstone py3-keystone; do apk add --no-cache $p >/dev/null 2>&1 \
-            && echo "  $p ✓" || echo "  $p ✗（非核心）"; done; }; \
-        apk add --no-cache radare2 >/dev/null 2>&1 \
-          && echo "[3] radare2 基础包 ✓" || echo "[3] radare2 基础包 ✗（检查网络后重试）"; \
-        echo TOOLBOX_DONE
-        """
-        // r2ghidra 源码编译耗时 10~30 分钟，开启深度分析时放宽超时
-        let timeout: TimeInterval = deepAnalysis ? 2400 : 570
-
-        // 后台双保险：静音保活 + 有限后台任务
-        BackupKeepAlive.begin()
-        armBackgroundTask()
-
-        Task {
-            defer {
-                busy = false
-                endBackgroundTask()
-                BackupKeepAlive.end()
-            }
-            do {
-                // onLine 由 SandboxRunner 在主线程同步回调（其内部
-                // MainActor.assumeIsolated），这里同样 assume MainActor 追加。
-                let onLine: (String) -> Void = { [weak self] line in
-                    MainActor.assumeIsolated {
-                        guard let self else { return }
-                        self.lines.append(String(line.suffix(160)))
-                        if self.lines.count > 200 {
-                            self.lines.removeFirst(self.lines.count - 200)
-                        }
-                    }
-                }
-                let (out, _) = try await SandboxRunner.run(cmd, timeout: timeout, onLine: onLine)
-                AppAnalysisLog.logger.info("工具链安装输出尾: \(out.suffix(300))")
-                lines.append(out.contains("TOOLBOX_DONE") ? "✅ 安装结束" : "⚠️ 安装流程异常中断，可重试")
-            } catch {
-                lines.append("❌ \(error.localizedDescription)")
-            }
-        }
-    }
-
-    /// 领一个有限后台任务；到期时若静音保活仍持有进程 → 重领续命。
-    private func armBackgroundTask() {
-        guard bgTaskID == .invalid else { return }
-        bgTaskID = UIApplication.shared.beginBackgroundTask(withName: "ToolboxInstall") { [weak self] in
-            // 到期回调在主队列；系统挂起前必须结束该任务避免看门狗杀进程。
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                let expiring = self.bgTaskID
-                self.bgTaskID = .invalid
-                if expiring != .invalid { UIApplication.shared.endBackgroundTask(expiring) }
-                if BackupKeepAlive.isActive { self.armBackgroundTask() }
-            }
-        }
-    }
-
-    private func endBackgroundTask() {
-        guard bgTaskID != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(bgTaskID)
-        bgTaskID = .invalid
-    }
-}
 
 // MARK: - 日志通道
 enum AppAnalysisLog {
     static let logger = AppLogger(category: "Reverse")
 }
 
+// MARK: - 分析能力开关
+/// 一个可开关的静态分析能力。
+///
+/// `defaultsKey` 是持久化键。`r2`/`ghidra` 沿用历史键名 `frida.deepAnalysis`
+/// 以兼容既有用户设置 —— 键名里的 "frida" 只是历史包袱，语义早已是
+/// 「深度分析引擎」，换键会让老用户的开关注状态被静默重置。
+enum AnalysisCapability: String, CaseIterable, Identifiable {
+    /// radare2：反汇编、函数识别、xref、字符串提取。AI 可通过 r2_execute 调用。
+    case radare2
+    /// r2ghidra 伪代码插件：函数级 C 伪代码（`pdg`）。
+    case ghidra
+    /// 反汇编引擎（capstone Python 绑定）：AI 在脚本里做指令级解析。
+    case capstone
+    /// binutils 增强工具集（nm / objdump / readelf / strings）。
+    case binutils
+    /// Mach-O / 文件格式识别（file、sqlite3 查看数据存储）。
+    case fileTools
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .radare2:  return "radare2 反汇编"
+        case .ghidra:   return "r2ghidra 伪代码"
+        case .capstone: return "capstone 指令引擎"
+        case .binutils: return "binutils 工具集"
+        case .fileTools: return "文件与数据库识别"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .radare2:  return "函数识别、交叉引用、字符串提取（AI 可调用 r2_execute）"
+        case .ghidra:   return "输出函数级 C 伪代码，读懂逻辑最快的方式"
+        case .capstone: return "脚本内做指令级反汇编解析"
+        case .binutils: return "nm / objdump / readelf / strings 符号与结构"
+        case .fileTools: return "file 类型识别、sqlite3 读目标 App 数据库"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .radare2:  return "cpu"
+        case .ghidra:   return "curlybraces"
+        case .capstone: return "gearshape.2"
+        case .binutils: return "wrench.and.screwdriver"
+        case .fileTools: return "doc.text.magnifyingglass"
+        }
+    }
+
+    /// 历史键名兼容：radare2 与 ghidra 共用一个「深度分析引擎」开关。
+    var defaultsKey: String {
+        switch self {
+        case .radare2, .ghidra: return "frida.deepAnalysis"
+        case .capstone:         return "reverse.capstone"
+        case .binutils:         return "reverse.binutils"
+        case .fileTools:        return "reverse.fileTools"
+        }
+    }
+
+    /// r2ghidra 与 radare2 是同一个开关（ghidra 是 r2 的插件，单独开关没有意义）。
+    var isMirroredWithRadare2: Bool { self == .ghidra }
+}
+
 // MARK: - 逆向工具设置主页
 /// 入口在「设置 → 逆向工具（逆向分析）」。
 struct AppAnalysisSettingsView: View {
-    @State private var deepAnalysis = UserDefaults.standard.bool(forKey: "frida.deepAnalysis")
+    @AppStorage("frida.deepAnalysis") private var r2Enabled = false
+    @AppStorage("reverse.capstone")  private var capstoneEnabled = false
+    @AppStorage("reverse.binutils")  private var binutilsEnabled = false
+    @AppStorage("reverse.fileTools") private var fileToolsEnabled = false
 
-    private var toolbox: ToolboxInstaller { ToolboxInstaller.shared }
+    /// 工具链是否已随 rootfs 就位。只做只读探测，绝不触发安装。
+    @State private var toolchainStatus: String?
+    @State private var probing = false
 
     var body: some View {
         List {
@@ -148,38 +116,111 @@ struct AppAnalysisSettingsView: View {
                 Text("枚举本机已安装的 App，查看 Bundle 与数据容器，把主二进制或任意文件复制到沙盒，交给 AI 用 strings / radare2 做静态分析。")
             }
 
-            // MARK: 沙盒工具链
+            // MARK: 分析能力开关
             Section {
-                Toggle("深度分析引擎（radare2 + r2ghidra）", isOn: $deepAnalysis)
-                    .onChange(of: deepAnalysis) { on in
-                        UserDefaults.standard.set(on, forKey: "frida.deepAnalysis")
-                        AppAnalysisLog.logger.info(on ? "深度分析引擎已启用" : "深度分析引擎已停用（AI 使用 strings/hexdump 轻量分析）")
-                    }
+                capabilityRow(.radare2)
+                capabilityRow(.ghidra)
+            } header: {
+                Text("深度分析")
+            } footer: {
+                Text("开启后 AI 获得 r2_execute 工具：可对二进制做函数识别、交叉引用与字符串提取，r2ghidra 插件还能输出函数级 C 伪代码。关闭时 AI 只用 App 原生的 strings/hexdump 做轻量分析，零开销。")
+            }
 
+            Section {
+                capabilityRow(.capstone)
+                capabilityRow(.binutils)
+                capabilityRow(.fileTools)
+            } header: {
+                Text("辅助工具")
+            } footer: {
+                Text("工具链已内置在 App 中，离线可用，切换开关即时生效，无需联网或安装。")
+            }
+
+            // MARK: 工具链自检
+            Section {
                 Button {
-                    toolbox.start(deepAnalysis: deepAnalysis)
+                    probeToolchain()
                 } label: {
-                    if toolbox.busy {
-                        HStack { ProgressView(); Text("后台安装中（可离开本页 / 切后台）…") }
-                    } else {
-                        Label(deepAnalysis ? "安装逆向工具链（含 r2ghidra 源码编译）" : "安装逆向工具链",
-                              systemImage: "wrench.and.screwdriver")
+                    HStack {
+                        Label("检测已内置工具", systemImage: "checkmark.shield")
+                        Spacer()
+                        if probing { ProgressView().scaleEffect(0.8) }
                     }
                 }
-                .disabled(toolbox.busy)
+                .disabled(probing)
 
-                if !toolbox.lines.isEmpty {
-                    ForEach(Array(toolbox.lines.suffix(8).enumerated()), id: \.offset) { _, l in
-                        Text(l).font(.caption2.monospaced()).foregroundStyle(.secondary)
-                    }
+                if let toolchainStatus {
+                    Text(toolchainStatus)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
                 }
             } header: {
-                Text("沙盒工具链")
+                Text("工具链状态")
             } footer: {
-                Text("关闭时：AI 用 strings/hexdump 做轻量情报分析（默认，零成本）。开启时：安装并使用 radare2 + r2ghidra，AI 可输出函数级 C 伪代码（代码级深挖，首次安装 r2ghidra 需源码编译约 10~30 分钟，一次性）。两种模式都包含 lief、capstone、keystone。点击安装后可返回聊天或切后台，安装继续进行，回到本页查看进度。")
+                Text("radare2、capstone、binutils、file、sqlite3 与 r2ghidra 均随 App 内置，无需安装。此按钮只做一次只读探测，用于确认版本是否正常。")
             }
         }
         .navigationTitle("逆向分析")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // MARK: - 开关行
+
+    @ViewBuilder
+    private func capabilityRow(_ cap: AnalysisCapability) -> some View {
+        Toggle(isOn: binding(for: cap)) {
+            HStack(spacing: 12) {
+                Image(systemName: cap.systemImage)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(cap == .ghidra ? Color.purple : Color.blue, in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(cap.title)
+                    Text(cap.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func binding(for cap: AnalysisCapability) -> Binding<Bool> {
+        switch cap {
+        case .radare2, .ghidra: return $r2Enabled
+        case .capstone:         return $capstoneEnabled
+        case .binutils:         return $binutilsEnabled
+        case .fileTools:        return $fileToolsEnabled
+        }
+    }
+
+    // MARK: - 工具链自检
+
+    /// 只读探测：把内侧各工具的版本打出来，确认内置工具链完好。
+    /// 刻意不做任何安装动作 —— 工具已经随包内置了。
+    private func probeToolchain() {
+        probing = true
+        toolchainStatus = nil
+        let cmd = """
+        for t in r2 nm objdump readelf strings file sqlite3 python3; do \
+          p=$(command -v $t 2>/dev/null); \
+          if [ -n "$p" ]; then echo "✓ $t"; else echo "✗ $t 缺失"; fi; \
+        done; \
+        echo "—"; \
+        r2 -v 2>/dev/null | head -1; \
+        python3 -c 'import capstone;print("capstone", capstone.__version__)' 2>/dev/null || echo "capstone 模块缺失"; \
+        r2 -qc 'Lc' -- 2>/dev/null | grep -i ghidra >/dev/null && echo "r2ghidra 已加载" || echo "r2ghidra 未加载（r2 pdc 仍可用）"
+        """
+        Task {
+            do {
+                let (out, _) = try await SandboxRunner.run(cmd, timeout: 90, onLine: nil)
+                toolchainStatus = out.trimmingCharacters(in: .whitespacesAndNewlines)
+            } catch {
+                toolchainStatus = "探测失败：\(error.localizedDescription)"
+            }
+            probing = false
+            AppAnalysisLog.logger.info("工具链自检完成")
+        }
     }
 }

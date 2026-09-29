@@ -79,4 +79,148 @@ extension AIChatViewModel {
             return ("Error: r2 execution failed — \(error.localizedDescription)", false)
         }
     }
+
+    // MARK: - [T-reverse-tools] 辅助分析工具
+
+    /// 在沙盒里跑一段 AI 给的 Python 脚本，回传 stdout。
+    ///
+    /// 用途是 capstone 指令级反汇编：AI 需要精确解析某个字节区间时，
+    /// 写一段 Python 比堆 r2 命令更直接。
+    /// 隔离措施（与 shell_execute 的既有约定一致）：
+    ///   * 脚本写入固定临时文件，避免命令行转义问题；
+    ///   * 60s 超时，防止死循环挂住会话；
+    ///   * 输出截断到 3 万字符，避免把整段二进制打进上下文。
+    func executeSandboxScriptTool(
+        from json: String, key: String, msgIdx: Int, blockIdx: Int
+    ) async -> (output: String, success: Bool) {
+        guard let data = json.data(using: .utf8),
+              let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let code = (args[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !code.isEmpty else {
+            return ("Error: '\(key)' is required.", false)
+        }
+
+        // 用 heredoc 写入沙盒文件，再执行 —— 脚本里的引号/反斜杠都不会
+        // 经过 shell 二次解析。
+        let scriptPath = "/tmp/reverse_script.py"
+        let b64 = Data(code.utf8).base64EncodedString()
+        let cmd = """
+        mkdir -p /tmp; \
+        echo '\(b64)' | base64 -d > \(scriptPath) && \
+        python3 \(scriptPath); rc=$?; \
+        echo "---exit:$rc---"
+        """
+
+        if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
+            messages[msgIdx].blocks[blockIdx].content = "⏳ 分析中…"
+            scrollToBottomSignal.send()
+        }
+
+        do {
+            let result: CommandResult = try await executeCommand(cmd, timeout: 120) { [weak self] line in
+                guard let self else { return }
+                if msgIdx < self.messages.count, blockIdx < self.messages[msgIdx].blocks.count {
+                    let cur = self.messages[msgIdx].blocks[blockIdx].content
+                    var next = cur == "⏳ 分析中…" ? line : cur + "\n" + line
+                    if next.count > 30_000 { next = "…[output truncated]…\n" + String(next.suffix(30_000)) }
+                    self.messages[msgIdx].blocks[blockIdx].content = next
+                    self.scrollToBottomSignal.send()
+                }
+            }
+            let exitOK = result.output.contains("---exit:0---")
+            return (result.output, exitOK)
+        } catch {
+            return ("Error: script execution failed — \(error.localizedDescription)", false)
+        }
+    }
+
+    /// 用内置 binutils 查询符号与结构。
+    ///
+    /// 白名单式：只允许固定的几个工具与短参数组合，AI 不能借此执行任意命令。
+    func executeBinutilsTool(
+        from json: String, msgIdx: Int, blockIdx: Int
+    ) async -> (output: String, success: Bool) {
+        guard let data = json.data(using: .utf8),
+              let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return ("Error: invalid arguments for binutils_query", false)
+        }
+        guard var file = (args["file"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !file.isEmpty else {
+            return ("Error: 'file' is required.", false)
+        }
+        if file.hasPrefix("minis://") { file = file.replacingOccurrences(of: "minis://", with: "/var/minis/") }
+        guard !file.contains(where: { "\"';`|&$".contains($0) }) else {
+            return ("Error: invalid characters in 'file' path.", false)
+        }
+
+        let tool = (args["tool"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "nm"
+        // 白名单：只有这些组合可执行。
+        let allowed: Set<String> = [
+            "nm", "nm -u", "objdump -h", "objdump -t",
+            "readelf -h", "readelf -d", "readelf -s", "strings -a",
+        ]
+        guard allowed.contains(tool) else {
+            return ("Error: 'tool' must be one of: \(allowed.sorted().joined(separator: ", "))", false)
+        }
+
+        let cmd = "\(tool) '\(file)' 2>&1 | head -400"
+        return await runStreaming(cmd, label: "\(tool) \(file)", msgIdx: msgIdx, blockIdx: blockIdx)
+    }
+
+    /// 用内置 `file` 确认真实类型，必要时用 sqlite3 查库。
+    func executeFileQueryTool(
+        from json: String, msgIdx: Int, blockIdx: Int
+    ) async -> (output: String, success: Bool) {
+        guard let data = json.data(using: .utf8),
+              let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return ("Error: invalid arguments for file_query", false)
+        }
+        guard var file = (args["file"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !file.isEmpty else {
+            return ("Error: 'file' is required.", false)
+        }
+        if file.hasPrefix("minis://") { file = file.replacingOccurrences(of: "minis://", with: "/var/minis/") }
+        guard !file.contains(where: { "\"';`|&$".contains($0) }) else {
+            return ("Error: invalid characters in 'file' path.", false)
+        }
+
+        let sql = (args["sql"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var cmd = "file '\(file)' 2>&1"
+        if !sql.isEmpty {
+            // SQL 里只禁止会截断命令的字符；引号走 heredoc 传给 sqlite3。
+            guard !sql.contains(where: { ";".contains($0) }) || sql.lowercased().hasPrefix("select") || sql.hasPrefix(".") else {
+                return ("Error: only a single SQL statement or a dot-command is allowed.", false)
+            }
+            guard !sql.contains("'") else {
+                return ("Error: single quotes are not allowed in 'sql'.", false)
+            }
+            cmd += "; echo '--- sqlite3 ---'; sqlite3 '\(file)' '\(sql)' 2>&1 | head -200"
+        }
+        return await runStreaming(cmd, label: "file \(file)", msgIdx: msgIdx, blockIdx: blockIdx)
+    }
+
+    /// 共用：流式跑一条命令，把输出灌进工具卡片。
+    private func runStreaming(
+        _ cmd: String, label: String, msgIdx: Int, blockIdx: Int
+    ) async -> (output: String, success: Bool) {
+        if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
+            messages[msgIdx].blocks[blockIdx].content = "⏳ \(label)…"
+            scrollToBottomSignal.send()
+        }
+        do {
+            let result: CommandResult = try await executeCommand(cmd, timeout: 180) { [weak self] line in
+                guard let self else { return }
+                if msgIdx < self.messages.count, blockIdx < self.messages[msgIdx].blocks.count {
+                    let cur = self.messages[msgIdx].blocks[blockIdx].content
+                    var next = cur.hasPrefix("⏳") ? line : cur + "\n" + line
+                    if next.count > 30_000 { next = "…[output truncated]…\n" + String(next.suffix(30_000)) }
+                    self.messages[msgIdx].blocks[blockIdx].content = next
+                    self.scrollToBottomSignal.send()
+                }
+            }
+            return (result.output, true)
+        } catch {
+            return ("Error: \(label) failed — \(error.localizedDescription)", false)
+        }
+    }
 }

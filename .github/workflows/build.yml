@@ -73,8 +73,12 @@ jobs:
       - name: 编译 iSH 内核
         run: ./deps/build_ish.sh
 
-      - name: 准备 Alpine rootfs
-        run: ./deps/prepare_alpine_rootfs.sh
+      - name: 准备 Alpine rootfs（含逆向工具链预装）
+        timeout-minutes: 90
+        run: |
+          ./deps/prepare_alpine_rootfs.sh
+          echo "=== rootfs 体积 ==="
+          du -sh deps/resources/alpine-rootfs
 
       - name: 编译 Rclone
         run: ./deps/build_rclone_ios.sh
