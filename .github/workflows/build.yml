@@ -149,6 +149,17 @@ jobs:
       - name: 编译 Rclone
         run: ./deps/build_rclone_ios.sh
 
+      - name: 编译逆向注入组件
+        run: |
+          chmod +x src/ios/Reverse/Inject/build_inject_components.sh
+          bash src/ios/Reverse/Inject/build_inject_components.sh "$RUNNER_TEMP/inject-components"
+          echo "=== 编译产物 ==="
+          ls -la "$RUNNER_TEMP/inject-components" || true
+          # 合并进待打包目录（编译产物覆盖预置二进制）
+          mkdir -p src/ios/Resources/Reverse
+          cp -f "$RUNNER_TEMP/inject-components"/* src/ios/Resources/Reverse/ 2>/dev/null || true
+          ls -la src/ios/Resources/Reverse/
+
       - name: 编译 Minis 主程序
         run: |
           xcodebuild -project src/ios/Minis.xcodeproj \
@@ -188,6 +199,35 @@ jobs:
           done
           # 打印签名摘要供核对
           ldid -e "$APP/Minis" | head -20
+
+      - name: 注入辅助工具打包进 App bundle
+        run: |
+          APP="build/Build/Products/Release-iphoneos/Minis.app"
+          SRC="src/ios/Resources/Reverse"
+
+          # 这些工具必须在 bundle 内以可执行文件形式存在（root 子进程要 exec 它们），
+          # 直接拷贝到 .app 根目录 —— 与 FuckDynamicInjector 里
+          # FuckResourcePath(name) = [NSBundle.mainBundle.resourcePath]/name 的查找约定一致。
+          count=0
+          for f in "$SRC"/*; do
+            base="$(basename "$f")"
+            cp -f "$f" "$APP/$base"
+            case "$base" in
+              *.dylib) chmod 0644 "$APP/$base" ;;
+              *)       chmod 0755 "$APP/$base" ;;
+            esac
+            count=$((count+1))
+          done
+          echo "已拷贝 $count 个文件到 App bundle"
+
+          # 同样拷进 CydiaSubstrate 框架包（若工程资源未自带）
+          if [ -f "$SRC/../Reverse/CydiaSubstrate.framework.zip" ] && \
+             [ ! -d "$APP/CydiaSubstrate.framework" ]; then
+            echo "提示: CydiaSubstrate.framework.zip 需在运行时解压，保留 zip 即可"
+          fi
+
+          echo "=== bundle 内注入组件抽查 ==="
+          ls -la "$APP" | grep -E "opainject|ldid|ct_bypass|FuckKfdHelper|insert_dylib|optool|trollstorehelper" || true
 
       - name: 打包 IPA
         run: |
