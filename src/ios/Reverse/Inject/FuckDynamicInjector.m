@@ -24,8 +24,71 @@
 #import <mach-o/nlist.h>
 #import <mach-o/fat.h>
 #import <CommonCrypto/CommonDigest.h>
+#import <sys/sysctl.h>
+#import <sys/utsname.h>
 #import <os/log.h>
 #import <xpc/xpc.h>
+
+// ============== 注入日志（Release 也落盘，供 App 内「注入日志」查看）==============
+//
+// 日志写入 <App Documents>/inject_debug.log。
+// 主进程与 root 子进程（-FuckInject）都会写同一路径 —— 子进程通过
+// 环境变量 FUCK_INJECT_LOG_PATH 拿到主进程传来的绝对路径，
+// 避免子进程因 UID 不同解析到不同 Documents 目录。
+
+static NSString *FuckLogPath(void) {
+    const char *env = getenv("FUCK_INJECT_LOG_PATH");
+    if (env && env[0]) return [NSString stringWithUTF8String:env];
+    // 回退：自己推导 Documents
+    return [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject
+            stringByAppendingPathComponent:@"inject_debug.log"];
+}
+
+static void FuckLogWrite(const char *func, int line, NSString *level, NSString *msg) {
+    NSLog(@"[FuckInject][%s:%d] %@%@", func, line, level ?: @"", msg);
+
+    static NSLock *logLock = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{ logLock = [[NSLock alloc] init]; });
+
+    [logLock lock];
+    @autoreleasepool {
+        NSString *path = FuckLogPath();
+        NSDateFormatter *df = [[NSDateFormatter alloc] init];
+        df.dateFormat = @"HH:mm:ss.SSS";
+        NSString *line_ = [NSString stringWithFormat:@"[%@] %s:%d %@%@\n",
+                           [df stringFromDate:[NSDate date]], func, line, level ?: @"", msg];
+
+        NSFileManager *fm = [NSFileManager defaultManager];
+        if (![fm fileExistsAtPath:path]) {
+            [line_ writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            // 日志文件对 mobile 可读
+            chmod(path.UTF8String, 0644);
+        } else {
+            NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
+            if (fh) {
+                @try {
+                    [fh seekToEndOfFile];
+                    [fh writeData:[line_ dataUsingEncoding:NSUTF8StringEncoding]];
+                    [fh closeFile];
+                } @catch (__unused NSException *e) {}
+            }
+        }
+    }
+    [logLock unlock];
+}
+
+static void FuckLog(const char *func, int line, NSString *format, ...) {
+    va_list args;
+    va_start(args, format);
+    NSString *msg = [[NSString alloc] initWithFormat:format arguments:args];
+    va_end(args);
+    FuckLogWrite(func, line, @"", msg);
+}
+
+#define FLog(fmt, ...) FuckLog(__FUNCTION__, __LINE__, fmt, ##__VA_ARGS__)
+#define FLogError(fmt, ...) FuckLog(__FUNCTION__, __LINE__, @"❌ " fmt, ##__VA_ARGS__)
+#define FLogSuccess(fmt, ...) FuckLog(__FUNCTION__, __LINE__, @"✅ " fmt, ##__VA_ARGS__)
 
 // ============== 外部声明 ==============
 
@@ -224,68 +287,7 @@ typedef struct {
     uint32_t spare2;
 } FuckCS_CodeDirectory;
 
-// ============== 日志系统 ==============
 
-// ============== 注入日志（Release 也落盘，供 App 内「注入日志」查看）==============
-//
-// 日志写入 <App Documents>/inject_debug.log。
-// 主进程与 root 子进程（-FuckInject）都会写同一路径 —— 子进程通过
-// 环境变量 FUCK_INJECT_LOG_PATH 拿到主进程传来的绝对路径，
-// 避免子进程因 UID 不同解析到不同 Documents 目录。
-
-static NSString *FuckLogPath(void) {
-    const char *env = getenv("FUCK_INJECT_LOG_PATH");
-    if (env && env[0]) return [NSString stringWithUTF8String:env];
-    // 回退：自己推导 Documents
-    return [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject
-            stringByAppendingPathComponent:@"inject_debug.log"];
-}
-
-static void FuckLogWrite(const char *func, int line, NSString *level, NSString *msg) {
-    NSLog(@"[FuckInject][%s:%d] %@%@", func, line, level ?: @"", msg);
-
-    static NSLock *logLock = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{ logLock = [[NSLock alloc] init]; });
-
-    [logLock lock];
-    @autoreleasepool {
-        NSString *path = FuckLogPath();
-        NSDateFormatter *df = [[NSDateFormatter alloc] init];
-        df.dateFormat = @"HH:mm:ss.SSS";
-        NSString *line_ = [NSString stringWithFormat:@"[%@] %s:%d %@%@\n",
-                           [df stringFromDate:[NSDate date]], func, line, level ?: @"", msg];
-
-        NSFileManager *fm = [NSFileManager defaultManager];
-        if (![fm fileExistsAtPath:path]) {
-            [line_ writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-            // 日志文件对 mobile 可读
-            chmod(path.UTF8String, 0644);
-        } else {
-            NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
-            if (fh) {
-                @try {
-                    [fh seekToEndOfFile];
-                    [fh writeData:[line_ dataUsingEncoding:NSUTF8StringEncoding]];
-                    [fh closeFile];
-                } @catch (__unused NSException *e) {}
-            }
-        }
-    }
-    [logLock unlock];
-}
-
-static void FuckLog(const char *func, int line, NSString *format, ...) {
-    va_list args;
-    va_start(args, format);
-    NSString *msg = [[NSString alloc] initWithFormat:format arguments:args];
-    va_end(args);
-    FuckLogWrite(func, line, @"", msg);
-}
-
-#define FLog(fmt, ...) FuckLog(__FUNCTION__, __LINE__, fmt, ##__VA_ARGS__)
-#define FLogError(fmt, ...) FuckLog(__FUNCTION__, __LINE__, @"❌ " fmt, ##__VA_ARGS__)
-#define FLogSuccess(fmt, ...) FuckLog(__FUNCTION__, __LINE__, @"✅ " fmt, ##__VA_ARGS__)
 
 // ============== 工具函数 ==============
 
@@ -1214,15 +1216,13 @@ static BOOL FuckWaitForRemoteThread(thread_act_t thread, uint64_t donePC, int ti
 }
 
 // OPAINJECT 核心: 将 dylib 注入到运行中的进程
-// 注入策略（与 App 侧 UI 的选择一一对应）
-//   FUCK_INJECT_MODE_A —— 严格复刻原实现：dylib 位于目标 App bundle 同级目录，
-//                          申请 sandbox extension 后注入
-//   FUCK_INJECT_MODE_B —— 无痕模式：dylib 位于我方 tmp，直接注入绝对路径，
-//                          不往目标 App 目录写任何文件
-typedef NS_ENUM(int, FuckInjectMode) {
-    FuckInjectModeA = 0,
-    FuckInjectModeB = 1,
-};
+// 注入模式 FuckInjectMode 与 FuckInjectModeStrict/Clean 常量见头文件。
+//   Strict —— 严格复刻原实现：dylib 位于目标 App bundle 同级目录，
+//             申请 sandbox extension 后注入
+//   Clean  —— 无痕模式：dylib 位于我方 tmp，直接注入绝对路径，
+//             不往目标 App 目录写任何文件
+#define FuckInjectModeA FuckInjectModeStrict
+#define FuckInjectModeB FuckInjectModeClean
 
 static int FuckOpaInject(pid_t targetPID, const char *dylibPath, FuckInjectMode mode) {
     FLog(@"========== OPAINJECT 开始 (模式 %s) ==========", mode == FuckInjectModeA ? "A/严格复刻" : "B/无痕");
