@@ -14,8 +14,9 @@
 //       agent 工具），关则 AI 看不到、回落到 App 原生的 strings/hexdump 分析。
 //       「随开随关」在这里是纯粹的可见性切换，不触发任何下载或安装。
 //
-//  动态注入（Frida Gadget）已整体移除：注入后的目标 App 一律闪退，
-//  且注入链路本身不具备可维护性。静态分析是本页的完整边界。
+//  动态注入：底层走 Relaxin / roothide 的信任缓存通道（iOS 17.x 可用），
+//  不再依赖 iOS 16 时代的 kfd exploit。入口在「目标 App 管理 → 某个 App →
+//  注入动态库」，支持「严格复刻」与「无痕」两种模式，全过程写入注入日志。
 //
 
 import SwiftUI
@@ -109,6 +110,12 @@ struct AppAnalysisSettingsView: View {
                     FridaAppsView()
                 } label: {
                     Label("目标 App 管理", systemImage: "app.badge")
+                }
+
+                NavigationLink {
+                    InjectLogViewer()
+                } label: {
+                    Label("动态注入日志", systemImage: "doc.text.magnifyingglass")
                 }
             } header: {
                 Text("目标应用")

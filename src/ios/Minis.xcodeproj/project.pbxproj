@@ -434,6 +434,9 @@
 		RAYT0004 /* AIChatViewModel+ReverseTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = RAYT0003 /* AIChatViewModel+ReverseTools.swift */; };
 		FRTR0008 /* InstalledAppsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRTR0007 /* InstalledAppsService.swift */; };
 		FRTR000A /* SandboxRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRTR0009 /* SandboxRunner.swift */; };
+		INJ00021 /* JailbreakInjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ00011 /* JailbreakInjector.swift */; };
+		INJ00022 /* InjectPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ00012 /* InjectPanelView.swift */; };
+		INJ00023 /* InjectLogViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ00013 /* InjectLogViewer.swift */; };
 		E5VMA0006 /* AIChatViewModel+ProviderFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMA0016 /* AIChatViewModel+ProviderFactory.swift */; };
 		E5VMA0007 /* AIChatViewModel+ToolDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMA0017 /* AIChatViewModel+ToolDefinitions.swift */; };
 		E5VMA0008 /* AIChatViewModel+ToolPreflight.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMA0018 /* AIChatViewModel+ToolPreflight.swift */; };
@@ -1114,6 +1117,9 @@
 		RAYT0003 /* AIChatViewModel+ReverseTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+ReverseTools.swift"; sourceTree = "<group>"; };
 		FRTR0007 /* InstalledAppsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstalledAppsService.swift; sourceTree = "<group>"; };
 		FRTR0009 /* SandboxRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SandboxRunner.swift; sourceTree = "<group>"; };
+		INJ00011 /* JailbreakInjector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JailbreakInjector.swift; sourceTree = "<group>"; };
+		INJ00012 /* InjectPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InjectPanelView.swift; sourceTree = "<group>"; };
+		INJ00013 /* InjectLogViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InjectLogViewer.swift; sourceTree = "<group>"; };
 		E5VMA0016 /* AIChatViewModel+ProviderFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+ProviderFactory.swift"; sourceTree = "<group>"; };
 		E5VMA0017 /* AIChatViewModel+ToolDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+ToolDefinitions.swift"; sourceTree = "<group>"; };
 		E5VMA0018 /* AIChatViewModel+ToolPreflight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+ToolPreflight.swift"; sourceTree = "<group>"; };
@@ -1222,9 +1228,19 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		INJ00031 /* Inject */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (INJ00041 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = Inject; sourceTree = "<group>"; };
 		AA0838CB2F3CA8A900049557 /* Terminal */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Terminal; sourceTree = "<group>"; };
 		AA8A568C2F6FBB7A00A3E54E /* MinisUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = MinisUITests; sourceTree = "<group>"; };
 		BB1000012F700000000000AA /* MinisTests */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (E5EXC0001 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = MinisTests; sourceTree = "<group>"; };
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		INJ00041 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+			);
+			target = AA0838CB2F3CA8A900049557 /* Minis */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -2210,12 +2226,23 @@
 			path = Chat;
 			sourceTree = "<group>";
 		};
+		INJ00051 /* Reverse */ = {
+			isa = PBXGroup;
+			children = (
+				INJ00031 /* Inject */,
+			);
+			path = Reverse;
+			sourceTree = "<group>";
+		};
 		FRTR000B /* ReverseTools */ = {
 			isa = PBXGroup;
 			children = (
 				FRTR0001 /* FridaAppsView.swift */,
 				FRTR0007 /* InstalledAppsService.swift */,
 				FRTR0009 /* SandboxRunner.swift */,
+				INJ00011 /* JailbreakInjector.swift */,
+				INJ00012 /* InjectPanelView.swift */,
+				INJ00013 /* InjectLogViewer.swift */,
 			);
 			path = ReverseTools;
 			sourceTree = "<group>";
@@ -2223,6 +2250,7 @@
 		F1V00011 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				INJ00051 /* Reverse */,
 				AA0838A12F3B941A00049557 /* AboutView.swift */,
 				RAYT0001 /* AppAnalysisSettingsView.swift */,
 				FRTR000B /* ReverseTools */,
@@ -2396,6 +2424,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				AA0838CB2F3CA8A900049557 /* Terminal */,
+				INJ00031 /* Inject */,
 			);
 			name = Minis;
 			packageProductDependencies = (
@@ -2693,6 +2722,9 @@
 				RAYT0004 /* AIChatViewModel+ReverseTools.swift in Sources */,
 				FRTR0008 /* InstalledAppsService.swift in Sources */,
 				FRTR000A /* SandboxRunner.swift in Sources */,
+				INJ00021 /* JailbreakInjector.swift in Sources */,
+				INJ00022 /* InjectPanelView.swift in Sources */,
+				INJ00023 /* InjectLogViewer.swift in Sources */,
 
 				BB1000100F700000000000AA /* ContextPolicy.swift in Sources */,
 				AADDA9E12F6ECCF400B66649 /* ThumbnailCache.swift in Sources */,

@@ -2,10 +2,11 @@
 //  FridaAppsView.swift
 //  KyTuT
 //
-//  目标 App 管理（真实实现）：
+//  目标 App 管理：
 //   - 列出全部已安装 App（LSApplicationWorkspace，图标/名称/版本/加密状态）
 //   - 详情页：路径信息 / 浏览沙盒（数据容器 + Bundle）/ 复制到沙盒供 AI 分析
-//   - 动态注入已移除：注入后的目标 App 一律闪退，本页只留静态分析入口
+//   - 详情页内置「动态注入」面板：选择 dylib 与注入模式后可对当前 App 注入
+//     （运行时可逆，重启后失效；注入日志可在 App 内查看）
 //
 
 import SwiftUI
@@ -160,6 +161,58 @@ struct FridaAppDetailView: View {
                     }
                 } header: {
                     Text("加密状态")
+                }
+
+                Section("动态注入") {
+                    NavigationLink {
+                        InjectPanelView(app: app)
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "bolt.fill")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 28, height: 28)
+                                .background(Color.orange, in: Circle())
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("注入动态库")
+                                Text("运行时注入，重启后失效；支持严格复刻 / 无痕两种模式")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    NavigationLink {
+                        InjectLogViewer()
+                    } label: {
+                        Label("注入日志", systemImage: "doc.text.magnifyingglass")
+                    }
+                }
+
+                Section("动态注入") {
+                    NavigationLink {
+                        InjectPanelView(app: app)
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "bolt.fill")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 28, height: 28)
+                                .background(Color.orange, in: Circle())
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("注入动态库")
+                                Text("支持「严格复刻」与「无痕」两种模式")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    NavigationLink {
+                        InjectLogViewer()
+                    } label: {
+                        Label("注入日志", systemImage: "doc.text.magnifyingglass")
+                    }
                 }
 
                 Section("沙盒") {
