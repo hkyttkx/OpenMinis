@@ -262,15 +262,22 @@ enum JailbreakInjector {
 
         let count = proc_listallpids(nil, 0)
         guard count > 0 else { return -1 }
+
         var pids = [pid_t](repeating: 0, count: Int(count))
-        let actual = proc_listallpids(&pids, Int32(count * MemoryLayout<pid_t>.size))
+        let bufSize: Int32 = Int32(count) * Int32(MemoryLayout<pid_t>.size)
+        let actual = pids.withUnsafeMutableBufferPointer { ptr -> Int32 in
+            proc_listallpids(ptr.baseAddress, bufSize)
+        }
         guard actual > 0 else { return -1 }
 
         var buf = [CChar](repeating: 0, count: 4096)
         for i in 0..<Int(actual) {
             let p = pids[i]
             guard p > 0 else { continue }
-            if proc_pidpath(p, &buf, 4096) > 0 {
+            let ok = buf.withUnsafeMutableBufferPointer { bp -> Int32 in
+                proc_pidpath(p, bp.baseAddress, UInt32(bp.count))
+            }
+            if ok > 0 {
                 let path = String(cString: buf)
                 if path == target { return p }
             }
@@ -291,18 +298,19 @@ enum JailbreakInjector {
     // MARK: 拉起 App
 
     private static func openApp(bundleID: String) {
-        guard let wsClass = NSClassFromString("LSApplicationWorkspace") as? NSObject.Type else { return }
-        let sel = NSSelectorFromString("defaultWorkspace")
-        guard let ws = wsClass.perform(sel)?.takeUnretainedValue() as? NSObject else { return }
+        // LSApplicationWorkspace 是私有类，全程动态调用。
+        // openApplicationWithBundleID: 返回 BOOL，perform 会把返回值当对象指针处理，
+        // 因此这里改用 objc_msgSend 的 Swift 侧等价写法 —— 直接经由 NSObject 的
+        // perform 仅用于取 workspace 实例，真正打开应用走 respond 检查后再调用。
+        guard let wsClass = NSClassFromString("LSApplicationWorkspace") as AnyObject? else { return }
+        let wsSel = NSSelectorFromString("defaultWorkspace")
+        guard wsClass.responds(to: wsSel) else { return }
+        guard let wsAny = wsClass.perform(wsSel)?.takeUnretainedValue() else { return }
+
         let openSel = NSSelectorFromString("openApplicationWithBundleID:")
-        guard ws.responds(to: openSel),
-              let sig = ws.methodSignature(for: openSel) else { return }
-        let inv = NSInvocation(invocationWithMethodSignature: sig)
-        inv.target = ws
-        inv.selector = openSel
-        var bid = bundleID as NSString
-        inv.setArgument(&bid, atIndex: 2)
-        inv.invoke()
+        guard let ws = wsAny as? NSObject, ws.responds(to: openSel) else { return }
+        // 用 perform(_:with:) 传参；返回 BOOL 时忽略返回值（不取 return，避免误读指针）
+        _ = ws.perform(openSel, with: bundleID as NSString)
     }
 
     // MARK: 崩溃报告

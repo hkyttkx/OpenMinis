@@ -71,3 +71,7 @@
 
 // rclone static library (deps/frameworks/Rclone.xcframework) — see RcloneBridge.swift
 #import "librclone.h"
+
+// 动态注入引擎（mach 线程注入 + roothide/Relaxin 信任缓存通道）。
+// 头文件位于 src/ios/Reverse/Inject/，由 HEADER_SEARCH_PATHS 解析。
+#import "FuckDynamicInjector.h"
