@@ -124,6 +124,14 @@ for record in selected.values():
         members = [m for m in archive.getmembers() if safe_member(m.name)]
         archive.extractall(stage, members=members)
 
+# Package fallback may place the real binary in /usr/bin and libraries in
+# /usr/lib. Use the same stable command path as the source-built overlay.
+os.makedirs(os.path.join(stage, "usr", "local", "bin"), exist_ok=True)
+wrapper = os.path.join(stage, "usr", "local", "bin", "r2")
+with open(wrapper, "w", encoding="utf-8") as handle:
+    handle.write("#!/bin/sh\nset -eu\nexport LD_LIBRARY_PATH=/usr/lib:${LD_LIBRARY_PATH:-}\nexec /usr/bin/r2 \\\"$@\\\"\n")
+os.chmod(wrapper, 0o755)
+
 marker = os.path.join(stage, "opt", "minis-reverse-tools", "manifest.json")
 os.makedirs(os.path.dirname(marker), exist_ok=True)
 with open(marker, "w", encoding="utf-8") as handle:

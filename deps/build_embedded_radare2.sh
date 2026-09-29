@@ -34,9 +34,27 @@ docker run --rm --platform linux/arm64 \
     make install
     mkdir -p /tmp/overlay/usr/local/bin /tmp/overlay/opt
     cp -a /opt/minis-reverse-tools /tmp/overlay/opt/
-    ln -s /opt/minis-reverse-tools/bin/r2 /tmp/overlay/usr/local/bin/r2
-    ln -s /opt/minis-reverse-tools/bin/rabin2 /tmp/overlay/usr/local/bin/rabin2
-    printf "%s\n" "{\"engine\":\"radare2\",\"version\":\"$R2_VERSION\",\"source\":\"https://github.com/radareorg/radare2\",\"runtimeDownload\":false,\"decompiler\":\"pdc\"}" > /tmp/overlay/opt/minis-reverse-tools/manifest.json
+    # Alpine loader does not know the custom prefix. Keep the real binary
+    # private and expose a wrapper with an explicit, relocatable library path.
+    cat > /tmp/overlay/usr/local/bin/r2 <<WRAPPER
+#!/bin/sh
+set -eu
+ROOT=/opt/minis-reverse-tools
+export LD_LIBRARY_PATH="\$ROOT/lib:\${LD_LIBRARY_PATH:-}"
+exec "\$ROOT/bin/r2" "\$@"
+WRAPPER
+    chmod 755 /tmp/overlay/usr/local/bin/r2
+    cat > /tmp/overlay/usr/local/bin/rabin2 <<WRAPPER
+#!/bin/sh
+set -eu
+ROOT=/opt/minis-reverse-tools
+export LD_LIBRARY_PATH="\$ROOT/lib:\${LD_LIBRARY_PATH:-}"
+exec "\$ROOT/bin/rabin2" "\$@"
+WRAPPER
+    chmod 755 /tmp/overlay/usr/local/bin/rabin2
+    printf "%s\n" "{\"engine\":\"radare2\",\"version\":\"$R2_VERSION\",\"source\":\"https://github.com/radareorg/radare2\",\"runtimeDownload\":false,\"decompiler\":\"pdc\",\"libraryPath\":\"/opt/minis-reverse-tools/lib\"}" > /tmp/overlay/opt/minis-reverse-tools/manifest.json
+    LD_LIBRARY_PATH=/opt/minis-reverse-tools/lib /opt/minis-reverse-tools/bin/r2 -q -c "?V" >/tmp/r2-version.txt
+    test -s /tmp/r2-version.txt
     tar -czf "/src/$OUT_REL" -C /tmp/overlay .
   '
 

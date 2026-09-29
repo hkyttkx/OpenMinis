@@ -18,10 +18,12 @@ struct FridaScript: Identifiable, Codable {
 
 enum FridaExportError: LocalizedError {
     case noEnabledScripts
+    case gadgetMissing
 
     var errorDescription: String? {
         switch self {
         case .noEnabledScripts: return "没有已启用的 Frida 脚本可导出"
+        case .gadgetMissing: return "FridaGadget.dylib 未包含在当前 IPA 中"
         }
     }
 }
@@ -98,6 +100,12 @@ enum FridaStore {
         try? FileManager.default.removeItem(at: packageDir)
         try FileManager.default.createDirectory(at: packageDir.appendingPathComponent("scripts", isDirectory: true), withIntermediateDirectories: true)
 
+        guard let gadget = Bundle.main.url(forResource: "FridaGadget", withExtension: "dylib"),
+              FileManager.default.fileExists(atPath: gadget.path) else {
+            throw FridaExportError.gadgetMissing
+        }
+        try FileManager.default.copyItem(at: gadget, to: packageDir.appendingPathComponent("FridaGadget.dylib"))
+
         var entries: [[String: Any]] = []
         for (index, script) in enabled.enumerated() {
             let fileName = String(format: "%02d-%@.js", index + 1, safeFileName(script.name))
@@ -139,7 +147,7 @@ enum FridaStore {
         let readme = """
 OpenMinis Frida 外部注入包
 
-1. 使用外部巨魔/TrollStore 注入器将 FridaGadget.dylib 注入目标 App。
+1. 使用外部巨魔/TrollStore 注入器将本包内的 FridaGadget.dylib 注入目标 App。
 2. 将 FridaGadget.config、frida-loader.js 和 scripts/ 放到注入器要求的位置。
 3. 由外部注入器负责 Mach-O 修改、重签和安装。
 4. 启动目标 App 后，在 OpenMinis → 设置 → Frida → 会话日志查看：
