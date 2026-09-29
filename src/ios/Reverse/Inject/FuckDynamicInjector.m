@@ -108,6 +108,100 @@ extern int posix_spawnattr_set_persona_gid_np(posix_spawnattr_t *attr, gid_t gid
 // kfd headers
 
 
+// ============== Relaxin / roothide 桥接 ==============
+//
+// Relaxin 越狱基于 roothide 架构（vendor 自 Dopamine 的 BaseBin）。
+// roothide 把越狱根放在一个随机路径（jbroot），并提供 jbserver XPC 接口。
+// 与 trust cache 相关的关键接口：
+//
+//   int jbclient_trust_library_recurse(const char *libraryPath, void *addressInCaller);
+//   int jbclient_trust_file_by_path(const char *path);
+//   bool jbclient_roothide_jailbroken(void);
+//   char *jbclient_get_jbroot(void);
+//
+// jbserver 走 launchd 的 xpc_bootstrap_pipe，域名 JBS_DOMAIN_ROOTHIDE = 5。
+// 这里全部用 dlsym 动态解析，避免编译期链接依赖（libjailbreak 在非越狱环境不存在）。
+
+typedef int (*FuckTrustLibraryRecurseFn)(const char *, void *);
+typedef int (*FuckTrustFileByPathFn)(const char *);
+typedef bool (*FuckRoothideJailbrokenFn)(void);
+typedef char *(*FuckGetJbrootFn)(void);
+
+// 加载 libjailbreak（roothide 版本），返回句柄；失败返回 NULL
+static void *FuckLoadLibJailbreak(void) {
+    // roothide 的 jbroot 是随机路径，先尝试从 jbserver 查询
+    static void *cached = NULL;
+    static BOOL tried = NO;
+    if (tried) return cached;
+    tried = YES;
+
+    const char *candidates[] = {
+        "/var/jb/usr/lib/libjailbreak.dylib",
+        "/usr/lib/libjailbreak.dylib",
+        "/var/jb/basebin/libjailbreak.dylib",
+        NULL
+    };
+    for (int i = 0; candidates[i]; i++) {
+        void *h = dlopen(candidates[i], RTLD_NOW);
+        if (h) {
+            cached = h;
+            FLog(@"[roothide] libjailbreak 已加载: %s", candidates[i]);
+            return cached;
+        }
+    }
+    // 最后尝试 dyld 全局（若 jailbreakd 注入过）
+    cached = dlopen("libjailbreak.dylib", RTLD_NOW);
+    if (cached) FLog(@"[roothide] libjailbreak 从 dyld 加载成功");
+    else FLog(@"[roothide] libjailbreak 未找到（非越狱环境或路径变化）");
+    return cached;
+}
+
+// 返回 YES 表示走通了 roothide 通道
+static BOOL FuckRoothideTrustDylib(NSString *dylibPath) {
+    void *h = FuckLoadLibJailbreak();
+    if (!h) return NO;
+
+    // 先确认处于 roothide 越狱环境
+    FuckRoothideJailbrokenFn jailbroken =
+        (FuckRoothideJailbrokenFn)dlsym(h, "jbclient_roothide_jailbroken");
+    if (jailbroken && !jailbroken()) {
+        FLog(@"[roothide] jbclient_roothide_jailbroken() == false");
+        return NO;
+    }
+
+    FuckTrustLibraryRecurseFn trustLibrary =
+        (FuckTrustLibraryRecurseFn)dlsym(h, "jbclient_trust_library_recurse");
+    if (trustLibrary) {
+        int r = trustLibrary(dylibPath.UTF8String, NULL);
+        FLog(@"[roothide] jbclient_trust_library_recurse => %d", r);
+        if (r == 0) return YES;
+    } else {
+        FLog(@"[roothide] 无 jbclient_trust_library_recurse 符号");
+    }
+
+    FuckTrustFileByPathFn trustPath =
+        (FuckTrustFileByPathFn)dlsym(h, "jbclient_trust_file_by_path");
+    if (trustPath) {
+        int r = trustPath(dylibPath.UTF8String);
+        FLog(@"[roothide] jbclient_trust_file_by_path => %d", r);
+        if (r == 0) return YES;
+    } else {
+        FLog(@"[roothide] 无 jbclient_trust_file_by_path 符号");
+    }
+
+    return NO;
+}
+
+// 查询 roothide 越狱根（用于日志与路径构造）
+static NSString *FuckRoothideJbroot(void) {
+    void *h = FuckLoadLibJailbreak();
+    if (!h) return nil;
+    FuckGetJbrootFn getRoot = (FuckGetJbrootFn)dlsym(h, "jbclient_get_jbroot");
+    if (!getRoot) return nil;
+    char *p = getRoot();
+    return p ? [NSString stringWithUTF8String:p] : nil;
+}
+
 // ============== CDHash 常量 ==============
 #define FUCK_CS_MAGIC_EMBEDDED_SIGNATURE 0xfade0cc0
 #define FUCK_CS_MAGIC_CODEDIRECTORY      0xfade0c02
@@ -132,28 +226,66 @@ typedef struct {
 
 // ============== 日志系统 ==============
 
-#ifdef DEBUG
+// ============== 注入日志（Release 也落盘，供 App 内「注入日志」查看）==============
+//
+// 日志写入 <App Documents>/inject_debug.log。
+// 主进程与 root 子进程（-FuckInject）都会写同一路径 —— 子进程通过
+// 环境变量 FUCK_INJECT_LOG_PATH 拿到主进程传来的绝对路径，
+// 避免子进程因 UID 不同解析到不同 Documents 目录。
+
+static NSString *FuckLogPath(void) {
+    const char *env = getenv("FUCK_INJECT_LOG_PATH");
+    if (env && env[0]) return [NSString stringWithUTF8String:env];
+    // 回退：自己推导 Documents
+    return [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject
+            stringByAppendingPathComponent:@"inject_debug.log"];
+}
+
+static void FuckLogWrite(const char *func, int line, NSString *level, NSString *msg) {
+    NSLog(@"[FuckInject][%s:%d] %@%@", func, line, level ?: @"", msg);
+
+    static NSLock *logLock = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{ logLock = [[NSLock alloc] init]; });
+
+    [logLock lock];
+    @autoreleasepool {
+        NSString *path = FuckLogPath();
+        NSDateFormatter *df = [[NSDateFormatter alloc] init];
+        df.dateFormat = @"HH:mm:ss.SSS";
+        NSString *line_ = [NSString stringWithFormat:@"[%@] %s:%d %@%@\n",
+                           [df stringFromDate:[NSDate date]], func, line, level ?: @"", msg];
+
+        NSFileManager *fm = [NSFileManager defaultManager];
+        if (![fm fileExistsAtPath:path]) {
+            [line_ writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+            // 日志文件对 mobile 可读
+            chmod(path.UTF8String, 0644);
+        } else {
+            NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:path];
+            if (fh) {
+                @try {
+                    [fh seekToEndOfFile];
+                    [fh writeData:[line_ dataUsingEncoding:NSUTF8StringEncoding]];
+                    [fh closeFile];
+                } @catch (__unused NSException *e) {}
+            }
+        }
+    }
+    [logLock unlock];
+}
 
 static void FuckLog(const char *func, int line, NSString *format, ...) {
     va_list args;
     va_start(args, format);
     NSString *msg = [[NSString alloc] initWithFormat:format arguments:args];
     va_end(args);
-    NSLog(@"[FuckInject][%s:%d] %@", func, line, msg);
+    FuckLogWrite(func, line, @"", msg);
 }
 
 #define FLog(fmt, ...) FuckLog(__FUNCTION__, __LINE__, fmt, ##__VA_ARGS__)
 #define FLogError(fmt, ...) FuckLog(__FUNCTION__, __LINE__, @"❌ " fmt, ##__VA_ARGS__)
 #define FLogSuccess(fmt, ...) FuckLog(__FUNCTION__, __LINE__, @"✅ " fmt, ##__VA_ARGS__)
-
-#else
-
-// Release: 完全静默，不写文件，不打印
-#define FLog(fmt, ...) ((void)0)
-#define FLogError(fmt, ...) ((void)0)
-#define FLogSuccess(fmt, ...) ((void)0)
-
-#endif
 
 // ============== 工具函数 ==============
 
@@ -613,12 +745,30 @@ static int FuckJailbreakdTrustCacheAdd(NSData *cdhash) {
         return -3;
     }
 
+    // 端口名多候选：Dopamine / roothide / 通用别名
+    const char *jbdNames[] = {
+        "com.opa334.jailbreakd",
+        "com.opa334.jailbreakd.xpc",
+        "jailbreakd",
+        "com.roothide.jailbreakd",
+        NULL
+    };
     mach_port_t jbdPort = MACH_PORT_NULL;
-    kern_return_t kr = bootstrap_look_up(bootstrap_port, "com.opa334.jailbreakd", &jbdPort);
-    if (kr != KERN_SUCCESS || jbdPort == MACH_PORT_NULL) {
-        FLog(@"[TrustCache] jailbreakd 不可用 (kr=%d), 非越狱环境", kr);
+    kern_return_t kr = KERN_FAILURE;
+    const char *hitName = NULL;
+    for (int ni = 0; jbdNames[ni]; ni++) {
+        kr = bootstrap_look_up(bootstrap_port, jbdNames[ni], &jbdPort);
+        if (kr == KERN_SUCCESS && jbdPort != MACH_PORT_NULL) {
+            hitName = jbdNames[ni];
+            break;
+        }
+        jbdPort = MACH_PORT_NULL;
+    }
+    if (jbdPort == MACH_PORT_NULL) {
+        FLog(@"[TrustCache] jailbreakd 全端口名均不可用 (kr=%d)", kr);
         return -4;
     }
+    FLog(@"[TrustCache] jailbreakd 端口命中: %s", hitName);
 
     void *pipe = _pipe_create(jbdPort, 0);
     if (!pipe) {
@@ -747,11 +897,23 @@ static BOOL FuckInjectTrustCache(NSString *filePath) {
     }
 
     const uint8_t *bytes = cdhash.bytes;
-    NSMutableString *hex = [NSMutableString stringWithCapacity:FUCK_CS_CDHASH_LEN * 2];
+    NSMutableString *hex = [NSMutableString stringWithCapacity: FUCK_CS_CDHASH_LEN * 2];
     for (int i = 0; i < FUCK_CS_CDHASH_LEN; i++) [hex appendFormat:@"%02x", bytes[i]];
     FLog(@"[TrustCache] CDHash: %@", hex);
 
-    FLog(@"[TrustCache] Phase 1: 尝试 jailbreakd IPC...");
+    NSString *jbroot = FuckRoothideJbroot();
+    if (jbroot) FLog(@"[TrustCache] roothide jbroot: %@", jbroot);
+
+    // ---- Phase 1: Relaxin / roothide jbserver（iOS 17.x 上的正路）----
+    FLog(@"[TrustCache] Phase 1: roothide jbserver (Relaxin)...");
+    if (FuckRoothideTrustDylib(filePath)) {
+        FLogSuccess(@"[TrustCache] roothide trust cache 注入成功!");
+        return YES;
+    }
+    FLog(@"[TrustCache] roothide 通道未走通，继续尝试其他路径");
+
+    // ---- Phase 2: Dopamine jailbreakd IPC（多端口名候选）----
+    FLog(@"[TrustCache] Phase 2: jailbreakd IPC...");
     int ret = FuckJailbreakdTrustCacheAdd(cdhash);
     if (ret == 0) {
         FLogSuccess(@"[TrustCache] jailbreakd trust cache 注入成功!");
@@ -759,7 +921,8 @@ static BOOL FuckInjectTrustCache(NSString *filePath) {
     }
     FLog(@"[TrustCache] jailbreakd IPC 返回: %d", ret);
 
-    FLog(@"[TrustCache] Phase 2: kfd exploit...");
+    // ---- Phase 3: kfd exploit（兜底，iOS 16.x 及以下可用）----
+    FLog(@"[TrustCache] Phase 3: kfd exploit...");
     BOOL kfdResult = FuckKfdTrustCacheInject(cdhash);
     if (kfdResult) {
         FLogSuccess(@"[TrustCache] kfd trust cache 注入成功!");
@@ -772,20 +935,28 @@ static BOOL FuckInjectTrustCache(NSString *filePath) {
 
 // ============== OPAINJECT 核心注入引擎 ==============
 
+// 返回落脚点（ropLoop）查找。
+//
+// 历史实现依赖 "shared cache 基址 >= 0x140000000" 这一硬编码假设，
+// 在 iOS 17.x 的 dyld shared cache 新布局下该阈值失效，会命中到不属于
+// 目标进程映射范围的地址，thread_set_state 后目标进程执行到无效地址直接
+// SIGSEGV（这正是 17.0 以上闪退的直接原因）。
+//
+// 现改为：
+//   1. 优先搜索 "ret; ret" 连续指令序列 —— 这是编译器为函数末尾对齐
+//      产生的固定模式，任何 iOS 版本的 shared cache 里都存在，且跳进去
+//      执行完就回落到 LR(=0) 处停住，语义与原来的 "b ." 自旋等价；
+//   2. 回退到 "b ."（0x14000000）搜索，但不做基址范围限制。
 static uint64_t FuckFindRopLoop(void) {
+    const uint32_t RET_INSN = 0xD65F03C0;
+
     uint32_t imageCount = _dyld_image_count();
+
+    // ---- 优先：ret; ret 序列（版本无关） ----
     for (uint32_t i = 0; i < imageCount; i++) {
         const struct mach_header_64 *header =
             (const struct mach_header_64 *)_dyld_get_image_header(i);
         if (!header || header->magic != MH_MAGIC_64) continue;
-
-        // ropLoop 必须在 dyld shared cache 中（目标进程也有同样的映射）
-        // 跳过 App 自身的 image（地址通常在 0x100000000 附近，目标进程没有）
-        // shared cache image 地址通常在 0x180000000+ (arm64e) 或 0x1b0000000+
-        uint64_t headerAddr = (uint64_t)header;
-        if (headerAddr < 0x140000000ULL) {
-            continue; // 跳过非 shared cache image
-        }
 
         intptr_t slide = _dyld_get_image_vmaddr_slide(i);
         const struct load_command *cmd =
@@ -795,19 +966,19 @@ static uint64_t FuckFindRopLoop(void) {
             if (cmd->cmd == LC_SEGMENT_64) {
                 const struct segment_command_64 *seg = (const struct segment_command_64 *)cmd;
                 if (strcmp(seg->segname, "__TEXT") == 0) {
-                    const struct section_64 *sec = (const struct section_64 *)((uint8_t *)seg + sizeof(*seg));
+                    const struct section_64 *sec =
+                        (const struct section_64 *)((uint8_t *)seg + sizeof(*seg));
                     for (uint32_t k = 0; k < seg->nsects; k++) {
-                        if (strcmp(sec[k].sectname, "__text") == 0 && sec[k].size >= 4) {
-                            uint32_t *code = (uint32_t *)(sec[k].addr + slide);
-                            size_t count = sec[k].size / sizeof(uint32_t);
-                            for (size_t n = 0; n < count; n++) {
-                                if (code[n] == 0x14000000) {
-                                    uint64_t addr = (uint64_t)&code[n];
-                                    const char *imgName = _dyld_get_image_name(i);
-                                    FLog(@"找到 ropLoop: 0x%llx (image %d: %s)", addr, i,
-                                         imgName ? imgName : "unknown");
-                                    return addr;
-                                }
+                        if (strcmp(sec[k].sectname, "__text") != 0 || sec[k].size < 8) continue;
+                        uint32_t *code = (uint32_t *)(sec[k].addr + slide);
+                        size_t count = sec[k].size / sizeof(uint32_t);
+                        for (size_t n = 0; n + 1 < count; n++) {
+                            if (code[n] == RET_INSN && code[n + 1] == RET_INSN) {
+                                uint64_t addr = (uint64_t)&code[n];
+                                const char *imgName = _dyld_get_image_name(i);
+                                FLog(@"找到 ropLoop(ret;ret): 0x%llx (image %d: %s)",
+                                     addr, i, imgName ? imgName : "unknown");
+                                return addr;
                             }
                         }
                     }
@@ -816,7 +987,43 @@ static uint64_t FuckFindRopLoop(void) {
             cmd = (const struct load_command *)((uint8_t *)cmd + cmd->cmdsize);
         }
     }
-    FLogError(@"未在 shared cache 中找到 ropLoop");
+
+    // ---- 回退：b .（不做基址范围限制） ----
+    for (uint32_t i = 0; i < imageCount; i++) {
+        const struct mach_header_64 *header =
+            (const struct mach_header_64 *)_dyld_get_image_header(i);
+        if (!header || header->magic != MH_MAGIC_64) continue;
+
+        intptr_t slide = _dyld_get_image_vmaddr_slide(i);
+        const struct load_command *cmd =
+            (const struct load_command *)((uint8_t *)header + sizeof(struct mach_header_64));
+
+        for (uint32_t j = 0; j < header->ncmds; j++) {
+            if (cmd->cmd == LC_SEGMENT_64) {
+                const struct segment_command_64 *seg = (const struct segment_command_64 *)cmd;
+                if (strcmp(seg->segname, "__TEXT") == 0) {
+                    const struct section_64 *sec =
+                        (const struct section_64 *)((uint8_t *)seg + sizeof(*seg));
+                    for (uint32_t k = 0; k < seg->nsects; k++) {
+                        if (strcmp(sec[k].sectname, "__text") != 0 || sec[k].size < 4) continue;
+                        uint32_t *code = (uint32_t *)(sec[k].addr + slide);
+                        size_t count = sec[k].size / sizeof(uint32_t);
+                        for (size_t n = 0; n < count; n++) {
+                            if (code[n] == 0x14000000) {
+                                uint64_t addr = (uint64_t)&code[n];
+                                const char *imgName = _dyld_get_image_name(i);
+                                FLog(@"找到 ropLoop(b): 0x%llx (image %d: %s)", addr, i,
+                                     imgName ? imgName : "unknown");
+                                return addr;
+                            }
+                        }
+                    }
+                }
+            }
+            cmd = (const struct load_command *)((uint8_t *)cmd + cmd->cmdsize);
+        }
+    }
+    FLogError(@"未在任意 image 中找到 ropLoop");
     return 0;
 }
 
@@ -1007,10 +1214,29 @@ static BOOL FuckWaitForRemoteThread(thread_act_t thread, uint64_t donePC, int ti
 }
 
 // OPAINJECT 核心: 将 dylib 注入到运行中的进程
-static int FuckOpaInject(pid_t targetPID, const char *dylibPath) {
-    FLog(@"========== OPAINJECT 开始 ==========");
+// 注入策略（与 App 侧 UI 的选择一一对应）
+//   FUCK_INJECT_MODE_A —— 严格复刻原实现：dylib 位于目标 App bundle 同级目录，
+//                          申请 sandbox extension 后注入
+//   FUCK_INJECT_MODE_B —— 无痕模式：dylib 位于我方 tmp，直接注入绝对路径，
+//                          不往目标 App 目录写任何文件
+typedef NS_ENUM(int, FuckInjectMode) {
+    FuckInjectModeA = 0,
+    FuckInjectModeB = 1,
+};
+
+static int FuckOpaInject(pid_t targetPID, const char *dylibPath, FuckInjectMode mode) {
+    FLog(@"========== OPAINJECT 开始 (模式 %s) ==========", mode == FuckInjectModeA ? "A/严格复刻" : "B/无痕");
     FLog(@"目标 PID: %d, dylib: %s", targetPID, dylibPath);
     FLog(@"运行身份 UID: %d", getuid());
+
+    {
+        char kb[64] = {0}; size_t kbl = sizeof(kb);
+        sysctlbyname("kern.osproductversion", kb, &kbl, NULL, 0);
+        char kv[256] = {0}; size_t kvl = sizeof(kv);
+        sysctlbyname("kern.version", kv, &kvl, NULL, 0);
+        FLog(@"[环境] iOS %s", kb);
+        FLog(@"[环境] %s", kv);
+    }
 
     mach_port_t targetTask = MACH_PORT_NULL;
     kern_return_t kr = task_for_pid(mach_task_self(), targetPID, &targetTask);
@@ -1089,11 +1315,23 @@ static int FuckOpaInject(pid_t targetPID, const char *dylibPath) {
     mach_vm_protect(targetTask, remoteAddr, allocSize, FALSE, VM_PROT_READ | VM_PROT_WRITE);
 
     // Sandbox Extension
+    //
+    // 模式 A（严格复刻）：绝不主动申请 extension。原实现的语义是
+    //   「dylib 已在目标 App 自己的 bundle 目录内，目标进程天然有权读」，
+    //   只有当内核判定仍然缺权限时才补发 token。
+    // 模式 B（无痕）：dylib 在我方 tmp 目录，必然需要 extension 授权，
+    //   主动申请并注入 consume。
     int readExtNeeded = sandbox_check(targetPID, "file-read-data",
                                        FUCK_SANDBOX_FILTER_PATH | SANDBOX_CHECK_NO_REPORT, dylibPath);
     int execExtNeeded = sandbox_check(targetPID, "file-map-executable",
                                        FUCK_SANDBOX_FILTER_PATH | SANDBOX_CHECK_NO_REPORT, dylibPath);
-    FLog(@"[Sandbox] readExt=%d, execExt=%d", readExtNeeded, execExtNeeded);
+    if (mode == FuckInjectModeB) {
+        // 无痕模式一律申请，保证目标进程能 mmap(PROT_EXEC) 我方 tmp 下的文件
+        if (!readExtNeeded) readExtNeeded = 1;
+        if (!execExtNeeded) execExtNeeded = 1;
+    }
+    FLog(@"[Sandbox] readExt=%d, execExt=%d (模式 %s)",
+         readExtNeeded, execExtNeeded, mode == FuckInjectModeA ? "A" : "B");
 
     char *sbxTokenRead = readExtNeeded ? sandbox_extension_issue_file(APP_SANDBOX_READ, dylibPath, 0) : NULL;
     char *sbxTokenExec = execExtNeeded ? sandbox_extension_issue_file("com.apple.sandbox.executable", dylibPath, 0) : NULL;
@@ -1439,14 +1677,73 @@ static BOOL FuckCTBypass(NSString *targetPath, NSString *teamID) {
 
 // ============== 公开接口实现 ==============
 
+
+
+// ============== 目标进程崩溃日志抓取 ==============
+//
+// 注入后若目标 App 闪退，把对应的 .ips 崩溃报告摘要追加到注入日志，
+// 便于在 App 内直接看到失败原因（无需连电脑看 Xcode 设备日志）。
+// iOS 崩溃报告目录：/var/mobile/Library/Logs/CrashReporter/
+static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
+    if (!bundleID.length) return;
+
+    NSArray<NSString *> *dirs = @[
+        @"/var/mobile/Library/Logs/CrashReporter",
+        @"/var/mobile/Library/Logs/CrashReporter/DiagnosticLogs",
+        @"/var/root/Library/Logs/CrashReporter",
+    ];
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *prefix = execName.length ? execName : bundleID;
+
+    for (NSString *dir in dirs) {
+        NSArray<NSString *> *items = [fm contentsOfDirectoryAtPath:dir error:nil];
+        if (!items.count) continue;
+
+        // 取最近 3 分钟内、文件名包含目标进程名的报告
+        NSMutableArray<NSDictionary *> *hits = [NSMutableArray array];
+        NSDate *now = [NSDate date];
+        for (NSString *name in items) {
+            if (![name containsString:prefix] && ![name containsString:bundleID]) continue;
+            if (![name hasSuffix:@".ips"] && ![name hasSuffix:@".crash"]) continue;
+            NSString *full = [dir stringByAppendingPathComponent:name];
+            NSDictionary *attrs = [fm attributesOfItemAtPath:full error:nil];
+            NSDate *mtime = attrs[NSFileModificationDate];
+            if (!mtime || [now timeIntervalSinceDate:mtime] > 180) continue;
+            [hits addObject:@{@"path": full, @"mtime": mtime}];
+        }
+        if (!hits.count) continue;
+
+        [hits sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+            return [b[@"mtime"] compare:a[@"mtime"]];
+        }];
+
+        NSDictionary *latest = hits.firstObject;
+        NSString *content = [NSString stringWithContentsOfFile:latest[@"path"]
+                                                      encoding:NSUTF8StringEncoding error:nil];
+        if (!content.length) continue;
+
+        // .ips 是「首行 JSON + 正文 JSON」，截取前 6KB 足够定位异常类型
+        NSString *excerpt = content.length > 6144 ? [content substringToIndex:6144] : content;
+        FLog(@"========== 检测到目标进程崩溃报告 ==========");
+        FLog(@"报告文件: %@", latest[@"path"]);
+        FLog(@"内容摘要:\n%@", excerpt);
+        FLog(@"========== 崩溃报告结束 ==========");
+        return;
+    }
+    FLog(@"[Crash] 未在崩溃目录找到 %@ 的近期报告", prefix);
+}
+
 @implementation FuckDynamicInjector
 
 // ===== CLI entry: runs as root subprocess =====
 // Called from main() when argv[1] == "-FuckInject"
 // Reference: DGHandleSet2cdCommand in reference project
-+ (int)cliInjectWithDylibPath:(NSString *)dylibPath bundleID:(NSString *)bundleID {
++ (int)cliInjectWithDylibPath:(NSString *)dylibPath bundleID:(NSString *)bundleID mode:(int)modeInt {
+    FuckInjectMode mode = (modeInt == 1) ? FuckInjectModeB : FuckInjectModeA;
     FLog(@"========== FuckInject CLI mode (root subprocess) ==========");
     FLog(@"dylib: %@, bundleID: %@", dylibPath, bundleID);
+    FLog(@"注入模式: %s", mode == FuckInjectModeA ? "A/严格复刻（拷入目标 bundle 同级目录）" : "B/无痕（仅在 tmp，注入后清除）");
     FLog(@"UID: %d, EUID: %d", getuid(), geteuid());
 
     if (!dylibPath.length || !bundleID.length) {
@@ -1463,7 +1760,7 @@ static BOOL FuckCTBypass(NSString *targetPath, NSString *teamID) {
     // dlopen 会被沙盒拦截 mmap(PROT_EXEC)，文件必须在目标 App 的 bundle container 内
     NSString *targetBundlePath = FuckProxyPathFromURL(FuckProxyForBundleID(bundleID), @"bundleURL");
     NSString *injectedDylibPath = dylibPath; // fallback
-    if (targetBundlePath.length) {
+    if (mode == FuckInjectModeA && targetBundlePath.length) {
         NSString *containerPath = [targetBundlePath stringByDeletingLastPathComponent];
         NSString *dylibName = [dylibPath lastPathComponent];
         NSString *destPath = [containerPath stringByAppendingPathComponent:dylibName];
@@ -1482,15 +1779,29 @@ static BOOL FuckCTBypass(NSString *targetPath, NSString *teamID) {
         } else {
             FLogError(@"[CLI] copy failed: %@", copyErr.localizedDescription);
         }
-    } else {
+    } else if (mode == FuckInjectModeA) {
         FLogError(@"[CLI] cannot get target bundle path");
+    } else {
+        // 模式 B：dylib 留在原处（主进程已放在我方 tmp），不往目标 App 目录写任何文件
+        FLog(@"[CLI] 无痕模式：沿用原始路径 %@", injectedDylibPath);
     }
 
     // ===== Step 2: CoreTrust bypass (对复制后的文件签名) =====
     NSString *targetTeamID = FuckExtractTeamIDFromApp(bundleID);
     FLog(@"[CLI] target TeamID: %@", targetTeamID ?: @"(none)");
 
-    if (targetTeamID.length > 0) {
+    // 模式 B 仅做 ldid ad-hoc 签名（trust cache 由 roothide jbserver 负责），
+    // 不跑 ct_bypass —— 该漏洞在 iOS 17.0 起已收紧，跑了只会引入失败分支。
+    if (mode == FuckInjectModeB) {
+        NSString *ldidPathOnly = FuckResourcePath(@"ldid");
+        if (ldidPathOnly.length) {
+            chmod(ldidPathOnly.UTF8String, 0755);
+            int lr = FuckSpawnArguments(@[ldidPathOnly, @"-S", injectedDylibPath], YES);
+            FLog(@"[CLI] (模式B) ldid -S => ret=%d", lr);
+        } else {
+            FLog(@"[CLI] (模式B) ldid 不在 bundle 内，跳过 ad-hoc 签名");
+        }
+    } else if (targetTeamID.length > 0) {
         NSString *ctBypassPath = FuckResourcePath(@"ct_bypass");
         NSString *ldidPath = FuckResourcePath(@"ldid");
 
@@ -1564,7 +1875,7 @@ static BOOL FuckCTBypass(NSString *targetPath, NSString *teamID) {
     int ret = -1;
     for (int attempt = 1; attempt <= 3; attempt++) {
         FLog(@"[CLI] inject attempt %d/3, PID=%d", attempt, pid);
-        ret = FuckOpaInject(pid, injectedDylibPath.UTF8String);
+        ret = FuckOpaInject(pid, injectedDylibPath.UTF8String, mode);
         if (ret == 0) {
             FLogSuccess(@"injection succeeded!");
             break;
@@ -1600,6 +1911,7 @@ static BOOL FuckCTBypass(NSString *targetPath, NSString *teamID) {
 // Reference: DGHandleThreadDynamicAction spawns self with kDGHelperSet2cd as root
 + (void)injectDylib:(NSString *)dylibPath
         intoBundleID:(NSString *)bundleID
+                mode:(int)mode
             progress:(void (^)(NSString *step))progress
           completion:(void (^)(BOOL success, NSString *message))completion {
 
@@ -1662,7 +1974,14 @@ static BOOL FuckCTBypass(NSString *targetPath, NSString *teamID) {
         FLog(@"[SPAWN] executable: %@", exe);
         FLog(@"[SPAWN] args: -FuckInject %@ %@", dylibPath, bundleID);
 
-        NSArray *args = @[exe, @"-FuckInject", dylibPath, bundleID];
+        // 把日志路径与注入模式通过环境变量传给 root 子进程
+        NSString *logPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject
+                             stringByAppendingPathComponent:@"inject_debug.log"];
+        setenv("FUCK_INJECT_LOG_PATH", logPath.UTF8String, 1);
+        setenv("FUCK_INJECT_MODE", [[NSString stringWithFormat:@"%d", mode] UTF8String], 1);
+
+        NSArray *args = @[exe, @"-FuckInject", dylibPath, bundleID,
+                          [NSString stringWithFormat:@"%d", mode]];
         int rawStatus = FuckSpawnArguments(args, YES);
 
         // FuckSpawnArguments 返回 waitpid 的 raw status，需要 WEXITSTATUS 解析
@@ -1681,6 +2000,12 @@ static BOOL FuckCTBypass(NSString *targetPath, NSString *teamID) {
                 errMsg = [NSString stringWithFormat:@"注入失败 (错误码: %d)", ret];
             }
             FLogError(@"%@", errMsg);
+
+            // 目标 App 可能因注入而闪退 —— 抓它的崩溃报告一起归档
+            NSString *execPath = FuckCanonicalExecutablePath(bundleID);
+            NSString *execName = execPath.length ? [execPath lastPathComponent] : nil;
+            FuckCaptureTargetCrashLog(bundleID, execName);
+
             finish(NO, errMsg);
         }
     });
