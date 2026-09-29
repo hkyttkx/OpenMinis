@@ -430,13 +430,36 @@
 		E5VMA0004 /* AIChatViewModel+TitleGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMA0014 /* AIChatViewModel+TitleGeneration.swift */; };
 		E5VMA0005 /* AIChatViewModel+MemoryTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMA0015 /* AIChatViewModel+MemoryTools.swift */; };
 		FRTR0002 /* FridaAppsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRTR0001 /* FridaAppsView.swift */; };
+		FDI0B /* FuckDynamicInjector.m in Sources */ = {isa = PBXBuildFile; fileRef = FDI0R /* FuckDynamicInjector.m */; };
+		KFD1B /* DriverKit.c in Sources */ = {isa = PBXBuildFile; fileRef = KFD1R /* DriverKit.c */; };
+		KFD2B /* IOSurface_Primitives.m in Sources */ = {isa = PBXBuildFile; fileRef = KFD2R /* IOSurface_Primitives.m */; };
+		KFD3B /* device.c in Sources */ = {isa = PBXBuildFile; fileRef = KFD3R /* device.c */; };
+		KFD4B /* kallocation.m in Sources */ = {isa = PBXBuildFile; fileRef = KFD4R /* kallocation.m */; };
+		KFD5B /* libkfd.m in Sources */ = {isa = PBXBuildFile; fileRef = KFD5R /* libkfd.m */; };
+		KFD6B /* libmeow.m in Sources */ = {isa = PBXBuildFile; fileRef = KFD6R /* libmeow.m */; };
+		KFD7B /* meowfinder.c in Sources */ = {isa = PBXBuildFile; fileRef = KFD7R /* meowfinder.c */; };
+		KFD8B /* pplrw.m in Sources */ = {isa = PBXBuildFile; fileRef = KFD8R /* pplrw.m */; };
+		KLF1B /* info.c in Sources */ = {isa = PBXBuildFile; fileRef = KLF1R /* info.c */; };
+		KLF2B /* krkw.c in Sources */ = {isa = PBXBuildFile; fileRef = KLF2R /* krkw.c */; };
+		KLF3B /* perf.m in Sources */ = {isa = PBXBuildFile; fileRef = KLF3R /* perf.m */; };
+		KLF4B /* puaf.c in Sources */ = {isa = PBXBuildFile; fileRef = KLF4R /* puaf.c */; };
+		KLF5B /* IOSurface_shared.c in Sources */ = {isa = PBXBuildFile; fileRef = KLF5R /* IOSurface_shared.c */; };
+		KLF6B /* kread_IOSurface.c in Sources */ = {isa = PBXBuildFile; fileRef = KLF6R /* kread_IOSurface.c */; };
+		KLF7B /* kread_sem_open.c in Sources */ = {isa = PBXBuildFile; fileRef = KLF7R /* kread_sem_open.c */; };
+		KLF8B /* kwrite_IOSurface.c in Sources */ = {isa = PBXBuildFile; fileRef = KLF8R /* kwrite_IOSurface.c */; };
+		KLF9B /* kwrite_sem_open.c in Sources */ = {isa = PBXBuildFile; fileRef = KLF9R /* kwrite_sem_open.c */; };
+		KLFAB /* landa.c in Sources */ = {isa = PBXBuildFile; fileRef = KLFAR /* landa.c */; };
+		KLFBB /* physpuppet.c in Sources */ = {isa = PBXBuildFile; fileRef = KLFBR /* physpuppet.c */; };
+		KLFCB /* smith.c in Sources */ = {isa = PBXBuildFile; fileRef = KLFCR /* smith.c */; };
+		KPF1B /* libdimentio.c in Sources */ = {isa = PBXBuildFile; fileRef = KPF1R /* libdimentio.c */; };
+		KPF2B /* patchfinder.m in Sources */ = {isa = PBXBuildFile; fileRef = KPF2R /* patchfinder.m */; };
+		INJ000S1B /* JailbreakInjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ000S1R /* JailbreakInjector.swift */; };
+		INJ000S2B /* InjectPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ000S2R /* InjectPanelView.swift */; };
+		INJ000S3B /* InjectLogViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ000S3R /* InjectLogViewer.swift */; };
 		RAYT0002 /* AppAnalysisSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = RAYT0001 /* AppAnalysisSettingsView.swift */; };
 		RAYT0004 /* AIChatViewModel+ReverseTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = RAYT0003 /* AIChatViewModel+ReverseTools.swift */; };
 		FRTR0008 /* InstalledAppsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRTR0007 /* InstalledAppsService.swift */; };
 		FRTR000A /* SandboxRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = FRTR0009 /* SandboxRunner.swift */; };
-		INJ00021 /* JailbreakInjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ00011 /* JailbreakInjector.swift */; };
-		INJ00022 /* InjectPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ00012 /* InjectPanelView.swift */; };
-		INJ00023 /* InjectLogViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ00013 /* InjectLogViewer.swift */; };
 		E5VMA0006 /* AIChatViewModel+ProviderFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMA0016 /* AIChatViewModel+ProviderFactory.swift */; };
 		E5VMA0007 /* AIChatViewModel+ToolDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMA0017 /* AIChatViewModel+ToolDefinitions.swift */; };
 		E5VMA0008 /* AIChatViewModel+ToolPreflight.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5VMA0018 /* AIChatViewModel+ToolPreflight.swift */; };
@@ -1113,13 +1136,53 @@
 		E5VMA0014 /* AIChatViewModel+TitleGeneration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+TitleGeneration.swift"; sourceTree = "<group>"; };
 		E5VMA0015 /* AIChatViewModel+MemoryTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+MemoryTools.swift"; sourceTree = "<group>"; };
 		FRTR0001 /* FridaAppsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FridaAppsView.swift; sourceTree = "<group>"; };
+		FDI0R /* FuckDynamicInjector.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = FuckDynamicInjector.m; path = "FuckDynamicInjector.m"; sourceTree = "<group>"; };
+		KFD1R /* DriverKit.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = DriverKit.c; path = "kfd/DriverKit.c"; sourceTree = "<group>"; };
+		KFD2R /* IOSurface_Primitives.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = IOSurface_Primitives.m; path = "kfd/IOSurface_Primitives.m"; sourceTree = "<group>"; };
+		KFD3R /* device.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = device.c; path = "kfd/device.c"; sourceTree = "<group>"; };
+		KFD4R /* kallocation.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = kallocation.m; path = "kfd/kallocation.m"; sourceTree = "<group>"; };
+		KFD5R /* libkfd.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = libkfd.m; path = "kfd/libkfd.m"; sourceTree = "<group>"; };
+		KFD6R /* libmeow.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = libmeow.m; path = "kfd/libmeow.m"; sourceTree = "<group>"; };
+		KFD7R /* meowfinder.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = meowfinder.c; path = "kfd/meowfinder.c"; sourceTree = "<group>"; };
+		KFD8R /* pplrw.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = pplrw.m; path = "kfd/pplrw.m"; sourceTree = "<group>"; };
+		KLF1R /* info.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = info.c; path = "kfd/libkfd/info.c"; sourceTree = "<group>"; };
+		KLF2R /* krkw.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = krkw.c; path = "kfd/libkfd/krkw.c"; sourceTree = "<group>"; };
+		KLF3R /* perf.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = perf.m; path = "kfd/libkfd/perf.m"; sourceTree = "<group>"; };
+		KLF4R /* puaf.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = puaf.c; path = "kfd/libkfd/puaf.c"; sourceTree = "<group>"; };
+		KLF5R /* IOSurface_shared.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = IOSurface_shared.c; path = "kfd/libkfd/krkw/IOSurface_shared.c"; sourceTree = "<group>"; };
+		KLF6R /* kread_IOSurface.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = kread_IOSurface.c; path = "kfd/libkfd/krkw/kread/kread_IOSurface.c"; sourceTree = "<group>"; };
+		KLF7R /* kread_sem_open.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = kread_sem_open.c; path = "kfd/libkfd/krkw/kread/kread_sem_open.c"; sourceTree = "<group>"; };
+		KLF8R /* kwrite_IOSurface.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = kwrite_IOSurface.c; path = "kfd/libkfd/krkw/kwrite/kwrite_IOSurface.c"; sourceTree = "<group>"; };
+		KLF9R /* kwrite_sem_open.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = kwrite_sem_open.c; path = "kfd/libkfd/krkw/kwrite/kwrite_sem_open.c"; sourceTree = "<group>"; };
+		KLFAR /* landa.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = landa.c; path = "kfd/libkfd/puaf/landa.c"; sourceTree = "<group>"; };
+		KLFBR /* physpuppet.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = physpuppet.c; path = "kfd/libkfd/puaf/physpuppet.c"; sourceTree = "<group>"; };
+		KLFCR /* smith.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = smith.c; path = "kfd/libkfd/puaf/smith.c"; sourceTree = "<group>"; };
+		KPF1R /* libdimentio.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = libdimentio.c; path = "kfd/kpf/libdimentio.c"; sourceTree = "<group>"; };
+		KPF2R /* patchfinder.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = patchfinder.m; path = "kfd/kpf/patchfinder.m"; sourceTree = "<group>"; };
+		FEN1R /* FuckEngine.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = FuckEngine.m; path = "FuckEngine/FuckEngine.m"; sourceTree = "<group>"; };
+		KFH1R /* FuckKfdHelper.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = FuckKfdHelper.m; path = "FuckKfdHelper/FuckKfdHelper.m"; sourceTree = "<group>"; };
+		INJ000S1R /* JailbreakInjector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JailbreakInjector.swift; sourceTree = "<group>"; };
+		INJ000S2R /* InjectPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InjectPanelView.swift; sourceTree = "<group>"; };
+		INJ000S3R /* InjectLogViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InjectLogViewer.swift; sourceTree = "<group>"; };
+		FDI0H /* FuckDynamicInjector.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = FuckDynamicInjector.h; path = "FuckDynamicInjector.h"; sourceTree = "<group>"; };
+		KFD0H /* libkfd.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = libkfd.h; path = "kfd/libkfd.h"; sourceTree = "<group>"; };
+		KFD9H /* kallocation.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = kallocation.h; path = "kfd/kallocation.h"; sourceTree = "<group>"; };
+		KFDAH /* libmeow.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = libmeow.h; path = "kfd/libmeow.h"; sourceTree = "<group>"; };
+		KFDBH /* meowfinder.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = meowfinder.h; path = "kfd/meowfinder.h"; sourceTree = "<group>"; };
+		KFDCH /* pplrw.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = pplrw.h; path = "kfd/pplrw.h"; sourceTree = "<group>"; };
+		KFDDH /* trustcache.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = trustcache.h; path = "kfd/trustcache.h"; sourceTree = "<group>"; };
+		KFDEH /* trustcache_structs.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = trustcache_structs.h; path = "kfd/trustcache_structs.h"; sourceTree = "<group>"; };
+		KFDGH /* kernelinclude.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = kernelinclude.h; path = "kfd/kernelinclude.h"; sourceTree = "<group>"; };
+		KLFDH /* info.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = info.h; path = "kfd/libkfd/info.h"; sourceTree = "<group>"; };
+		KLFEH /* krkw.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = krkw.h; path = "kfd/libkfd/krkw.h"; sourceTree = "<group>"; };
+		KLFFH /* perf.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = perf.h; path = "kfd/libkfd/perf.h"; sourceTree = "<group>"; };
+		KLFGH /* puaf.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = puaf.h; path = "kfd/libkfd/puaf.h"; sourceTree = "<group>"; };
+		KPF3H /* patchfinder.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = patchfinder.h; path = "kfd/kpf/patchfinder.h"; sourceTree = "<group>"; };
+		KPF4H /* libdimentio.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = libdimentio.h; path = "kfd/kpf/libdimentio.h"; sourceTree = "<group>"; };
 		RAYT0001 /* AppAnalysisSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAnalysisSettingsView.swift; sourceTree = "<group>"; };
 		RAYT0003 /* AIChatViewModel+ReverseTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+ReverseTools.swift"; sourceTree = "<group>"; };
 		FRTR0007 /* InstalledAppsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstalledAppsService.swift; sourceTree = "<group>"; };
 		FRTR0009 /* SandboxRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SandboxRunner.swift; sourceTree = "<group>"; };
-		INJ00011 /* JailbreakInjector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JailbreakInjector.swift; sourceTree = "<group>"; };
-		INJ00012 /* InjectPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InjectPanelView.swift; sourceTree = "<group>"; };
-		INJ00013 /* InjectLogViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InjectLogViewer.swift; sourceTree = "<group>"; };
 		E5VMA0016 /* AIChatViewModel+ProviderFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+ProviderFactory.swift"; sourceTree = "<group>"; };
 		E5VMA0017 /* AIChatViewModel+ToolDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+ToolDefinitions.swift"; sourceTree = "<group>"; };
 		E5VMA0018 /* AIChatViewModel+ToolPreflight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+ToolPreflight.swift"; sourceTree = "<group>"; };
@@ -1225,18 +1288,9 @@
 			);
 			target = BB1000070F700000000000AA /* MinisTests */;
 		};
-		INJ00041 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				kern,
-				libkfd/info/static_types,
-			);
-			target = AA0838CB2F3CA8A900049557 /* Minis */;
-		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		INJ00031 /* Inject */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (INJ00041 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = Inject; sourceTree = "<group>"; };
 		AA0838CB2F3CA8A900049557 /* Terminal */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Terminal; sourceTree = "<group>"; };
 		AA8A568C2F6FBB7A00A3E54E /* MinisUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = MinisUITests; sourceTree = "<group>"; };
 		BB1000012F700000000000AA /* MinisTests */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (E5EXC0001 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = MinisTests; sourceTree = "<group>"; };
@@ -1685,6 +1739,7 @@
 			isa = PBXGroup;
 			children = (
 				AA0838CB2F3CA8A900049557 /* Terminal */,
+				INJGRP01 /* Inject */,
 				AA26CCC02F31080100AECF2D /* ISHKernel.h */,
 				AA26CCBB2F31080100AECF2D /* ISHKernel.m */,
 				AA0838D42F3B941A00049557 /* CurrentRoot.h */,
@@ -2225,12 +2280,51 @@
 			path = Chat;
 			sourceTree = "<group>";
 		};
-		INJ00051 /* Reverse */ = {
+		INJGRP01 /* Inject */ = {
 			isa = PBXGroup;
 			children = (
-				INJ00031 /* Inject */,
+				FDI0R /* FuckDynamicInjector.m */,
+				KFD1R /* DriverKit.c */,
+				KFD2R /* IOSurface_Primitives.m */,
+				KFD3R /* device.c */,
+				KFD4R /* kallocation.m */,
+				KFD5R /* libkfd.m */,
+				KFD6R /* libmeow.m */,
+				KFD7R /* meowfinder.c */,
+				KFD8R /* pplrw.m */,
+				KLF1R /* info.c */,
+				KLF2R /* krkw.c */,
+				KLF3R /* perf.m */,
+				KLF4R /* puaf.c */,
+				KLF5R /* IOSurface_shared.c */,
+				KLF6R /* kread_IOSurface.c */,
+				KLF7R /* kread_sem_open.c */,
+				KLF8R /* kwrite_IOSurface.c */,
+				KLF9R /* kwrite_sem_open.c */,
+				KLFAR /* landa.c */,
+				KLFBR /* physpuppet.c */,
+				KLFCR /* smith.c */,
+				KPF1R /* libdimentio.c */,
+				KPF2R /* patchfinder.m */,
+				FDI0H /* FuckDynamicInjector.h */,
+				FEN1R /* FuckEngine.m */,
+				KFH1R /* FuckKfdHelper.m */,
+				KFD0H /* libkfd.h */,
+				KFD9H /* kallocation.h */,
+				KFDAH /* libmeow.h */,
+				KFDBH /* meowfinder.h */,
+				KFDCH /* pplrw.h */,
+				KFDDH /* trustcache.h */,
+				KFDEH /* trustcache_structs.h */,
+				KFDGH /* kernelinclude.h */,
+				KLFDH /* info.h */,
+				KLFEH /* krkw.h */,
+				KLFFH /* perf.h */,
+				KLFGH /* puaf.h */,
+				KPF3H /* patchfinder.h */,
+				KPF4H /* libdimentio.h */,
 			);
-			path = Reverse;
+			path = Inject;
 			sourceTree = "<group>";
 		};
 		FRTR000B /* ReverseTools */ = {
@@ -2239,9 +2333,9 @@
 				FRTR0001 /* FridaAppsView.swift */,
 				FRTR0007 /* InstalledAppsService.swift */,
 				FRTR0009 /* SandboxRunner.swift */,
-				INJ00011 /* JailbreakInjector.swift */,
-				INJ00012 /* InjectPanelView.swift */,
-				INJ00013 /* InjectLogViewer.swift */,
+				INJ000S1R /* JailbreakInjector.swift */,
+				INJ000S2R /* InjectPanelView.swift */,
+				INJ000S3R /* InjectLogViewer.swift */,
 			);
 			path = ReverseTools;
 			sourceTree = "<group>";
@@ -2249,7 +2343,6 @@
 		F1V00011 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
-				INJ00051 /* Reverse */,
 				AA0838A12F3B941A00049557 /* AboutView.swift */,
 				RAYT0001 /* AppAnalysisSettingsView.swift */,
 				FRTR000B /* ReverseTools */,
@@ -2423,7 +2516,6 @@
 			);
 			fileSystemSynchronizedGroups = (
 				AA0838CB2F3CA8A900049557 /* Terminal */,
-				INJ00031 /* Inject */,
 			);
 			name = Minis;
 			packageProductDependencies = (
@@ -2721,9 +2813,33 @@
 				RAYT0004 /* AIChatViewModel+ReverseTools.swift in Sources */,
 				FRTR0008 /* InstalledAppsService.swift in Sources */,
 				FRTR000A /* SandboxRunner.swift in Sources */,
-				INJ00021 /* JailbreakInjector.swift in Sources */,
-				INJ00022 /* InjectPanelView.swift in Sources */,
-				INJ00023 /* InjectLogViewer.swift in Sources */,
+				FDI0B /* FuckDynamicInjector.m in Sources */,
+				KFD1B /* DriverKit.c in Sources */,
+				KFD2B /* IOSurface_Primitives.m in Sources */,
+				KFD3B /* device.c in Sources */,
+				KFD4B /* kallocation.m in Sources */,
+				KFD5B /* libkfd.m in Sources */,
+				KFD6B /* libmeow.m in Sources */,
+				KFD7B /* meowfinder.c in Sources */,
+				KFD8B /* pplrw.m in Sources */,
+				KLF1B /* info.c in Sources */,
+				KLF2B /* krkw.c in Sources */,
+				KLF3B /* perf.m in Sources */,
+				KLF4B /* puaf.c in Sources */,
+				KLF5B /* IOSurface_shared.c in Sources */,
+				KLF6B /* kread_IOSurface.c in Sources */,
+				KLF7B /* kread_sem_open.c in Sources */,
+				KLF8B /* kwrite_IOSurface.c in Sources */,
+				KLF9B /* kwrite_sem_open.c in Sources */,
+				KLFAB /* landa.c in Sources */,
+				KLFBB /* physpuppet.c in Sources */,
+				KLFCB /* smith.c in Sources */,
+				KPF1B /* libdimentio.c in Sources */,
+				KPF2B /* patchfinder.m in Sources */,
+				FEN1B /* FuckEngine.m in Sources */,
+				INJ000S1B /* JailbreakInjector.swift in Sources */,
+				INJ000S2B /* InjectPanelView.swift in Sources */,
+				INJ000S3B /* InjectLogViewer.swift in Sources */,
 
 				BB1000100F700000000000AA /* ContextPolicy.swift in Sources */,
 				AADDA9E12F6ECCF400B66649 /* ThumbnailCache.swift in Sources */,
@@ -3303,6 +3419,9 @@
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Reverse/Inject",
+					"$(SRCROOT)/Reverse/Inject/kfd",
+					"$(SRCROOT)/Reverse/Inject/kfd/libkfd",
 					"$(SRCROOT)/../../deps/include",
 					"$(SRCROOT)/../../deps/include/ish",
 					"$(SRCROOT)/NativeOffloads",
@@ -3332,6 +3451,9 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Reverse/Inject",
+					"$(SRCROOT)/Reverse/Inject/kfd",
+					"$(SRCROOT)/Reverse/Inject/kfd/libkfd",
 					"$(SRCROOT)/../../deps/include",
 					"$(SRCROOT)/../../deps/include/ish",
 					"$(SRCROOT)/NativeOffloads",
@@ -3498,6 +3620,9 @@
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Reverse/Inject",
+					"$(SRCROOT)/Reverse/Inject/kfd",
+					"$(SRCROOT)/Reverse/Inject/kfd/libkfd",
 					"$(SRCROOT)/../../deps/include",
 					"$(SRCROOT)/../../deps/include/ish",
 					"$(SRCROOT)/NativeOffloads",
@@ -3519,6 +3644,9 @@
 				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/../../deps/libs";
 				MARKETING_VERSION = 1.13;
 				OTHER_LDFLAGS = (
+					"-lcompression",
+					"-framework", IOKit,
+					"-framework", IOSurface,
 					"-lish_emu",
 					"-lish",
 					"-lfakefs",
@@ -3552,6 +3680,9 @@
 				);
 				GENERATE_INFOPLIST_FILE = YES;
 				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Reverse/Inject",
+					"$(SRCROOT)/Reverse/Inject/kfd",
+					"$(SRCROOT)/Reverse/Inject/kfd/libkfd",
 					"$(SRCROOT)/../../deps/include",
 					"$(SRCROOT)/../../deps/include/ish",
 					"$(SRCROOT)/NativeOffloads",
@@ -3573,6 +3704,9 @@
 				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/../../deps/libs";
 				MARKETING_VERSION = 1.13;
 				OTHER_LDFLAGS = (
+					"-lcompression",
+					"-framework", IOKit,
+					"-framework", IOSurface,
 					"-lish_emu",
 					"-lish",
 					"-lfakefs",
