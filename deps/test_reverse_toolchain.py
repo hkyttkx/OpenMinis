@@ -30,8 +30,7 @@ def run(args, name, timeout=90):
 
 def r2(path, commands, name):
     return run(['r2', '-q', '-e', 'scr.color=0', '-e', 'bin.relocs.apply=true',
-                '-e', 'r2ghidra.sleighhome=/usr/lib/radare2/5.9.8/r2ghidra_sleigh',
-                '-c', commands, str(path)], name)
+                '-c', 'e r2ghidra.sleighhome=/usr/lib/radare2/5.9.8/r2ghidra_sleigh; ' + commands, str(path)], name)
 
 def decompile(filename, label):
     path = ROOT / filename
@@ -58,12 +57,12 @@ def main():
     run(['r2', '-v'], 'r2-version')
     run(['r2', '-q', '-c', 'Lc', '-'], 'r2-plugins')
     decompile('smoke-elf', 'elf')
-    decompile('smoke-macho.o', 'macho')
-    detected = run(['file', str(ROOT / 'smoke-macho.o')], 'file-macho')
+    decompile('smoke-macho', 'macho')
+    detected = run(['file', str(ROOT / 'smoke-macho')], 'file-macho')
     assert 'Mach-O' in detected, detected
-    symbols = run(['/usr/lib/llvm19/bin/llvm-nm', str(ROOT / 'smoke-macho.o')], 'llvm-nm')
+    symbols = run(['/usr/lib/llvm19/bin/llvm-nm', str(ROOT / 'smoke-macho')], 'llvm-nm')
     assert '_test_add' in symbols, symbols
-    run(['/usr/lib/llvm19/bin/llvm-objdump', '--section-headers', str(ROOT / 'smoke-macho.o')], 'llvm-objdump')
+    run(['/usr/lib/llvm19/bin/llvm-objdump', '--section-headers', str(ROOT / 'smoke-macho')], 'llvm-objdump')
     import capstone
     md = capstone.Cs(capstone.CS_ARCH_ARM64, capstone.CS_MODE_ARM)
     assert list(md.disasm(bytes.fromhex('c0035fd6'), 0))[0].mnemonic == 'ret'

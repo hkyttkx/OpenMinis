@@ -5,7 +5,7 @@ set -eux
 [ "$(apk --print-arch)" = aarch64 ]
 export HOME=/root
 apk add --no-cache radare2=5.9.8-r0 py3-capstone capstone binutils file sqlite python3 libstdc++ zlib llvm19
-apk add --no-cache --virtual .reverse-build build-base git curl ca-certificates radare2-dev zlib-dev clang19 patch pkgconf
+apk add --no-cache --virtual .reverse-build build-base git curl ca-certificates radare2-dev zlib-dev clang19 lld patch pkgconf
 mkdir -p /opt/reverse-build /opt/minis-reverse
 cp /root/test-reverse.py /opt/minis-reverse/test_reverse_toolchain.py
 cd /opt/reverse-build
@@ -39,11 +39,13 @@ PY
 printf 'AARCH64\nARM\nx86\n' > ghidra-processors.txt
 make -j2
 make install
-# Upstream builds a default SLEIGH path under the user's plugin directory.
-make user-install
+# Keep one system plugin copy; duplicated user/system plugins cause load errors.
+export SLEIGHHOME=/usr/lib/radare2/5.9.8/r2ghidra_sleigh
 printf 'int test_add(int x) { return x * 7 + 3; }\nint main(void) { return test_add(6); }\n' > /opt/minis-reverse/smoke.c
 cc -O0 -g /opt/minis-reverse/smoke.c -o /opt/minis-reverse/smoke-elf
-clang-19 -target arm64-apple-ios14.0 -c -O0 /opt/minis-reverse/smoke.c -o /opt/minis-reverse/smoke-macho.o
+clang-19 -target arm64-apple-ios14.0 -fno-stack-protector -c -O0 /opt/minis-reverse/smoke.c -o /opt/minis-reverse/smoke-macho.o
+# Use a linked Mach-O executable, not MH_OBJECT; no Apple SDK or libraries needed.
+ld64.lld -arch arm64 -platform_version ios 14.0 14.0 -e _main -o /opt/minis-reverse/smoke-macho /opt/minis-reverse/smoke-macho.o
 # Test runtime features; stdout AND stderr are kept even when an assertion fails.
 python3 /opt/minis-reverse/test_reverse_toolchain.py before-cleanup
 # Remove build dependencies, then check runtime again to catch missing libraries.
