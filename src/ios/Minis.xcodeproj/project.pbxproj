@@ -2326,7 +2326,7 @@
 				KPF4H /* libdimentio.h */,
 						);
 			name = Inject;
-			path = src/ios/Reverse/Inject;
+			path = Reverse/Inject;
 			sourceTree = SOURCE_ROOT;
 		};
 		FRTR000B /* ReverseTools */ = {
