@@ -94,26 +94,12 @@ check_prerequisites() {
 # Download Alpine minirootfs
 # ============================================================================
 download_alpine() {
-    log_info "Downloading Alpine Linux $ALPINE_VERSION.$ALPINE_MINOR for $ALPINE_ARCH..."
-
-    mkdir -p "$CACHE_DIR"
-
-    local ROOTFS_FILE="alpine-minirootfs-${ALPINE_VERSION}.${ALPINE_MINOR}-${ALPINE_ARCH}.tar.gz"
-    local ROOTFS_PATH="$CACHE_DIR/$ROOTFS_FILE"
-    local ROOTFS_URL="${ALPINE_MIRROR}/v${ALPINE_VERSION}/releases/${ALPINE_ARCH}/${ROOTFS_FILE}"
-
-    if [ -f "$ROOTFS_PATH" ]; then
-        log_info "Using cached rootfs: $ROOTFS_FILE"
-    else
-        log_info "Downloading from $ROOTFS_URL"
-        curl -L -o "$ROOTFS_PATH" "$ROOTFS_URL" --progress-bar
-
-        if [ ! -f "$ROOTFS_PATH" ]; then
-            log_error "Failed to download rootfs"
-        fi
-    fi
-
-    log_success "Alpine rootfs ready: $(du -h "$ROOTFS_PATH" | cut -f1)"
+    # Linux ELF programs cannot run under macOS chroot. A Linux ARM64 job
+    # has already built and functionally tested this tarball before we start.
+    [ -n "${PREBUILT_ROOTFS_TAR:-}" ] || log_error "PREBUILT_ROOTFS_TAR is required (Linux toolchain artifact)"
+    [ -s "$PREBUILT_ROOTFS_TAR" ] || log_error "Prebuilt rootfs tarball missing"
+    tar -tzf "$PREBUILT_ROOTFS_TAR" | grep -q 'opt/minis-reverse/version' || log_error "Toolchain manifest missing"
+    log_success "Using smoke-tested Linux ARM64 rootfs"
 }
 
 # ============================================================================
@@ -168,7 +154,7 @@ create_fakefs() {
     log_info "Creating fakefs rootfs..."
 
     local ROOTFS_FILE="alpine-minirootfs-${ALPINE_VERSION}.${ALPINE_MINOR}-${ALPINE_ARCH}.tar.gz"
-    local ROOTFS_PATH="$CACHE_DIR/$ROOTFS_FILE"
+    local ROOTFS_PATH="$PREBUILT_ROOTFS_TAR"
     local FAKEFSIFY="$ISH_DIR/build-native/tools/fakefsify"
     local OUTPUT_ROOTFS="$OUTPUT_DIR/alpine-rootfs"
 
@@ -189,174 +175,6 @@ create_fakefs() {
     fi
 
     log_success "Fakefs rootfs created"
-}
-
-# ============================================================================
-# Preinstall reverse-engineering toolchain into the rootfs
-# ============================================================================
-# Runs BETWEEN create_fakefs and configure_rootfs.
-#
-# Why this is here rather than installed by the app at runtime: the in-app
-# installer had to reach the network on every attempt, and it kept failing
-# partway — py3-lief / py3-keystone do not exist in Alpine's aarch64 repos at
-# all, and one flaky mirror aborts the whole transaction. Baking the toolchain
-# into the rootfs makes every tool present on first launch, offline, with no
-# install step for the user.
-#
-# How the chroot works: the GitHub macOS runner is arm64 and Alpine's aarch64
-# userland runs natively on it, so no QEMU emulation is involved.
-#
-# r2ghidra: Alpine ships radare2 5.9.8, so r2ghidra must come from the matching
-# 5.9.8 tag (master requires r_core >= 6.1.4 and refuses to configure against
-# 5.9.8). Its ghidra-native + pugixml sources are not part of the release
-# tarball, so both are fetched explicitly.
-#
-# Every inner script is written to a file and run with `chroot ... /bin/sh FILE`
-# rather than passed as a `-c` string: these bodies contain $(...), quotes and
-# backslashes, and nesting them inside a single-quoted heredoc argument is what
-# makes such scripts fragile to maintain and easy to break silently.
-
-preinstall_tools() {
-    log_info "Preinstalling reverse-engineering toolchain into rootfs..."
-
-    local ROOTFS_DATA="$OUTPUT_DIR/alpine-rootfs/data"
-    [ -d "$ROOTFS_DATA" ] || log_error "rootfs data dir missing — run create_fakefs first"
-
-    # ------------------------------------------------------------------
-    # chroot prerequisites
-    # ------------------------------------------------------------------
-    # The minirootfs tarball carries no device nodes, and a missing /dev/null
-    # makes git and apk fail in ways that read like network errors ("could not
-    # open /dev/null for reading and writing"). /dev/urandom is what git needs
-    # for temp-file names.
-    mkdir -p "$ROOTFS_DATA/dev" "$ROOTFS_DATA/tmp" "$ROOTFS_DATA/proc" "$ROOTFS_DATA/sys"
-    rm -f "$ROOTFS_DATA/dev/null" "$ROOTFS_DATA/dev/urandom" \
-          "$ROOTFS_DATA/dev/random" "$ROOTFS_DATA/dev/zero" "$ROOTFS_DATA/dev/tty"
-    mknod -m 666 "$ROOTFS_DATA/dev/null"    c 1 3 || log_error "mknod /dev/null failed"
-    mknod -m 666 "$ROOTFS_DATA/dev/urandom" c 1 9 || log_error "mknod /dev/urandom failed"
-    mknod -m 666 "$ROOTFS_DATA/dev/random"  c 1 8 || true
-    mknod -m 666 "$ROOTFS_DATA/dev/zero"    c 1 5 || true
-    mknod -m 666 "$ROOTFS_DATA/dev/tty"     c 5 0 || true
-    chmod 1777 "$ROOTFS_DATA/tmp"
-
-    cp /etc/resolv.conf "$ROOTFS_DATA/etc/resolv.conf" 2>/dev/null || \
-        printf 'nameserver 8.8.8.8\nnameserver 8.8.4.4\n' > "$ROOTFS_DATA/etc/resolv.conf"
-
-    cat > "$ROOTFS_DATA/etc/apk/repositories" << EOF
-https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/main
-https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/community
-EOF
-
-    # ------------------------------------------------------------------
-    # Step 1 — runtime toolchain
-    # ------------------------------------------------------------------
-    # Verified against the aarch64 v3.21 APKINDEX:
-    #   radare2 / capstone / py3-capstone  present (community)
-    #   radare2-dev / binutils / file / sqlite / python3  present (main)
-    #   py3-lief / py3-keystone  DO NOT EXIST for aarch64
-    # lief is pip-only and pip has no musl wheel, so it is deliberately omitted
-    # instead of being allowed to fail the whole apk transaction.
-    log_info "Step 1/3: installing radare2 + capstone + binutils + file + sqlite + python3..."
-    cat > "$ROOTFS_DATA/root/step1.sh" << 'STEP1'
-set -e
-apk update
-apk add --no-cache \
-    radare2 radare2-dev \
-    capstone capstone-dev \
-    binutils binutils-dev \
-    file sqlite python3 py3-pip \
-    zip unzip git
-rm -rf /var/cache/apk/*
-STEP1
-
-    if ! chroot "$ROOTFS_DATA" /bin/sh /root/step1.sh; then
-        log_error "step 1 failed — base toolchain could not be installed"
-    fi
-
-    # ------------------------------------------------------------------
-    # Step 2 — r2ghidra (pseudo-C decompiler plugin)
-    # ------------------------------------------------------------------
-    # Built against the exact radare2 tag Alpine ships. A failure here is
-    # non-fatal: r2's built-in `pdc` still produces usable pseudo-C, so the
-    # rootfs stays shippable without the plugin.
-    log_info "Step 2/3: building r2ghidra 5.9.8 (pseudo-C decompiler)..."
-    local R2G_TAG="5.9.8"
-
-    mkdir -p "$ROOTFS_DATA/opt/r2ghidra-src"
-    cat > "$ROOTFS_DATA/root/step2_fetch.sh" << STEP2FETCH
-set -e
-cd /opt/r2ghidra-src
-rm -rf r2ghidra pugixml ghidra-native
-curl -fsSL -o r2g.tar.gz "https://github.com/radareorg/r2ghidra/archive/refs/tags/${R2G_TAG}.tar.gz"
-tar -xzf r2g.tar.gz
-mv "r2ghidra-${R2G_TAG}" r2ghidra
-curl -fsSL -o pugixml.tar.gz "https://github.com/zeux/pugixml/archive/refs/heads/master.tar.gz"
-tar -xzf pugixml.tar.gz
-rm -rf r2ghidra/third-party/pugixml
-mv pugixml-master r2ghidra/third-party/pugixml
-curl -fsSL -o ghidra-native.tar.gz "https://github.com/radareorg/ghidra-native/archive/refs/heads/master.tar.gz"
-tar -xzf ghidra-native.tar.gz
-rm -rf r2ghidra/ghidra-native
-mv ghidra-native-master r2ghidra/ghidra-native
-rm -f ./*.tar.gz
-STEP2FETCH
-
-    if ! chroot "$ROOTFS_DATA" /bin/sh /root/step2_fetch.sh; then
-        log_warning "r2ghidra source fetch failed — skipping plugin build"
-    else
-        cat > "$ROOTFS_DATA/root/step2_build.sh" << 'STEP2BUILD'
-set -e
-apk add --no-cache meson ninja pkgconf zlib-dev zlib-static
-cd /opt/r2ghidra-src/r2ghidra
-meson setup build . --buildtype=release -Dwerror=false
-ninja -C build
-ninja -C build install
-STEP2BUILD
-        if ! chroot "$ROOTFS_DATA" /bin/sh /root/step2_build.sh; then
-            log_warning "r2ghidra build failed — r2 pdc fallback remains available"
-        fi
-    fi
-
-    # ------------------------------------------------------------------
-    # Step 3 — cleanup + verification
-    # ------------------------------------------------------------------
-    # The r2ghidra source tree, compiler toolchain and apk cache are dead
-    # weight once the plugin is installed.
-    log_info "Step 3/3: cleaning build artifacts and verifying..."
-    cat > "$ROOTFS_DATA/root/step3_clean.sh" << 'STEP3CLEAN'
-rm -rf /opt/r2ghidra-src
-rm -rf /root/.cache
-rm -f /root/step1.sh /root/step2_fetch.sh /root/step2_build.sh
-apk del --no-cache \
-    meson ninja pkgconf zlib-dev zlib-static \
-    radare2-dev capstone-dev binutils-dev git 2>/dev/null || true
-rm -rf /var/cache/apk/*
-mkdir -p /root/.local/share/radare2/plugins
-STEP3CLEAN
-    chroot "$ROOTFS_DATA" /bin/sh /root/step3_clean.sh || log_warning "cleanup incomplete (non-fatal)"
-
-    # Loud on purpose: a silently toolchain-less rootfs is exactly the failure
-    # this whole change exists to prevent, so print what actually landed.
-    cat > "$ROOTFS_DATA/root/step3_verify.sh" << 'STEP3VERIFY'
-echo "--- rootfs toolchain ---"
-printf '  r2:       %s\n' "$(r2 -v 2>/dev/null | head -1)"
-printf '  capstone: %s\n' "$(python3 -c 'import capstone;print(capstone.__version__)' 2>/dev/null)"
-printf '  nm:       %s\n' "$(command -v nm || echo MISSING)"
-printf '  objdump:  %s\n' "$(command -v objdump || echo MISSING)"
-printf '  strings:  %s\n' "$(command -v strings || echo MISSING)"
-printf '  file:     %s\n' "$(file --version 2>/dev/null | head -1)"
-printf '  sqlite3:  %s\n' "$(sqlite3 --version 2>/dev/null)"
-printf '  python3:  %s\n' "$(python3 --version 2>/dev/null)"
-if r2 -qc 'Lc' -- 2>/dev/null | grep -qi ghidra; then
-    echo "  r2ghidra: loaded"
-else
-    echo "  r2ghidra: NOT loaded (r2 pdc fallback)"
-fi
-STEP3VERIFY
-    chroot "$ROOTFS_DATA" /bin/sh /root/step3_verify.sh || log_warning "verification had errors"
-    rm -f "$ROOTFS_DATA/root/step3_verify.sh"
-
-    log_success "Toolchain preinstall complete ($(du -sh "$ROOTFS_DATA" | cut -f1))"
 }
 
 # ============================================================================
@@ -526,7 +344,6 @@ main() {
     download_alpine
     build_fakefsify
     create_fakefs
-    preinstall_tools
     configure_rootfs
     create_zip_archive
     print_summary
