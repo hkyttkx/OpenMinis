@@ -185,6 +185,11 @@ configure_rootfs() {
 
     local ROOTFS_DATA="$OUTPUT_DIR/alpine-rootfs/data"
 
+    # The app uses this marker to migrate an already-installed old rootfs
+    # without deleting /root or /var/minis.
+    mkdir -p "$ROOTFS_DATA/opt/minis-reverse"
+    printf 'reverse-toolchain-v2\n' > "$ROOTFS_DATA/opt/minis-reverse/version"
+
     # Create necessary directories
     mkdir -p "$ROOTFS_DATA/dev"
     mkdir -p "$ROOTFS_DATA/proc"

@@ -300,9 +300,20 @@ struct SyncMigrationDetailView: View {
                         HStack(spacing: 8) {
                             Image(systemName: "pause.circle.fill")
                                 .foregroundStyle(.orange)
-                            Text("Paused — reopen Minis to continue")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("已暂停，等待继续推送")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text("剩余待推送：\(vm.pendingPushMigration)")
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Button("继续迁移") {
+                            Task {
+                                await MigrationEngine.shared.runIfNeeded()
+                                await refresh()
+                            }
                         }
                     } else {
                         LabeledContent(AppLocalized("Estimated time"), value: estimateETA(remaining: max(0, m.pushTotal - m.pushDone), rps: vm.ratePerSecond))
@@ -492,6 +503,14 @@ struct SyncMigrationDetailView: View {
         .onAppear {
             if #available(iOS 17.0, *) { SyncCore.shared.userOnSyncSheet = true }
             updateIdleTimer()
+            // A deferred migration used to require a cold relaunch. If the
+            // user is already on this page, resume it immediately instead.
+            if #available(iOS 17.0, *), SyncV2Bootstrap.isMigrationRequested {
+                Task {
+                    await MigrationEngine.shared.runIfNeeded()
+                    await refresh()
+                }
+            }
         }
         .onDisappear {
             if #available(iOS 17.0, *) { SyncCore.shared.userOnSyncSheet = false }
@@ -505,6 +524,12 @@ struct SyncMigrationDetailView: View {
                 setIdleTimerDisabled(false)
             } else {
                 updateIdleTimer()
+                if #available(iOS 17.0, *), SyncV2Bootstrap.isMigrationRequested {
+                    Task {
+                        await MigrationEngine.shared.runIfNeeded()
+                        await refresh()
+                    }
+                }
             }
         }
         .onChange(of: vm?.pendingPush ?? 0) { _ in

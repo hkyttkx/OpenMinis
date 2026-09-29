@@ -43,6 +43,9 @@ class RootfsManager {
 
     /// Current rootfs architecture tag — change this when switching guest arch
     private let currentArch = "aarch64"
+    /// Bumped when the bundled offline reverse toolchain changes. Existing
+    /// installs are upgraded in-place on the next cold boot; user data stays.
+    private static let bundledToolchainVersion = "reverse-toolchain-v2"
 
     private var archTagPath: URL {
         return rootfsPath.appendingPathComponent(".arch")
@@ -172,6 +175,33 @@ class RootfsManager {
             try discardOldRootfs()
         }
 
+        var preservedData: URL?
+        if isInstalled {
+            let marker = dataPath.appendingPathComponent("opt/minis-reverse/version")
+            let current = try? String(contentsOf: marker, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if current != Self.bundledToolchainVersion {
+                // Keep only user-owned trees while replacing the system rootfs.
+                // Do not use reset(): it would invalidate a running kernel and
+                // would also make a failed tool upgrade look like data loss.
+                let backup = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("minis-rootfs-user-data-\(UUID().uuidString)", isDirectory: true)
+                let fm = FileManager.default
+                try fm.createDirectory(at: backup, withIntermediateDirectories: true)
+                for relative in ["root", "var/minis"] {
+                    let source = dataPath.appendingPathComponent(relative)
+                    let target = backup.appendingPathComponent(relative)
+                    if fm.fileExists(atPath: source.path) {
+                        try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        try fm.copyItem(at: source, to: target)
+                    }
+                }
+                preservedData = backup
+                logger.warning("[Rootfs] old toolchain detected; preserving user data and rebuilding system rootfs")
+                try discardOldRootfs()
+            }
+        }
+
         guard !isInstalled else {
             logger.info("[Rootfs] already installed (\(currentArch)) at \(rootfsPath.path)")
             return
@@ -209,6 +239,21 @@ class RootfsManager {
 
         // Flag fresh install so first-boot tasks (e.g. mirror auto-detect) can trigger.
         UserDefaults.standard.set(true, forKey: "rootfs.freshInstall")
+
+        if let preservedData {
+            let fm = FileManager.default
+            for relative in ["root", "var/minis"] {
+                let source = preservedData.appendingPathComponent(relative)
+                let target = dataPath.appendingPathComponent(relative)
+                if fm.fileExists(atPath: source.path) {
+                    try? fm.removeItem(at: target)
+                    try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try fm.copyItem(at: source, to: target)
+                }
+            }
+            try? fm.removeItem(at: preservedData)
+            logger.info("[Rootfs] preserved user data after bundled toolchain upgrade")
+        }
 
         logger.info("[Rootfs] installation complete (\(currentArch)) at \(rootfsPath.path)")
     }
