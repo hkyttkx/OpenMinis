@@ -2283,6 +2283,7 @@
 		INJGRP01 /* Inject */ = {
 			isa = PBXGroup;
 			children = (
+
 				FDI0R /* FuckDynamicInjector.m */,
 				KFD1R /* DriverKit.c */,
 				KFD2R /* IOSurface_Primitives.m */,
@@ -2323,9 +2324,10 @@
 				KLFGH /* puaf.h */,
 				KPF3H /* patchfinder.h */,
 				KPF4H /* libdimentio.h */,
-			);
-			path = Inject;
-			sourceTree = "<group>";
+						);
+			name = Inject;
+			path = src/ios/Reverse/Inject;
+			sourceTree = SOURCE_ROOT;
 		};
 		FRTR000B /* ReverseTools */ = {
 			isa = PBXGroup;
