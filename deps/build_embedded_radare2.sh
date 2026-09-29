@@ -53,7 +53,7 @@ exec "\$ROOT/bin/rabin2" "\$@"
 WRAPPER
     chmod 755 /tmp/overlay/usr/local/bin/rabin2
     printf "%s\n" "{\"engine\":\"radare2\",\"version\":\"$R2_VERSION\",\"source\":\"https://github.com/radareorg/radare2\",\"runtimeDownload\":false,\"decompiler\":\"pdc\",\"libraryPath\":\"/opt/minis-reverse-tools/lib\"}" > /tmp/overlay/opt/minis-reverse-tools/manifest.json
-    LD_LIBRARY_PATH=/opt/minis-reverse-tools/lib /opt/minis-reverse-tools/bin/r2 -q -c "?V" >/tmp/r2-version.txt
+    LD_LIBRARY_PATH=/opt/minis-reverse-tools/lib /opt/minis-reverse-tools/bin/r2 -q -c "?V" -- >/tmp/r2-version.txt
     test -s /tmp/r2-version.txt
     tar -czf "/src/$OUT_REL" -C /tmp/overlay .
   '
