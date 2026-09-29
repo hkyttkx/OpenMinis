@@ -89,6 +89,7 @@ enum FridaStore {
     /// 导出给外部 TrollStore/巨魔注入器使用的完整包。
     /// 这里不绑定 Bundle ID，也不修改任何目标 App；外部注入器负责
     /// 注入 Gadget、签名和安装，loader 只负责统一脚本执行与日志回写。
+    @MainActor
     static func exportEnabledPackage() throws -> URL {
         let enabled = loadScripts().filter(\.enabled)
         guard !enabled.isEmpty else { throw FridaExportError.noEnabledScripts }
