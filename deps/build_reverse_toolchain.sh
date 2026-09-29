@@ -12,7 +12,28 @@ cd /opt/reverse-build
 git clone --depth 1 --branch 5.9.8 --recurse-submodules https://github.com/radareorg/r2ghidra.git
 cd r2ghidra
 git clone --depth 1 --branch 0.5.0 https://github.com/radareorg/ghidra-native.git
-(cd ghidra-native; for p in $(ls patches/*.patch | sort -n); do patch -p1 < "$p"; done; touch patch.done)
+(
+    cd ghidra-native
+    for p in $(ls patches/*.patch | sort -n); do
+        case "$p" in
+            */0055-datatype-clone.patch) ;; # Applied semantically below: upstream context is stale.
+            *) patch -p1 < "$p" ;;
+        esac
+    done
+    python3 - <<'PY'
+from pathlib import Path
+p = Path('src/decompiler/type.hh')
+s = p.read_text()
+start = s.index('  virtual Datatype *clone(void) const=0;')
+end = s.index('\n', start) + 1
+line = s[start:end]
+s = s[:start] + s[end:]
+public = s.index('public:', start) + len('public:\n')
+s = s[:public] + line + s[public:]
+p.write_text(s)
+PY
+    touch patch.done
+)
 ./configure --prefix=/usr
 printf 'AARCH64\nARM\nx86\n' > ghidra-processors.txt
 make -j2
