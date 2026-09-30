@@ -13,8 +13,7 @@
 import SwiftUI
 
 struct HostAccessSettingsView: View {
-    @StateObject private var manager = HostAccessManager.shared
-    @State private var refreshTick = 0
+    @ObservedObject private var manager = HostAccessManager.shared
 
     var body: some View {
         List {
@@ -23,7 +22,6 @@ struct HostAccessSettingsView: View {
                 ForEach(HostAccessLevel.allCases) { lv in
                     Button {
                         manager.setLevel(lv)
-                        refreshTick += 1
                     } label: {
                         HStack(alignment: .top, spacing: 12) {
                             Image(systemName: lv == manager.level ? "largecircle.fill.circle" : "circle")
@@ -53,7 +51,7 @@ struct HostAccessSettingsView: View {
             // MARK: 内置位置
             Section {
                 ForEach(HostLocation.builtins) { loc in
-                    HostLocationRow(location: loc, manager: manager, refreshTick: $refreshTick)
+                    HostLocationRow(location: loc, manager: manager)
                 }
             } header: {
                 Text("可用位置")
@@ -81,7 +79,6 @@ struct HostAccessSettingsView: View {
                     }
                     Button(role: .destructive) {
                         manager.unmountAll()
-                        refreshTick += 1
                     } label: {
                         Label("全部卸载", systemImage: "eject")
                     }
@@ -94,7 +91,6 @@ struct HostAccessSettingsView: View {
         }
         .navigationTitle("宿主访问")
         .navigationBarTitleDisplayMode(.inline)
-        .id(refreshTick)   // 便于强刷状态
     }
 }
 
@@ -103,7 +99,6 @@ struct HostAccessSettingsView: View {
 private struct HostLocationRow: View {
     let location: HostLocation
     @ObservedObject var manager: HostAccessManager
-    @Binding var refreshTick: Int
 
     private var isMounted: Bool { manager.mounted.contains { $0.key == location.key } }
     private var isAllowed: Bool { manager.isAllowed(location) }
@@ -133,7 +128,6 @@ private struct HostLocationRow: View {
                 if isMounted {
                     Button("卸载") {
                         manager.unmount(location)
-                        refreshTick += 1
                     }
                     .font(.caption)
                     .buttonStyle(.bordered)
@@ -141,7 +135,6 @@ private struct HostLocationRow: View {
                     Button(isAllowed ? "挂载" : "授权并挂载") {
                         manager.approve(HostMountRequest(location: location, requester: "手动"))
                         _ = manager.ensureMounted(location)
-                        refreshTick += 1
                     }
                     .font(.caption)
                     .buttonStyle(.bordered)

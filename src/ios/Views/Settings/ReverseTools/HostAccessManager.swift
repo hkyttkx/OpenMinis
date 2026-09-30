@@ -118,9 +118,15 @@ final class HostAccessManager: ObservableObject {
     static let shared = HostAccessManager()
 
     /// 当前访问级别（持久化）
-    @Published var level: HostAccessLevel {
-        didSet { UserDefaults.standard.set(level.rawValue, forKey: Self.levelKey) }
+    @Published var level: HostAccessLevel = .ask {
+        didSet {
+            guard didFinishInit else { return }
+            UserDefaults.standard.set(level.rawValue, forKey: Self.levelKey)
+        }
     }
+
+    /// init 期间 didSet 不该执行业务逻辑
+    private var didFinishInit = false
 
     /// 本次会话已批准的挂载点（key 集合）
     @Published private(set) var approvedKeys: Set<String> = []
@@ -139,13 +145,16 @@ final class HostAccessManager: ObservableObject {
 
     private init() {
         let raw = UserDefaults.standard.string(forKey: Self.levelKey) ?? HostAccessLevel.ask.rawValue
-        self.level = HostAccessLevel(rawValue: raw) ?? .ask
+        let loadedLevel = HostAccessLevel(rawValue: raw) ?? .ask
 
         if let saved = UserDefaults.standard.array(forKey: Self.autoKeysKey) as? [String] {
             approvedKeys = Set(saved)
         } else {
             approvedKeys = Self.autoDefaultKeys
         }
+
+        level = loadedLevel
+        didFinishInit = true
     }
 
     // MARK: 级别切换
@@ -259,7 +268,7 @@ final class HostAccessManager: ObservableObject {
 
     // MARK: 描述
 
-    /// 给 AI 的可用位置说明
+    /// 给 AI 的可用位置说明（只读，不触发挂载）
     func availableDescription() -> String {
         var lines: [String] = []
         lines.append("当前宿主访问级别：\(level.title)")
@@ -268,10 +277,12 @@ final class HostAccessManager: ObservableObject {
             let state: String
             if level == .off {
                 state = "不可用（已关闭）"
+            } else if mounted.contains(where: { $0.key == loc.key }) {
+                state = "已挂载 → \(loc.guestPath)"
             } else if isAllowed(loc) {
-                state = ensureMounted(loc) ? "已挂载 → \(loc.guestPath)" : "授权但挂载失败"
+                state = "已授权，可挂载 → \(loc.guestPath)"
             } else {
-                state = "未授权（调用 host_access 可请求）"
+                state = "未授权（调用 host_access action=request 可请求）"
             }
             lines.append("• \(loc.key) — \(loc.title)：\(state)")
         }
