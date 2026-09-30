@@ -268,6 +268,24 @@ extension AIChatViewModel {
         }
 
 
+        // ── 宿主文件访问工具 ──
+        //
+        // 让 AI 在静态分析时直接读取手机上的原始文件，而不必先让用户
+        // 手动把文件复制到沙盒。访问级别由用户在设置里选择：
+        // 关闭 / 询问后访问（弹窗确认）/ 全自动访问。
+        tools.append(AgentToolDefinition(
+            name: "host_access",
+            description: "申请或查询宿主文件系统访问权限。iSH 沙盒只能看到经挂载的路径，本工具把宿主目录只读挂载进沙盒，使 r2 / binutils / file / strings / sqlite3 能直接读取手机上的原始文件（已安装 App 的二进制、数据容器、越狱目录等）。action=list 查看当前可用位置与状态；action=request 申请访问某个位置（在「询问后访问」模式下会向用户弹窗确认）。挂载后通过 /var/minis/host/<短名>/... 访问对应宿主目录。",
+            parameters: [
+                "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user. Use the same language as the user."),
+                "action": AgentToolParam(type: .string, description: "'list' 查看可用位置与当前状态；'request' 申请访问某个位置。默认 list。", enumValues: ["list", "request"]),
+                "location": AgentToolParam(type: .string, description: "位置短名：apps（已安装 App 的包）/ containers（App 数据容器）/ shared（App Group 共享目录）/ jb（越狱根）/ root（整个文件系统）。与 path 二选一。", enumValues: ["apps", "containers", "shared", "jb", "root"]),
+                "path": AgentToolParam(type: .string, description: "自定义宿主绝对路径，如 /var/mobile/Library。与 location 二选一。"),
+            ],
+            required: ["tool_title", "action"],
+            propertyOrdering: ["tool_title", "action", "location", "path"]
+        ))
+
         // ── 动态注入工具组 ──
         //
         // 与静态分析工具不同，这两个工具会真实修改目标 App 的运行状态，

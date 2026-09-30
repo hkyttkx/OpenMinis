@@ -1847,8 +1847,12 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
         NSString *ldidPathOnly = FuckResourcePath(@"ldid");
         if (ldidPathOnly.length) {
             chmod(ldidPathOnly.UTF8String, 0755);
+            // 注意：进程内注入时，spawn bundle 内的可执行文件会与注入子进程
+            // 遇到同一个问题（被信号 1 掐掉）。这里把签名视为「尽力而为」，
+            // 失败不影响后续信任链 —— roothide jbserver 走的是 launchd，
+            // 不依赖本地签名结果。
             int lr = FuckSpawnArguments(@[ldidPathOnly, @"-S", injectedDylibPath], YES);
-            FLog(@"[CLI] (模式B) ldid -S => ret=%d", lr);
+            FLog(@"[CLI] (模式B) ldid -S => ret=%d（失败不影响 roothide 信任链）", lr);
         } else {
             FLog(@"[CLI] (模式B) ldid 不在 bundle 内，跳过 ad-hoc 签名");
         }
@@ -1866,7 +1870,7 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
             // ldid -S (ad-hoc sign)
             FLog(@"[CLI] Step 2a: ldid -S %@", injectedDylibPath);
             int ldidRet = FuckSpawnArguments(@[ldidPath, @"-S", injectedDylibPath], YES);
-            FLog(@"[CLI] ldid -S => ret=%d", ldidRet);
+            FLog(@"[CLI] ldid -S => ret=%d（失败不影响 roothide 信任链）", ldidRet);
 
             NSDictionary *midAttrs = [[NSFileManager defaultManager] attributesOfItemAtPath:injectedDylibPath error:NULL];
             unsigned long long midSz = [midAttrs fileSize];
@@ -2017,82 +2021,51 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
         }
         FLog(@"[SPAWN] target PID: %d", targetPid);
 
-        // 以 root 身份 spawn 独立的注入子进程。
+        // ── 在当前进程内直接执行注入，不再 spawn 子进程 ──
         //
-        // 之前是 spawn 主程序自身（Minis.app/Minis + -FuckInject），但那条路
-        // 有个无解的时序问题：子进程要先跑完 dyld + Swift runtime + UIKit 初始化
-        // 才能执行到 CLI 分发代码，而 SIGHUP 在约 50ms 内就到了 ——
-        // 子进程在任何 signal(SIG_IGN) 生效之前就已被终止（实测 WIFSIGNALED=1，
-        // 日志只多出 410 字节即 dyld 的常规输出）。
+        // 原因（实测）：
+        //   posix_spawn 本 bundle 内的可执行文件（无论主程序还是独立 runner），
+        //   在 iOS 17.x + 巨魔/越狱环境下会被内核/AMFI 直接掐掉 ——
+        //   rawStatus=1（WIFSIGNALED）、1ms 内死亡、子进程未执行任何代码。
+        //   这条路径已确认不可用。
         //
-        // 改为 spawn 一个纯 Objective-C 的独立可执行文件 FuckInjectRunner：
-        // 它没有 SwiftUI 生命周期，main() 第一件事就是忽略相关信号，
-        // 然后直接调用 cliInject。启动路径极短，信号来不及打断。
-        reportProgress(@"[3/3] 执行 root 注入...");
+        // 为什么可以不要 root：
+        //   注入的每一步所需权限，本进程都已具备 ——
+        //     task_for_pid              ← task_for_pid-allow（entitlements）
+        //     mach_vm_* / thread_*      ← 拿到 task port 即可
+        //     sandbox_extension_issue   ← no-sandbox
+        //     写目标 App 目录            ← no-sandbox + storage.AppBundles
+        //     trust cache               ← roothide jbserver（走 launchd，不需 root）
+        //
+        // 因此改为直接调用 CLI 实现（它与子进程版本逻辑完全一致）。
+        reportProgress(@"[3/3] 执行注入...");
 
-        NSString *exe = FuckResourcePath(@"FuckInjectRunner");
-        if (!exe.length) {
-            // 兜底：退回主程序自身（老路径，在新环境可能仍被 SIGHUP 打断）
-            exe = [[NSBundle mainBundle] executablePath];
-            FLogError(@"[SPAWN] FuckInjectRunner 不存在，回退到主程序自身");
-        } else {
-            chmod(exe.UTF8String, 0755);
-        }
-        FLog(@"[SPAWN] executable: %@", exe);
-
-
-        // 把日志路径与注入模式通过环境变量传给 root 子进程
+        // 把日志路径通过环境变量交给注入实现（与本进程内共用同一日志文件）
         NSString *logPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject
                              stringByAppendingPathComponent:@"inject_debug.log"];
         setenv("FUCK_INJECT_LOG_PATH", logPath.UTF8String, 1);
         setenv("FUCK_INJECT_MODE", [[NSString stringWithFormat:@"%d", mode] UTF8String], 1);
 
-        // 独立 runner 的参数形式：<dylibPath> <bundleID> [mode]
-        // 主程序自身那条兜底路径仍需要 -FuckInject 标记
-        NSArray *args;
-        if ([exe.lastPathComponent isEqualToString:@"FuckInjectRunner"]) {
-            args = @[exe, dylibPath, bundleID, [NSString stringWithFormat:@"%d", mode]];
-        } else {
-            args = @[exe, @"-FuckInject", dylibPath, bundleID,
-                     [NSString stringWithFormat:@"%d", mode]];
-        }
-        FLog(@"[SPAWN] argv = %@", [args componentsJoinedByString:@" | "]);
-        FLog(@"[SPAWN] 即将 spawn，mode=%d，日志路径=%@", mode, logPath);
+        FLog(@"[INLINE] 当前进程内注入：uid=%d euid=%d", getuid(), geteuid());
+        FLog(@"[INLINE] dylib=%@ bundleID=%@ mode=%d", dylibPath, bundleID, mode);
 
-        // 记录 spawn 前的日志文件大小，便于判断子进程是否写入
         unsigned long long logSizeBefore = [[[NSFileManager defaultManager]
             attributesOfItemAtPath:logPath error:NULL][NSFileSize] unsignedLongLongValue];
 
-        int rawStatus = FuckSpawnArguments(args, YES);
-        FLog(@"[SPAWN] spawn 返回 rawStatus=%d, WIFEXITED=%d, WIFSIGNALED=%d",
-             rawStatus, WIFEXITED(rawStatus) ? 1 : 0, WIFSIGNALED(rawStatus) ? 1 : 0);
-        if (WIFSIGNALED(rawStatus)) {
-            FLog(@"[SPAWN] 子进程被信号 %d 终止", WTERMSIG(rawStatus));
-        }
+        int ret = [FuckDynamicInjector cliInjectWithDylibPath:dylibPath
+                                                     bundleID:bundleID
+                                                         mode:mode];
 
         unsigned long long logSizeAfter = [[[NSFileManager defaultManager]
             attributesOfItemAtPath:logPath error:NULL][NSFileSize] unsignedLongLongValue];
-        if (logSizeAfter == logSizeBefore) {
-            FLogError(@"[SPAWN] ⚠️ 子进程未向日志写入任何内容 —— 说明它没有执行到 CLI 入口");
-        } else {
-            FLog(@"[SPAWN] 子进程写入日志 %llu 字节", logSizeAfter - logSizeBefore);
-        }
-
-        // FuckSpawnArguments 返回 waitpid 的 raw status，需要 WEXITSTATUS 解析
-        int ret = WIFEXITED(rawStatus) ? WEXITSTATUS(rawStatus) : -1;
-        FLog(@"[SPAWN] root subprocess raw status: %d, exit code: %d", rawStatus, ret);
+        FLog(@"[INLINE] 注入返回 %d（本次写入日志 %llu 字节）",
+             ret, logSizeAfter - logSizeBefore);
 
         if (ret == 0) {
-            FLogSuccess(@"动态注入成功 (root 子进程)");
+            FLogSuccess(@"动态注入成功");
             finish(YES, @"动态注入成功");
         } else {
-            NSString *errMsg;
-            if (WIFSIGNALED(rawStatus)) {
-                int sig = WTERMSIG(rawStatus);
-                errMsg = [NSString stringWithFormat:@"注入子进程被信号 %d 杀死", sig];
-            } else {
-                errMsg = [NSString stringWithFormat:@"注入失败 (错误码: %d)", ret];
-            }
+            NSString *errMsg = [NSString stringWithFormat:@"注入失败（错误码: %d）", ret];
             FLogError(@"%@", errMsg);
 
             // 目标 App 可能因注入而闪退 —— 抓它的崩溃报告一起归档

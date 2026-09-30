@@ -455,6 +455,9 @@
 		KPF2B /* patchfinder.m in Sources */ = {isa = PBXBuildFile; fileRef = KPF2R /* patchfinder.m */; };
 		INJ000S1B /* JailbreakInjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ000S1R /* JailbreakInjector.swift */; };
 		INJ001S1B /* HookConfigBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ001S1R /* HookConfigBuilder.swift */; };
+		INJ002S1B /* HostAccessManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ002S1R /* HostAccessManager.swift */; };
+		INJ002S2B /* HostAccessSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ002S2R /* HostAccessSettingsView.swift */; };
+		INJ002S3B /* AIChatViewModel+HostAccessTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ002S3R /* AIChatViewModel+HostAccessTools.swift */; };
 		INJ001S2B /* HookChatRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ001S2R /* HookChatRouter.swift */; };
 		INJ001S3B /* AIChatViewModel+HookTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ001S3R /* AIChatViewModel+HookTools.swift */; };
 		INJ000S2B /* InjectPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ000S2R /* InjectPanelView.swift */; };
@@ -1166,6 +1169,9 @@
 		KFH1R /* FuckKfdHelper.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = FuckKfdHelper.m; path = "FuckKfdHelper/FuckKfdHelper.m"; sourceTree = "<group>"; };
 		INJ000S1R /* JailbreakInjector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JailbreakInjector.swift; sourceTree = "<group>"; };
 		INJ001S1R /* HookConfigBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HookConfigBuilder.swift"; sourceTree = "<group>"; };
+		INJ002S1R /* HostAccessManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostAccessManager.swift"; sourceTree = "<group>"; };
+		INJ002S2R /* HostAccessSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostAccessSettingsView.swift"; sourceTree = "<group>"; };
+		INJ002S3R /* AIChatViewModel+HostAccessTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+HostAccessTools.swift"; sourceTree = "<group>"; };
 		INJ001S2R /* HookChatRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HookChatRouter.swift"; sourceTree = "<group>"; };
 		INJ001S3R /* AIChatViewModel+HookTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+HookTools.swift"; sourceTree = "<group>"; };
 		INJ000S2R /* InjectPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InjectPanelView.swift; sourceTree = "<group>"; };
@@ -2345,6 +2351,9 @@
 				INJ000S2R /* InjectPanelView.swift */,
 				INJ000S3R /* InjectLogViewer.swift */,
 				INJ001S1R /* HookConfigBuilder.swift */,
+				INJ002S1R /* HostAccessManager.swift */,
+				INJ002S2R /* HostAccessSettingsView.swift */,
+				INJ002S3R /* AIChatViewModel+HostAccessTools.swift */,
 				INJ001S2R /* HookChatRouter.swift */,
 				INJ001S3R /* AIChatViewModel+HookTools.swift */,
 			);
@@ -2852,6 +2861,9 @@
 				INJ000S2B /* InjectPanelView.swift in Sources */,
 				INJ000S3B /* InjectLogViewer.swift in Sources */,
 				INJ001S1B /* HookConfigBuilder.swift in Sources */,
+				INJ002S1B /* HostAccessManager.swift in Sources */,
+				INJ002S2B /* HostAccessSettingsView.swift in Sources */,
+				INJ002S3B /* AIChatViewModel+HostAccessTools.swift in Sources */,
 				INJ001S2B /* HookChatRouter.swift in Sources */,
 				INJ001S3B /* AIChatViewModel+HookTools.swift in Sources */,
 

@@ -801,6 +801,15 @@ extension AIChatViewModel {
 
 
 
+        case "host_access":
+            if let r = await executeHostAccessTool(from: argsJson, msgIdx: msgIdx, blockIdx: blockIdx) {
+                toolOutput = r.output
+                toolSuccess = r.success
+            } else {
+                toolOutput = "Error: invalid arguments for host_access"
+                toolSuccess = false
+            }
+
         case "hook_compile":
             // Hook 配置 → dylib：基于内置 FuckEngine 模板做 section 原地替换，
             // 不需要编译器，因此不经过沙盒执行管线。

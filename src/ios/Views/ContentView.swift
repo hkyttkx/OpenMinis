@@ -926,6 +926,9 @@ struct ContentView: View {
     // refresh the rows, not the header pass.
     @ObservedObject private var sidebarBadgeStore = SessionBadgeStore.shared
     @ObservedObject private var sidebarConcurrencyManager = SessionConcurrencyManager.shared
+    /// 待用户确认的宿主文件访问请求（AI 发起）
+    @State private var hostAccessRequest: HostMountRequest?
+
     @State private var sessions: [ChatSession] = []
     @State private var folders: [ChatFolder] = []
     /// Collapsed folder sections. Pure UI view-state: persisted locally, never
@@ -1284,6 +1287,31 @@ struct ContentView: View {
             NotificationCenter.default.publisher(for: .sessionDidCreate),
             perform: handleSessionCreatedForPendingFolder
         )
+        // [T-host-access-confirm] 宿主文件访问确认。
+        // AI 的 host_access 工具在「询问后访问」模式下会挂起请求，
+        // 这里统一弹窗；批准后由 HostAccessManager 完成 bind mount。
+        .onReceive(HostAccessManager.shared.$pendingRequest.compactMap { $0 }) { req in
+            hostAccessRequest = req
+        }
+        .alert(item: $hostAccessRequest) { req in
+            Alert(
+                title: Text("AI 请求访问宿主文件"),
+                message: Text("""
+                请求方：\(req.requester)
+                位置：\(req.location.title)
+                路径：\(req.location.hostPath)
+
+                批准后该目录将以只读方式挂载进沙盒，AI 可读取其中文件但无法修改。本次批准在本次运行内有效。
+                """),
+                primaryButton: .default(Text("允许")) {
+                    HostAccessManager.shared.approve(req)
+                },
+                secondaryButton: .cancel(Text("拒绝")) {
+                    HostAccessManager.shared.deny()
+                }
+            )
+        }
+
         .onReceive(NotificationCenter.default.publisher(for: .newChatRequested)) { _ in
             handleNewChatRequest()
         }

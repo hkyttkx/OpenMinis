@@ -37,6 +37,33 @@ struct MountedFoldersSettingsView: View {
                 InfoBanner()
             }
 
+            // 宿主访问：越狱/巨魔环境下直接读取系统路径（App 包、数据容器、越狱根）。
+            // 与上面的「挂载外部文件夹」正交 —— 那边走 UIDocumentPicker 的
+            // security-scoped bookmark，只能覆盖「文件」App 可见的目录。
+            Section {
+                NavigationLink {
+                    HostAccessSettingsView()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "externaldrive.connected.to.line.below")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 28, height: 28)
+                            .background(Color.purple, in: Circle())
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("宿主访问")
+                            Text(HostAccessManager.shared.level.title)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } header: {
+                Text("系统路径")
+            } footer: {
+                Text("允许 AI 在静态分析时直接读取手机上任意文件（已装 App 的二进制、数据容器、越狱目录等）。三档：关闭 / 询问后访问 / 全自动访问。")
+            }
+
             if model.entries.isEmpty {
                 Section {
                     VStack(spacing: 10) {
