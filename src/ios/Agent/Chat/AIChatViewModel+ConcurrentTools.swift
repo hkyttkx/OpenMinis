@@ -973,6 +973,15 @@ extension AIChatViewModel {
                 toolOutput = helperResult.output
                 toolSuccess = helperResult.success
             }
+        case "host_file":
+            if let r = await executeHostFileTool(from: argsJson, msgIdx: msgIdx, blockIdx: blockIdx) {
+                toolOutput = r.output
+                toolSuccess = r.success
+            } else {
+                toolOutput = "Error: invalid arguments for host_file"
+                toolSuccess = false
+            }
+
         case "github":
             if let r = await executeGitHubTool(from: argsJson, msgIdx: msgIdx, blockIdx: blockIdx) {
                 toolOutput = r.output

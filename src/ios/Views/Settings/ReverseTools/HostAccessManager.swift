@@ -283,22 +283,15 @@ final class HostAccessManager: ObservableObject {
 
     // MARK: 实际挂载
 
-    /// 执行 bind mount（幂等）
+    /// 启用某个位置（直读模式，不做 fakefs 挂载）。
+    ///
+    /// 参考实现（AppFetchHelper）验证过的做法：App 靠 entitlements 的
+    /// no-sandbox / storage.AppBundles 权限直接用 NSFileManager 读写宿主，
+    /// 不经过 iSH 的 bind mount。因此这里只登记「该位置已授权」，
+    /// 实际读写在 HostFileAccess 里直读完成。
     @discardableResult
     func ensureMounted(_ loc: HostLocation, permission: HostMountPermission? = nil) -> Bool {
-        // 已挂载：若权限有变则重新挂载
-        if let current = mounted[loc.key] {
-            if let want = permission, want != current {
-                _ = ISHKernel.shared.bindUnmountPath(loc.guestPath)
-                mounted.removeValue(forKey: loc.key)
-            } else {
-                return true
-            }
-        }
-
         lastError = nil
-
-        guard ensureKernelReady() else { return false }
 
         // 越狱根是随机路径，需动态解析
         var hostPath = loc.hostPath
@@ -313,29 +306,10 @@ final class HostAccessManager: ObservableObject {
             return false
         }
 
-        // 权限策略（与用户设定一致）：
-        //   系统关键路径（越狱根、根目录、App 安装包）→ 强制只读，不接受读写请求
-        //   其余位置（App 数据容器、App Group）      → 默认读写，AI 可读改写
         var perm = permission ?? (loc.allowsWrite ? .readWrite : .readOnly)
         if !loc.allowsWrite { perm = .readOnly }
 
-        // 先在 fakefs meta.db 注册挂载点，否则 fakefs_bind_mount 会返回
-        // EINVAL(-22)：路径虽然在宿主存在，但 guest 侧没有对应 inode。
-        let prepareRC = ISHKernel.shared.prepareBindMountPath(loc.guestPath,
-                                                               readOnly: perm == .readOnly)
-        guard prepareRC == 0 else {
-            lastError = "挂载点准备失败（err=\(prepareRC)）：\(loc.guestPath)"
-            return false
-        }
-
-        let rc = ISHKernel.shared.bindMountPath(loc.guestPath,
-                                                toHostPath: hostPath,
-                                                readOnly: perm == .readOnly)
-        guard rc == 0 else {
-            lastError = "挂载失败（err=\(rc)）：\(hostPath)"
-            return false
-        }
-
+        // 直读：登记即可。真正读写由 HostFileAccess 按路径策略执行。
         mounted[loc.key] = perm
         return true
     }
@@ -352,17 +326,12 @@ final class HostAccessManager: ObservableObject {
     }
 
     func unmount(_ loc: HostLocation) {
-        _ = ISHKernel.shared.bindUnmountPath(loc.guestPath)
         mounted.removeValue(forKey: loc.key)
         approvedKeys.remove(loc.key)
         persistApproved()
     }
 
     func unmountAll() {
-        for key in mounted.keys {
-            let guest = "/var/minis/host/\(key)"
-            _ = ISHKernel.shared.bindUnmountPath(guest)
-        }
         mounted.removeAll()
     }
 

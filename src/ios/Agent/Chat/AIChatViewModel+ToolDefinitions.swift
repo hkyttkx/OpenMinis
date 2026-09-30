@@ -310,6 +310,26 @@ extension AIChatViewModel {
                 propertyOrdering: ["tool_title", "action", "task", "agent", "model_choice", "context", "max_minutes", "wait", "progress_report", "job_id", "message", "child_session_id"]
             ))
         }
+        // ── 宿主文件直读工具 ──
+        //
+        // 参考实现从不挂载：App 凭 no-sandbox 权限直读宿主，读到的文件按需
+        // 投递到沙盒再交给 r2 分析。这里提供同一套能力给 AI。
+        tools.append(AgentToolDefinition(
+            name: "host_file",
+            description: "直接读取手机上的任意文件与文件夹，包括已安装 App 的二进制与数据容器。系统关键路径（/、/System、越狱根、App 安装包）强制只读，其余位置可读改写。大文件或二进制会自动投递到沙盒，返回的路径可直接交给 r2_execute / binutils_query 分析。",
+            parameters: [
+                "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user. Use the same language as the user."),
+                "action": AgentToolParam(type: .string, description: "操作：list_apps（列出所有已安装 App）/ container（解析某 App 的数据容器）/ ls（列目录）/ read（读文件）/ write（写文件）/ rm（删除）/ deliver（投递到沙盒供 r2 分析）/ search（按文件名递归搜索）。", enumValues: ["list_apps","container","ls","read","write","rm","deliver","search"]),
+                "path": AgentToolParam(type: .string, description: "宿主绝对路径，如 /var/containers/Bundle/Application 或 /var/mobile/Containers/Data/Application。ls / read / write / rm / deliver / search 必填。"),
+                "bundle_id": AgentToolParam(type: .string, description: "目标 App 的 bundle identifier（container 动作必填）。"),
+                "content": AgentToolParam(type: .string, description: "写入内容（write 必填）。"),
+                "keyword": AgentToolParam(type: .string, description: "搜索关键词（search 必填，按文件名匹配）。"),
+                "limit": AgentToolParam(type: .integer, description: "返回条数上限，默认 200-500。"),
+            ],
+            required: ["tool_title", "action"],
+            propertyOrdering: ["tool_title","action","path","bundle_id","content","keyword","limit"]
+        ))
+
         // ── GitHub 工具 ──
         //
         // 用户在「设置 → GitHub 连接」填入个人访问令牌后，AI 即可直接操作

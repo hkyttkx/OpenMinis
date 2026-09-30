@@ -485,6 +485,8 @@
 		LS000S1B /* LocalSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = LS000S1R /* LocalSnapshotStore.swift */; };
 		RQ000S1B /* RelayQuotaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = RQ000S1R /* RelayQuotaService.swift */; };
 		TM000S1B /* TerminalSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = TM000S1R /* TerminalSettingsView.swift */; };
+		HF000S1B /* HostFileAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = HF000S1R /* HostFileAccess.swift */; };
+		HF000S2B /* AIChatViewModel+HostFileTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = HF000S2R /* AIChatViewModel+HostFileTools.swift */; };
 		RQ000S2B /* RelayQuotaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = RQ000S2R /* RelayQuotaView.swift */; };
 		LS000S2B /* LocalSnapshotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = LS000S2R /* LocalSnapshotView.swift */; };
 		CTX00S1B /* ContextLimitSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = CTX00S1R /* ContextLimitSettings.swift */; };
@@ -1247,6 +1249,8 @@
 		LS000S1R /* LocalSnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LocalSnapshotStore.swift"; sourceTree = "<group>"; };
 		RQ000S1R /* RelayQuotaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RelayQuotaService.swift"; sourceTree = "<group>"; };
 		TM000S1R /* TerminalSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalSettingsView.swift"; sourceTree = "<group>"; };
+		HF000S1R /* HostFileAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostFileAccess.swift"; sourceTree = "<group>"; };
+		HF000S2R /* AIChatViewModel+HostFileTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+HostFileTools.swift"; sourceTree = "<group>"; };
 		RQ000S2R /* RelayQuotaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RelayQuotaView.swift"; sourceTree = "<group>"; };
 		LS000S2R /* LocalSnapshotView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LocalSnapshotView.swift"; sourceTree = "<group>"; };
 		CTX00S1R /* ContextLimitSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContextLimitSettings.swift"; sourceTree = "<group>"; };
@@ -2486,6 +2490,8 @@
 				LS000S1R /* LocalSnapshotStore.swift */,
 				RQ000S1R /* RelayQuotaService.swift */,
 				TM000S1R /* TerminalSettingsView.swift */,
+				HF000S1R /* HostFileAccess.swift */,
+				HF000S2R /* AIChatViewModel+HostFileTools.swift */,
 				RQ000S2R /* RelayQuotaView.swift */,
 				LS000S2R /* LocalSnapshotView.swift */,
 				CTX00S1R /* ContextLimitSettings.swift */,
@@ -3018,6 +3024,8 @@
 				LS000S1B /* LocalSnapshotStore.swift in Sources */,
 				RQ000S1B /* RelayQuotaService.swift in Sources */,
 				TM000S1B /* TerminalSettingsView.swift in Sources */,
+				HF000S1B /* HostFileAccess.swift in Sources */,
+				HF000S2B /* AIChatViewModel+HostFileTools.swift in Sources */,
 				RQ000S2B /* RelayQuotaView.swift in Sources */,
 				LS000S2B /* LocalSnapshotView.swift in Sources */,
 				CTX00S1B /* ContextLimitSettings.swift in Sources */,
