@@ -1279,6 +1279,67 @@ struct ContentView: View {
     /// AI 写操作待确认（仅整盘档位触发）
     @State private var pendingWriteApproval = false
 
+    /// `.task` 的闭包体。
+    ///
+    /// 整段外移的原因：这个闭包（含下面几个启动分支）长达五十行，是一个
+    /// 单独的表达式，编译器在其中逐个重表达式上超时（先是写确认弹窗，
+    /// 然后是 iPad 折叠分支，最后落到日志字符串的 `+` 链）。抽成有返回
+    /// 类型的独立方法后，闭包本身只剩一次调用，类型推断范围被切断。
+    /// 语句顺序与语义与原来逐行一致。
+    @MainActor
+    private func runInitialTask() async {
+        // [T-p1-delegate-task] Hidden child sessions never reach the
+        // sidebar; they are entered from their parent's helper block.
+        sessions = await ChatStore.shared.listSessions().filter { !$0.isChild }
+        // [T-ios-moveto-seed] Hand the sidebar's freshly-loaded list to the
+        // Move-to sheet's seed, so opening the picker paints populated
+        // instead of waiting on the ChatStore actor.
+        ViewModelCache.noteSessionsLoaded(sessions)
+        // Folders must load WITH the first session batch: groupedSessionIDs
+        // treats a folder_id whose folder isn't loaded as an orphan and
+        // renders the session ungrouped, so a first paint with sessions
+        // but no folders shows a flat list and the folder cards only
+        // "appear after a while" (whenever refreshSessionList next ran —
+        // the exact symptom reported from the Mac build).
+        folders = await ChatStore.shared.listFolders()
+        let shareAlreadyHandled = shareCoordinator.bufferVersion > 0
+        // A Home Screen Quick Action that fired during launch will
+        // open the right session itself via `quickActionRouter.newChatTrigger`.
+        // Skip the Launch Session logic so we don't open a second,
+        // conflicting session (the "last session" / "new chat"
+        // launchScreen branch races the shortcut and the user ends
+        // up watching one view replaced by the other).
+        // Two signals indicate a quick-action launch is in flight:
+        //   1. Router bumped newChatTrigger but ContentView hasn't
+        //      consumed it yet (race: .task runs before .onAppear).
+        //   2. QuickActionWorkflow is past .idle — router already
+        //      called start(), workflow owns the next session to
+        //      open. Even if (1) flipped because .onAppear already
+        //      ran and consumed the trigger, the workflow is still
+        //      mid-flight and the launch session would clobber it.
+        let workflowActive: Bool = {
+            if case .idle = QuickActionWorkflow.shared.state { return false }
+            return true
+        }()
+        let quickActionPending = quickActionRouter.newChatTrigger != consumedQuickActionTrigger || workflowActive
+        let shareTaskState = [
+            "hasPendingShare=\(shareCoordinator.hasPendingShare)",
+            "launchScreen=\(launchScreen)",
+            "sessions=\(sessions.count)",
+            "bufferVersion=\(shareCoordinator.bufferVersion)",
+            "shareAlreadyHandled=\(shareAlreadyHandled)",
+            "quickActionPending=\(quickActionPending)",
+            "workflowActive=\(workflowActive)",
+        ].joined(separator: " ")
+        shareLog.info("[Share] .task: " + shareTaskState)
+
+        performInitialLaunch(shareAlreadyHandled: shareAlreadyHandled,
+                             quickActionPending: quickActionPending)
+        didInitialLoad = true
+        fetchAlarmsIfNeeded()
+        await refreshRemoteDeviceSessions()
+    }
+
     /// 首次启动时的落点决策（通知点击 / 快捷指令 / 分享 / 崩溃循环 / 启动屏设置）。
     ///
     /// 这段逻辑原本内联在 `.task` 闭包里。闭包本身已经很长，编译器在
@@ -2184,54 +2245,7 @@ struct ContentView: View {
             }
         }
         .task {
-            // [T-p1-delegate-task] Hidden child sessions never reach the
-            // sidebar; they are entered from their parent's helper block.
-            sessions = await ChatStore.shared.listSessions().filter { !$0.isChild }
-            // [T-ios-moveto-seed] Hand the sidebar's freshly-loaded list to the
-            // Move-to sheet's seed, so opening the picker paints populated
-            // instead of waiting on the ChatStore actor.
-            ViewModelCache.noteSessionsLoaded(sessions)
-            // Folders must load WITH the first session batch: groupedSessionIDs
-            // treats a folder_id whose folder isn't loaded as an orphan and
-            // renders the session ungrouped, so a first paint with sessions
-            // but no folders shows a flat list and the folder cards only
-            // "appear after a while" (whenever refreshSessionList next ran —
-            // the exact symptom reported from the Mac build).
-            folders = await ChatStore.shared.listFolders()
-            let shareAlreadyHandled = shareCoordinator.bufferVersion > 0
-            // A Home Screen Quick Action that fired during launch will
-            // open the right session itself via `quickActionRouter.newChatTrigger`.
-            // Skip the Launch Session logic so we don't open a second,
-            // conflicting session (the "last session" / "new chat"
-            // launchScreen branch races the shortcut and the user ends
-            // up watching one view replaced by the other).
-            // Two signals indicate a quick-action launch is in flight:
-            //   1. Router bumped newChatTrigger but ContentView hasn't
-            //      consumed it yet (race: .task runs before .onAppear).
-            //   2. QuickActionWorkflow is past .idle — router already
-            //      called start(), workflow owns the next session to
-            //      open. Even if (1) flipped because .onAppear already
-            //      ran and consumed the trigger, the workflow is still
-            //      mid-flight and the launch session would clobber it.
-            let workflowActive: Bool = {
-                if case .idle = QuickActionWorkflow.shared.state { return false }
-                return true
-            }()
-            let quickActionPending = quickActionRouter.newChatTrigger != consumedQuickActionTrigger || workflowActive
-            let shareTaskState = "hasPendingShare=\(shareCoordinator.hasPendingShare)"
-                + " launchScreen=\(launchScreen)"
-                + " sessions=\(sessions.count)"
-                + " bufferVersion=\(shareCoordinator.bufferVersion)"
-                + " shareAlreadyHandled=\(shareAlreadyHandled)"
-                + " quickActionPending=\(quickActionPending)"
-                + " workflowActive=\(workflowActive)"
-            shareLog.info("[Share] .task: " + shareTaskState)
-
-            performInitialLaunch(shareAlreadyHandled: shareAlreadyHandled,
-                                 quickActionPending: quickActionPending)
-            didInitialLoad = true
-            fetchAlarmsIfNeeded()
-            await refreshRemoteDeviceSessions()
+            await runInitialTask()
         }
         .onReceive(NotificationCenter.default.publisher(for: .cloudSyncDidFetchChanges)) { _ in
             // [T-ios-state-publish-offmain-crash] cloud-sync fetch fires off-main;
