@@ -97,6 +97,9 @@ extension AIChatViewModel {
             case "write":
                 let path = try need("path")
                 let content = (args["content"] as? String) ?? ""
+                if let reason = await writeGuardError(for: path) {
+                    return (reason, false)
+                }
                 switch HostFileAccess.write(path, content: content) {
                 case .success:
                     return ("✅ 已写入 \(path)（\(content.count) 字符）", true)
@@ -106,6 +109,9 @@ extension AIChatViewModel {
 
             case "rm":
                 let path = try need("path")
+                if let reason = await writeGuardError(for: path) {
+                    return (reason, false)
+                }
                 switch HostFileAccess.remove(path) {
                 case .success:  return ("✅ 已删除 \(path)", true)
                 case .failure(let e): return ("Error: \(e.localizedDescription)", false)
@@ -164,5 +170,42 @@ extension AIChatViewModel {
         } catch {
             return ("Error: \(error.localizedDescription)", false)
         }
+    }
+}
+
+// MARK: - 写权限守卫
+
+extension AIChatViewModel {
+
+    /// 判断某个宿主路径当前是否允许写入。
+    /// 返回 nil 表示允许；返回字符串表示拒绝原因。
+    ///
+    /// 规则：
+    ///   1. 系统关键路径一律拒绝
+    ///   2. 该路径必须落在某个已授权位置内
+    ///   3. 该位置的权限必须是「读写」
+    func writeGuardError(for path: String) async -> String? {
+        if HostFileAccess.isSystemCritical(path) {
+            return "系统路径只读，不允许写入：\(path)"
+        }
+        let mgr = HostAccessManager.shared
+        // 找到包含该路径的已授权位置（取最长匹配）
+        let hit = await MainActor.run { () -> HostLocation? in
+            HostLocation.builtins
+                .filter { mgr.isMounted($0) }
+                .filter { loc in
+                    let root = mgr.resolvedPath(loc)
+                    return path == root || path.hasPrefix(root + "/")
+                }
+                .max { $0.hostPath.count < $1.hostPath.count }
+        }
+        guard let loc = hit else {
+            return "该路径不在任何已授权范围内：\(path)\n请在「设置 → 开发者 → 宿主访问」中开启对应位置。"
+        }
+        let perm = await MainActor.run { mgr.permission(loc) }
+        guard perm == .readWrite else {
+            return "\(loc.title) 当前是只读权限，无法写入。\n请在「设置 → 开发者 → 宿主访问」中将其切换为「读写」。"
+        }
+        return nil
     }
 }

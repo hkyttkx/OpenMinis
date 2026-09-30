@@ -82,11 +82,11 @@ extension AIChatViewModel {
 
         // 交由管理器决策：放行 / 挂起待确认 / 直接拒绝
         let immediate = await MainActor.run { () -> Bool in
-            manager.requestAccess(loc, requester: "AI 静态分析")
+            manager.requestAccess(loc, requester: "AI 静态分析", wantsWrite: false)
         }
 
         if immediate {
-            let ok = await MainActor.run { manager.ensureMounted(loc) }
+            let ok = await MainActor.run { manager.isAllowed(loc) }
             if ok {
                 return ("""
                 ✅ 已挂载 \(loc.title)
