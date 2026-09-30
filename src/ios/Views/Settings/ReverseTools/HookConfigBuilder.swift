@@ -96,10 +96,11 @@ enum HookConfigBuilder {
                                message: "找不到 FuckEngine.dylib 模板（应随 App 内置）")
         }
 
-        guard var data = NSMutableData(contentsOfFile: templatePath) else {
+        guard let data = NSData(contentsOfFile: templatePath) as Data? else {
             return BuildResult(success: false, dylibPath: nil,
                                message: "读取 FuckEngine.dylib 失败")
         }
+        var work = data
 
         // 1. 生成 JSON 配置
         let configJSON: String
@@ -136,35 +137,52 @@ enum HookConfigBuilder {
                                    message: "配置过大（\(valueData.count) 字节），超出模板容量 \(op.capacity)")
             }
 
-            let range = data.range(of: markerData)
-            guard range.location != NSNotFound else {
+            guard let markerRange = work.range(of: markerData) else {
                 return BuildResult(success: false, dylibPath: nil,
                                    message: "模板中未找到占位符 \(op.marker)")
             }
+            let range = NSRange(location: markerRange.lowerBound, length: markerRange.count)
 
-            // 占位符 + 结尾 NUL 一起覆盖为目标内容 + NUL，其余保持原样（NUL 填充）
-            var replacement = valueData
-            replacement.append(0)
-
-            // 占位符区（含其后的 NUL 填充）整体覆盖为目标内容 + NUL。
-            // 模型是「模板里预留 capacity 字节的静区」，写入量不会超过该区，
-            // 因为上面已经校验 valueData.count < op.capacity。
-            let needed = max(replacement.count, op.marker.utf8.count + 1)
+            // 覆盖策略：占位符区的长度按 capacity 计算（模板预留的整块静区），
+            // 把该区间整体替换为「配置内容 + NUL 填充」。
+            //
+            // 用 Data 前缀/后缀拼接实现，避开 NSMutableData.replaceBytes 在
+            // Swift 下对指针参数的要求（该 API 需要 UnsafeRawPointer，
+            // 且不能在闭包内以值拷贝方式安全传入）。
             let start = range.location
-            guard start + needed <= data.length else {
-                return BuildResult(success: false, dylibPath: nil,
-                                   message: "模板剩余空间不足（需要 \(needed) 字节）")
+            let regionLength = max(op.capacity, op.marker.utf8.count + 1)
+
+            guard start >= 0, start + regionLength <= work.count else {
+                // 模板未预留那么大的静区：退化为只覆盖占位符本身
+                let fallbackLength = op.marker.utf8.count + 1
+                guard start + fallbackLength <= work.count else {
+                    return BuildResult(success: false, dylibPath: nil,
+                                       message: "模板剩余空间不足（占位符位于文件末尾）")
+                }
+                var region = Data(valueData)
+                region.append(0)
+                if region.count < fallbackLength {
+                    region.append(contentsOf: [UInt8](repeating: 0, count: fallbackLength - region.count))
+                }
+                if region.count > fallbackLength {
+                    region = Data(region.prefix(fallbackLength))
+                }
+                work = Data(work.prefix(start)) + region + Data(work.suffix(from: start + fallbackLength))
+                continue
             }
 
-            var padded = replacement
-            if padded.count < needed {
-                padded.append(contentsOf: [UInt8](repeating: 0, count: needed - padded.count))
+            var region = Data(valueData)
+            region.append(0)
+            if region.count < regionLength {
+                region.append(contentsOf: [UInt8](repeating: 0, count: regionLength - region.count))
+            }
+            if region.count > regionLength {
+                region = Data(region.prefix(regionLength))
             }
 
-            padded.withUnsafeBytes { raw in
-                guard let base = raw.baseAddress else { return }
-                data.replaceBytes(in: NSRange(location: start, length: needed), withBytes: base)
-            }
+            work = Data(work.prefix(start))
+                 + region
+                 + Data(work.suffix(from: start + regionLength))
         }
 
         // 3. 写入输出目录
@@ -176,7 +194,7 @@ enum HookConfigBuilder {
         let outURL = outDir.appendingPathComponent(fileName)
 
         do {
-            try (data as Data).write(to: outURL)
+            try work.write(to: outURL)
             chmod(outURL.path, 0o755)
         } catch {
             return BuildResult(success: false, dylibPath: nil,
