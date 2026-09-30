@@ -75,12 +75,13 @@ final class LocalSnapshotStore: ObservableObject {
         FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
     }
 
-    /// 需要纳入快照的本机数据源
+    /// 只纳入聊天记录与 AI 服务商配置。
+    /// 不备份挂载状态、宿主访问权限、注入日志、动态库、临时文件。
+    /// ProviderConfigDB / provider-config.json 都位于 MinisChat 内，随聊天目录一起备份。
     private var sources: [(name: String, url: URL, isDir: Bool)] {
         let lib = libraryURL
         return [
-            ("MinisChat",   lib.appendingPathComponent("MinisChat", isDirectory: true), true),
-            ("Preferences", lib.appendingPathComponent("Preferences", isDirectory: true), true),
+            ("MinisChat", lib.appendingPathComponent("MinisChat", isDirectory: true), true),
         ]
     }
 

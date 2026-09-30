@@ -30,6 +30,7 @@
 #include <stdatomic.h>
 #include <stdlib.h>     // realpath
 #include <errno.h>
+#include <sqlite3.h>
 #include <sys/syslimits.h> // PATH_MAX
 #include <signal.h>
 #include <setjmp.h>
@@ -1408,6 +1409,54 @@ static void handle_process_exit(struct task *task, int code) {
     } else {
         NSLog(@"ISHKernel: Warning - cannot set terminal size, TTY not initialized");
     }
+}
+
+#pragma mark - Dynamic external mount metadata
+
+- (int)prepareBindMountPath:(NSString *)linuxPath readOnly:(BOOL)readOnly {
+    if (!_isBooted || linuxPath.length == 0 || ![linuxPath hasPrefix:@"/"]) return -1;
+
+    // fakefs_bind_mount expects the mount-point directory to exist in meta.db.
+    // The normal external-folder coordinator registers this before binding; the
+    // host-access settings page calls this API directly, so do the same here.
+    NSString *metaPath = [_rootPath stringByAppendingPathComponent:@"meta.db"];
+    sqlite3 *db = NULL;
+    if (sqlite3_open_v2(metaPath.fileSystemRepresentation, &db, SQLITE_OPEN_READWRITE, NULL) != SQLITE_OK) {
+        if (db) sqlite3_close(db);
+        return -2;
+    }
+
+    int result = 0;
+    sqlite3_stmt *check = NULL;
+    if (sqlite3_prepare_v2(db, "SELECT inode FROM paths WHERE path = ?", -1, &check, NULL) != SQLITE_OK) {
+        sqlite3_close(db); return -3;
+    }
+    sqlite3_bind_text(check, 1, linuxPath.UTF8String, -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(check) != SQLITE_ROW) {
+        sqlite3_finalize(check);
+        uint32_t mode = readOnly ? 040555 : 040755;
+        uint8_t statBytes[16] = {0};
+        memcpy(statBytes, &mode, sizeof(mode));
+
+        sqlite3_stmt *statStmt = NULL;
+        sqlite3_stmt *pathStmt = NULL;
+        if (sqlite3_prepare_v2(db, "INSERT INTO stats (stat) VALUES (?)", -1, &statStmt, NULL) != SQLITE_OK ||
+            sqlite3_prepare_v2(db, "INSERT OR REPLACE INTO paths (path, inode) VALUES (?, last_insert_rowid())", -1, &pathStmt, NULL) != SQLITE_OK) {
+            if (statStmt) sqlite3_finalize(statStmt);
+            if (pathStmt) sqlite3_finalize(pathStmt);
+            sqlite3_close(db); return -4;
+        }
+        sqlite3_bind_blob(statStmt, 1, statBytes, sizeof(statBytes), SQLITE_TRANSIENT);
+        if (sqlite3_step(statStmt) != SQLITE_DONE) result = -5;
+        sqlite3_bind_text(pathStmt, 1, linuxPath.UTF8String, -1, SQLITE_TRANSIENT);
+        if (result == 0 && sqlite3_step(pathStmt) != SQLITE_DONE) result = -6;
+        sqlite3_finalize(statStmt);
+        sqlite3_finalize(pathStmt);
+    } else {
+        sqlite3_finalize(check);
+    }
+    sqlite3_close(db);
+    return result;
 }
 
 - (int)bindMountPath:(NSString *)linuxPath toHostPath:(NSString *)hostPath {

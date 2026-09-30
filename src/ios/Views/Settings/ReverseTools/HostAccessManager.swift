@@ -319,6 +319,15 @@ final class HostAccessManager: ObservableObject {
         var perm = permission ?? (loc.allowsWrite ? .readWrite : .readOnly)
         if !loc.allowsWrite { perm = .readOnly }
 
+        // 先在 fakefs meta.db 注册挂载点，否则 fakefs_bind_mount 会返回
+        // EINVAL(-22)：路径虽然在宿主存在，但 guest 侧没有对应 inode。
+        let prepareRC = ISHKernel.shared.prepareBindMountPath(loc.guestPath,
+                                                               readOnly: perm == .readOnly)
+        guard prepareRC == 0 else {
+            lastError = "挂载点准备失败（err=\(prepareRC)）：\(loc.guestPath)"
+            return false
+        }
+
         let rc = ISHKernel.shared.bindMountPath(loc.guestPath,
                                                 toHostPath: hostPath,
                                                 readOnly: perm == .readOnly)

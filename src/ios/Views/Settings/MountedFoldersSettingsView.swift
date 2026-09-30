@@ -102,9 +102,15 @@ struct MountedFoldersSettingsView: View {
                             .background(Color.green, in: Circle())
                         VStack(alignment: .leading, spacing: 2) {
                             Text("中转站账户")
-                            Text(RelayQuotaService.shared.account?.balance
-                                 .map { String(format: "余额 $%.2f", $0) }
-                                 ?? (RelayQuotaService.shared.loggedIn ? "已登录" : "查看余额与用量"))
+                            Text({
+                                let svc = RelayQuotaService.shared
+                                if let id = svc.selectedId, let d = svc.selectedData,
+                                   let balance = d.account.balance {
+                                    return String(format: "余额 $%.2f", balance)
+                                }
+                                if let id = svc.selectedId, svc.isLoggedIn(id) { return "已登录" }
+                                return "查看余额与用量"
+                            }())
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }

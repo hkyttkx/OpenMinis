@@ -67,6 +67,10 @@ typedef void (^ISHCommandCompletionCallback)(NSString *output, NSError * _Nullab
 /// @param linuxPath Absolute path in fakefs (e.g. "/var/minis/offloads")
 /// @param hostPath  Absolute path on the iOS host filesystem
 /// @return 0 on success, negative error code on failure
+/// Prepare a directory entry in fakefs metadata before an external bind mount.
+/// Required for dynamically-created mount points such as /var/minis/host/apps.
+- (int)prepareBindMountPath:(NSString *)linuxPath readOnly:(BOOL)readOnly;
+
 - (int)bindMountPath:(NSString *)linuxPath toHostPath:(NSString *)hostPath;
 
 /// Bind-mount an external host directory with an explicit read-only flag.
