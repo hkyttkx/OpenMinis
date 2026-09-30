@@ -454,8 +454,9 @@
 		KPF1B /* libdimentio.c in Sources */ = {isa = PBXBuildFile; fileRef = KPF1R /* libdimentio.c */; };
 		KPF2B /* patchfinder.m in Sources */ = {isa = PBXBuildFile; fileRef = KPF2R /* patchfinder.m */; };
 		INJ000S1B /* JailbreakInjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ000S1R /* JailbreakInjector.swift */; };
-		INJ000S4B /* HookDylibCompiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ000S4R /* HookDylibCompiler.swift */; };
-		INJ000S5B /* AIHookSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ000S5R /* AIHookSheet.swift */; };
+		INJ001S1B /* HookConfigBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ001S1R /* HookConfigBuilder.swift */; };
+		INJ001S2B /* HookChatRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ001S2R /* HookChatRouter.swift */; };
+		INJ001S3B /* AIChatViewModel+HookTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ001S3R /* AIChatViewModel+HookTools.swift */; };
 		INJ000S2B /* InjectPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ000S2R /* InjectPanelView.swift */; };
 		INJ000S3B /* InjectLogViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ000S3R /* InjectLogViewer.swift */; };
 		RAYT0002 /* AppAnalysisSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = RAYT0001 /* AppAnalysisSettingsView.swift */; };
@@ -1164,8 +1165,9 @@
 		FEN1R /* FuckEngine.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = FuckEngine.m; path = "FuckEngine/FuckEngine.m"; sourceTree = "<group>"; };
 		KFH1R /* FuckKfdHelper.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = FuckKfdHelper.m; path = "FuckKfdHelper/FuckKfdHelper.m"; sourceTree = "<group>"; };
 		INJ000S1R /* JailbreakInjector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JailbreakInjector.swift; sourceTree = "<group>"; };
-		INJ000S4R /* HookDylibCompiler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HookDylibCompiler.swift; sourceTree = "<group>"; };
-		INJ000S5R /* AIHookSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIHookSheet.swift; sourceTree = "<group>"; };
+		INJ001S1R /* HookConfigBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HookConfigBuilder.swift"; sourceTree = "<group>"; };
+		INJ001S2R /* HookChatRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HookChatRouter.swift"; sourceTree = "<group>"; };
+		INJ001S3R /* AIChatViewModel+HookTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+HookTools.swift"; sourceTree = "<group>"; };
 		INJ000S2R /* InjectPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InjectPanelView.swift; sourceTree = "<group>"; };
 		INJ000S3R /* InjectLogViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InjectLogViewer.swift; sourceTree = "<group>"; };
 		FDI0H /* FuckDynamicInjector.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = FuckDynamicInjector.h; path = "FuckDynamicInjector.h"; sourceTree = "<group>"; };
@@ -2342,8 +2344,9 @@
 				INJ000S1R /* JailbreakInjector.swift */,
 				INJ000S2R /* InjectPanelView.swift */,
 				INJ000S3R /* InjectLogViewer.swift */,
-				INJ000S4R /* HookDylibCompiler.swift */,
-				INJ000S5R /* AIHookSheet.swift */,
+				INJ001S1R /* HookConfigBuilder.swift */,
+				INJ001S2R /* HookChatRouter.swift */,
+				INJ001S3R /* AIChatViewModel+HookTools.swift */,
 			);
 			path = ReverseTools;
 			sourceTree = "<group>";
@@ -2848,8 +2851,9 @@
 				INJ000S1B /* JailbreakInjector.swift in Sources */,
 				INJ000S2B /* InjectPanelView.swift in Sources */,
 				INJ000S3B /* InjectLogViewer.swift in Sources */,
-				INJ000S4B /* HookDylibCompiler.swift in Sources */,
-				INJ000S5B /* AIHookSheet.swift in Sources */,
+				INJ001S1B /* HookConfigBuilder.swift in Sources */,
+				INJ001S2B /* HookChatRouter.swift in Sources */,
+				INJ001S3B /* AIChatViewModel+HookTools.swift in Sources */,
 
 				BB1000100F700000000000AA /* ContextPolicy.swift in Sources */,
 				AADDA9E12F6ECCF400B66649 /* ThumbnailCache.swift in Sources */,

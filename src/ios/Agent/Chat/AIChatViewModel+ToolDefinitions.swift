@@ -267,6 +267,39 @@ extension AIChatViewModel {
             ))
         }
 
+
+        // ── 动态注入工具组 ──
+        //
+        // 与静态分析工具不同，这两个工具会真实修改目标 App 的运行状态，
+        // 因此仅当用户从注入面板发起（或明确要求）时才应在会话中出现。
+        // 这里做无条件注册，由模型在合适的上下文里自行调用 —— 注入前的
+        // 「是否确认」由模型与用户对话确认，工具本身只负责执行。
+        tools.append(AgentToolDefinition(
+            name: "hook_compile",
+            description: "把一组 Hook 配置编译成可注入的 dylib。实现方式是基于 App 内置的 FuckEngine 通用引擎模板，把 Hook 配置以 JSON 形式原地写入 dylib 的 __DATA,__fuckeng_hk section（模板预留 64KB，无需编译器）。产出物保存在 App 的动态库目录，可直接交给 dylib_inject 使用。调用前请先与用户确认 Hook 方案。",
+            parameters: [
+                "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user. Use the same language as the user."),
+                "hooks": AgentToolParam(type: .string, description: "JSON array string of hook objects. Each object: {\"className\": \"SomeClass\", \"methodName\": \"someMethod\", \"isClassMethod\": false, \"hookType\": \"logMethod\"|\"returnConstant\"|\"blockMethod\"|\"modifyProperty\"|\"flexOverride\"|\"methodSwizzle\", optional \"returnValue\": \"1\", optional \"property\": \"someProp\"}. Example: '[{\"className\":\"LoginVC\",\"methodName\":\"verifyToken\",\"hookType\":\"returnConstant\",\"returnValue\":\"1\"}]'"),
+                "name": AgentToolParam(type: .string, description: "Output dylib base name (no extension), e.g. 'MyHook'. Only letters, digits, underscore and hyphen are kept."),
+                "hook_delay": AgentToolParam(type: .number, description: "Seconds to wait after the engine loads before applying hooks. Default 3. Increase for apps with slow startup."),
+            ],
+            required: ["tool_title", "hooks", "name"],
+            propertyOrdering: ["tool_title", "hooks", "name", "hook_delay"]
+        ))
+
+        tools.append(AgentToolDefinition(
+            name: "dylib_inject",
+            description: "把一个 dylib 注入到运行中的目标 App 进程。这是运行时可逆操作，目标 App 重启后注入失效。注入前务必先与用户确认目标 App 与注入模式。执行结果与失败原因会返回，完整过程记录在 App 的注入日志里。",
+            parameters: [
+                "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user. Use the same language as the user."),
+                "bundle_id": AgentToolParam(type: .string, description: "Target app bundle identifier, e.g. 'com.example.app'. Must be an installed app."),
+                "dylib_path": AgentToolParam(type: .string, description: "Absolute path to the dylib to inject. Usually the output path returned by hook_compile."),
+                "mode": AgentToolParam(type: .string, description: "'clean' (default) keeps the dylib only in the app's temp directory and never writes into the target app bundle — recommended. 'strict' copies the dylib next to the target app bundle first, which is more compatible with older setups; both clean up afterwards.", enumValues: ["clean", "strict"]),
+            ],
+            required: ["tool_title", "bundle_id", "dylib_path"],
+            propertyOrdering: ["tool_title", "bundle_id", "dylib_path", "mode"]
+        ))
+
         return tools
     }
 

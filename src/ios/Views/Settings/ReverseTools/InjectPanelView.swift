@@ -22,9 +22,9 @@ struct InjectPanelView: View {
 
     @State private var showLog = false
     @State private var showImporter = false
-    @State private var showAIHook = false
     @State private var importError: String?
     @State private var availableDylibs: [String] = []
+    @State private var aiHintShown = false
 
     let onRequestAIHook: (() -> Void)?
 
@@ -85,12 +85,26 @@ struct InjectPanelView: View {
             // MARK: AI 生成
             Section {
                 Button {
-                    showAIHook = true
+                    startAIConversation()
                 } label: {
-                    Label("让 AI 生成并编译 Hook", systemImage: "sparkles")
+                    Label("让 AI 分析与生成 Hook", systemImage: "sparkles")
+                }
+
+                if let produced = HookChatRouter.latestProducedDylib(bundleID: app.bundleId) {
+                    Button {
+                        selectedDylibPath = produced
+                        reloadDylibs()
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Label("使用 AI 最近产出的动态库", systemImage: "wand.and.stars")
+                            Text((produced as NSString).lastPathComponent)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             } footer: {
-                Text("AI 生成 Hook 源码后在本机 Alpine 沙盒里用 clang 编译成动态库，编译成功会询问是否立即注入。")
+                Text("将跳转到聊天会话，AI 会先分析目标 App 再与你确认 Hook 方案，确认后自动生成动态库并询问是否注入。")
             }
 
             // MARK: 注入模式
@@ -188,18 +202,23 @@ struct InjectPanelView: View {
             }
         }
         .sheet(isPresented: $showLog) { InjectLogViewer() }
-        .sheet(isPresented: $showAIHook) {
-            AIHookSheet(app: app) { dylibPath in
-                selectedDylibPath = dylibPath
-                reloadDylibs()
-            }
-        }
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: Self.dylibTypes,
                       allowsMultipleSelection: false) { result in
             handleImport(result)
         }
-        .onAppear { reloadDylibs() }
+        .alert("已切到聊天页", isPresented: $aiHintShown) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text("开场说明已放入剪贴板并记录在会话上下文里。\n\n到聊天页把内容粘贴发送，AI 会先分析 \(app.name) 再与你确认 Hook 方案；确认后会调用工具生成动态库并询问是否注入。")
+        }
+        .onAppear {
+            reloadDylibs()
+            if let produced = HookChatRouter.latestProducedDylib(bundleID: app.bundleId),
+               selectedDylibPath.isEmpty {
+                selectedDylibPath = produced
+            }
+        }
     }
 
     // MARK: - dylib 类型
@@ -212,6 +231,12 @@ struct InjectPanelView: View {
     }
 
     // MARK: - 动作
+
+    /// 跳转到聊天会话，把目标 App 的上下文交给 AI
+    private func startAIConversation() {
+        HookChatRouter.launchConversation(app: app)
+        aiHintShown = true
+    }
 
     private func reloadDylibs() {
         var found = JailbreakInjector.listImportedDylibs()

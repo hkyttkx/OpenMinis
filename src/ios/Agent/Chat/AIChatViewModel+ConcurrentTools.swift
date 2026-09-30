@@ -801,6 +801,18 @@ extension AIChatViewModel {
 
 
 
+        case "hook_compile":
+            if let r = await executeHookCompileTool(from: argsJson, msgIdx: msgIdx, blockIdx: blockIdx) {
+                return r
+            }
+            return ("Error: hook_compile failed.", false)
+
+        case "dylib_inject":
+            if let r = await executeDylibInjectTool(from: argsJson, msgIdx: msgIdx, blockIdx: blockIdx) {
+                return r
+            }
+            return ("Error: dylib_inject failed.", false)
+
         case "r2_execute":
             // [T-r2-tool] radare2 静态分析：拼装 r2 命令行走 shell 执行管线
             // （复用 executeCommand，输出流式回传到工具卡片）。工具只在
