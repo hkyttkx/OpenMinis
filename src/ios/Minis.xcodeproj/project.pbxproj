@@ -7,14 +7,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		SPMNIO0000000000000003 /* NIO in Frameworks */ = {isa = PBXBuildFile; productRef = SPMNIO0000000000000002 /* NIO */; };
-		SPMSSL0000000000000003 /* NIOSSL in Frameworks */ = {isa = PBXBuildFile; productRef = SPMSSL0000000000000002 /* NIOSSL */; };
-		SPMSQL0000000000000003 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = SPMSQL0000000000000002 /* SQLite */; };
-		SPMB0000000000000001 /* NIOHTTP1 in Frameworks */ = {isa = PBXBuildFile; productRef = SPM0000000000000001 /* NIOHTTP1 */; };
-		SPMB0000000000000002 /* NIOFoundationCompat in Frameworks */ = {isa = PBXBuildFile; productRef = SPM0000000000000002 /* NIOFoundationCompat */; };
-		SPMB0000000000000003 /* NIOConcurrencyHelpers in Frameworks */ = {isa = PBXBuildFile; productRef = SPM0000000000000003 /* NIOConcurrencyHelpers */; };
-		SPMB0000000000000004 /* NIOWebSocket in Frameworks */ = {isa = PBXBuildFile; productRef = SPM0000000000000004 /* NIOWebSocket */; };
-		SPMB0000000000000005 /* NIOTLS in Frameworks */ = {isa = PBXBuildFile; productRef = SPM0000000000000005 /* NIOTLS */; };
+		EF796AF532547E7394590568 /* NIO in Frameworks */ = {isa = PBXBuildFile; productRef = 0D7ECDA540096B1264BF54E1 /* NIO */; };
+		435EF28779FB23175ADE23A0 /* NIOSSL in Frameworks */ = {isa = PBXBuildFile; productRef = 77BE848A7196B9F9C6EFF7E0 /* NIOSSL */; };
+		71384EC71581056C9B82CB69 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = ADC4F5C69962E6874ECEDFA4 /* SQLite */; };
+		9E88359EC199A6D06DE7BA60 /* NIOHTTP1 in Frameworks */ = {isa = PBXBuildFile; productRef = 6F0CA94B033F21E559ACB4E3 /* NIOHTTP1 */; };
+		16605D0B91194D45C2B2E71F /* NIOFoundationCompat in Frameworks */ = {isa = PBXBuildFile; productRef = 044197FD420895B6CB8254A5 /* NIOFoundationCompat */; };
+		0D63D8E629E8EAA72D960743 /* NIOConcurrencyHelpers in Frameworks */ = {isa = PBXBuildFile; productRef = FF08D68CCC62E9C607A53DAC /* NIOConcurrencyHelpers */; };
+		26BBFE0B7EB7478519183BFC /* NIOWebSocket in Frameworks */ = {isa = PBXBuildFile; productRef = 65968B8404BD54C9C1BD3E48 /* NIOWebSocket */; };
+		FF5B429057CEDCF4F2AE4636 /* NIOTLS in Frameworks */ = {isa = PBXBuildFile; productRef = 61E18D2FBDC2C321AB1B06D6 /* NIOTLS */; };
 		TSB0000000000000001 /* TunnelServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = TSF0000000000000001 /* TunnelServices.framework */; };
 		TSB0000000000000002 /* TunnelServices.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = TSF0000000000000001 /* TunnelServices.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		TSB0000000000000003 /* TunnelServices.framework in Frameworks (appex) */ = {isa = PBXBuildFile; fileRef = TSF0000000000000001 /* TunnelServices.framework */; };
@@ -1441,14 +1441,14 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				SPMNIO0000000000000003 /* NIO in Frameworks */,
-				SPMB0000000000000001 /* NIOHTTP1 in Frameworks */,
-				SPMB0000000000000002 /* NIOFoundationCompat in Frameworks */,
-				SPMB0000000000000003 /* NIOConcurrencyHelpers in Frameworks */,
-				SPMB0000000000000004 /* NIOWebSocket in Frameworks */,
-				SPMSSL0000000000000003 /* NIOSSL in Frameworks */,
-				SPMB0000000000000005 /* NIOTLS in Frameworks */,
-				SPMSQL0000000000000003 /* SQLite in Frameworks */,
+				EF796AF532547E7394590568 /* NIO in Frameworks */,
+				9E88359EC199A6D06DE7BA60 /* NIOHTTP1 in Frameworks */,
+				16605D0B91194D45C2B2E71F /* NIOFoundationCompat in Frameworks */,
+				0D63D8E629E8EAA72D960743 /* NIOConcurrencyHelpers in Frameworks */,
+				26BBFE0B7EB7478519183BFC /* NIOWebSocket in Frameworks */,
+				435EF28779FB23175ADE23A0 /* NIOSSL in Frameworks */,
+				FF5B429057CEDCF4F2AE4636 /* NIOTLS in Frameworks */,
+				71384EC71581056C9B82CB69 /* SQLite in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2689,14 +2689,14 @@
 			);
 			name = TunnelServices;
 			packageProductDependencies = (
-				SPMNIO0000000000000002 /* NIO */,
-				SPM0000000000000001 /* NIOHTTP1 */,
-				SPM0000000000000002 /* NIOFoundationCompat */,
-				SPM0000000000000003 /* NIOConcurrencyHelpers */,
-				SPM0000000000000004 /* NIOWebSocket */,
-				SPMSSL0000000000000002 /* NIOSSL */,
-				SPM0000000000000005 /* NIOTLS */,
-				SPMSQL0000000000000002 /* SQLite */,
+				0D7ECDA540096B1264BF54E1 /* NIO */,
+				6F0CA94B033F21E559ACB4E3 /* NIOHTTP1 */,
+				044197FD420895B6CB8254A5 /* NIOFoundationCompat */,
+				FF08D68CCC62E9C607A53DAC /* NIOConcurrencyHelpers */,
+				65968B8404BD54C9C1BD3E48 /* NIOWebSocket */,
+				77BE848A7196B9F9C6EFF7E0 /* NIOSSL */,
+				61E18D2FBDC2C321AB1B06D6 /* NIOTLS */,
+				ADC4F5C69962E6874ECEDFA4 /* SQLite */,
 			);
 			productName = TunnelServices;
 			productReference = TSF0000000000000001 /* TunnelServices.framework */;
@@ -2908,6 +2908,9 @@
 				E5M000020 /* XCRemoteSwiftPackageReference "swift-cmark" */,
 				E5X000020 /* XCRemoteSwiftPackageReference "SwiftMath" */,
 				B318C2F47DB3F301A17E49BE /* XCRemoteSwiftPackageReference "RealTimeCutVADLibrary" */,
+				420B9A3EDB2ED499930F87B1 /* XCRemoteSwiftPackageReference "swift-nio" */,
+				749CE588ECB1739AF6D7D198 /* XCRemoteSwiftPackageReference "swift-nio-ssl" */,
+				5640A246964B91D204AD888D /* XCRemoteSwiftPackageReference "SQLite" */,
 			);
 			productRefGroup = E51000032 /* Products */;
 			projectDirPath = "";
@@ -4434,20 +4437,29 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		SPMNIO0000000000000001 /* XCRemoteSwiftPackageReference "swift-nio" */ = {
+		420B9A3EDB2ED499930F87B1 /* XCRemoteSwiftPackageReference "swift-nio" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/apple/swift-nio.git";
-			requirement = { kind = upToNextMajorVersion; minimumVersion = 2.95.0; };
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.95.0;
+			};
 		};
-		SPMSSL0000000000000001 /* XCRemoteSwiftPackageReference "swift-nio-ssl" */ = {
+		749CE588ECB1739AF6D7D198 /* XCRemoteSwiftPackageReference "swift-nio-ssl" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/apple/swift-nio-ssl.git";
-			requirement = { kind = upToNextMajorVersion; minimumVersion = 2.36.0; };
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.36.0;
+			};
 		};
-		SPMSQL0000000000000001 /* XCRemoteSwiftPackageReference "SQLite" */ = {
+		5640A246964B91D204AD888D /* XCRemoteSwiftPackageReference "SQLite" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/stephencelis/SQLite.swift";
-			requirement = { kind = upToNextMajorVersion; minimumVersion = 0.16.0; };
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.16.0;
+			};
 		};
 		B318C2F47DB3F301A17E49BE /* XCRemoteSwiftPackageReference "RealTimeCutVADLibrary" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -4484,44 +4496,44 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		SPMNIO0000000000000002 /* NIO */ = {
+		0D7ECDA540096B1264BF54E1 /* NIO */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = SPMNIO0000000000000001 /* XCRemoteSwiftPackageReference "swift-nio" */;
+			package = 420B9A3EDB2ED499930F87B1 /* XCRemoteSwiftPackageReference "swift-nio" */;
 			productName = NIO;
 		};
-		SPMSSL0000000000000002 /* NIOSSL */ = {
+		77BE848A7196B9F9C6EFF7E0 /* NIOSSL */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = SPMSSL0000000000000001 /* XCRemoteSwiftPackageReference "swift-nio-ssl" */;
+			package = 749CE588ECB1739AF6D7D198 /* XCRemoteSwiftPackageReference "swift-nio-ssl" */;
 			productName = NIOSSL;
 		};
-		SPMSQL0000000000000002 /* SQLite */ = {
+		ADC4F5C69962E6874ECEDFA4 /* SQLite */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = SPMSQL0000000000000001 /* XCRemoteSwiftPackageReference "SQLite" */;
+			package = 5640A246964B91D204AD888D /* XCRemoteSwiftPackageReference "SQLite" */;
 			productName = SQLite;
 		};
-		SPM0000000000000001 /* NIOHTTP1 */ = {
+		6F0CA94B033F21E559ACB4E3 /* NIOHTTP1 */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = SPMNIO0000000000000001 /* XCRemoteSwiftPackageReference "swift-nio" */;
+			package = 420B9A3EDB2ED499930F87B1 /* XCRemoteSwiftPackageReference "swift-nio" */;
 			productName = NIOHTTP1;
 		};
-		SPM0000000000000002 /* NIOFoundationCompat */ = {
+		044197FD420895B6CB8254A5 /* NIOFoundationCompat */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = SPMNIO0000000000000001 /* XCRemoteSwiftPackageReference "swift-nio" */;
+			package = 420B9A3EDB2ED499930F87B1 /* XCRemoteSwiftPackageReference "swift-nio" */;
 			productName = NIOFoundationCompat;
 		};
-		SPM0000000000000003 /* NIOConcurrencyHelpers */ = {
+		FF08D68CCC62E9C607A53DAC /* NIOConcurrencyHelpers */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = SPMNIO0000000000000001 /* XCRemoteSwiftPackageReference "swift-nio" */;
+			package = 420B9A3EDB2ED499930F87B1 /* XCRemoteSwiftPackageReference "swift-nio" */;
 			productName = NIOConcurrencyHelpers;
 		};
-		SPM0000000000000004 /* NIOWebSocket */ = {
+		65968B8404BD54C9C1BD3E48 /* NIOWebSocket */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = SPMNIO0000000000000001 /* XCRemoteSwiftPackageReference "swift-nio" */;
+			package = 420B9A3EDB2ED499930F87B1 /* XCRemoteSwiftPackageReference "swift-nio" */;
 			productName = NIOWebSocket;
 		};
-		SPM0000000000000005 /* NIOTLS */ = {
+		61E18D2FBDC2C321AB1B06D6 /* NIOTLS */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = SPMSSL0000000000000001 /* XCRemoteSwiftPackageReference "swift-nio-ssl" */;
+			package = 749CE588ECB1739AF6D7D198 /* XCRemoteSwiftPackageReference "swift-nio-ssl" */;
 			productName = NIOTLS;
 		};
 		C42120806C66A2C804F89620 /* RealTimeCutVADLibrary */ = {
