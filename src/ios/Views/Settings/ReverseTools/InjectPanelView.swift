@@ -3,16 +3,17 @@
 //  KyTuT
 //
 //  目标 App 管理 → App 详情页的「动态注入」面板。
-//  流程：选 dylib → 选注入模式 → 执行 → 查看结果与日志。
+//  流程：选 dylib（文件导入 / 历史记录 / AI 生成）→ 选注入模式 → 执行 → 查看结果与日志。
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct InjectPanelView: View {
     let app: InstalledAppInfo
 
     @State private var selectedDylibPath: String = ""
-    @State private var mode: DynamicInjectMode = .strict
+    @State private var mode: DynamicInjectMode = .clean
     @State private var running = false
     @State private var progressText = ""
 
@@ -20,51 +21,77 @@ struct InjectPanelView: View {
     @State private var resultMessage = ""
 
     @State private var showLog = false
-    @State private var showPicker = false
+    @State private var showImporter = false
+    @State private var importError: String?
     @State private var availableDylibs: [String] = []
+
+    let onRequestAIHook: (() -> Void)?
+
+    init(app: InstalledAppInfo, onRequestAIHook: (() -> Void)? = nil) {
+        self.app = app
+        self.onRequestAIHook = onRequestAIHook
+    }
 
     var body: some View {
         List {
             // MARK: 注入内容
             Section {
-                if selectedDylibPath.isEmpty {
-                    Button {
-                        showPicker = true
-                    } label: {
-                        Label("选择要注入的动态库", systemImage: "plus.circle")
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text((selectedDylibPath as NSString).lastPathComponent)
-                                .font(.body.weight(.medium))
-                            Spacer()
-                            Button("更换") { showPicker = true }
-                                .font(.caption)
-                        }
-                        Text(selectedDylibPath)
-                            .font(.caption2.monospaced())
-                            .foregroundStyle(.secondary)
-                            .lineLimit(3)
-                            .truncationMode(.middle)
-                    }
+                Button {
+                    showImporter = true
+                } label: {
+                    Label("从文件导入动态库", systemImage: "square.and.arrow.down")
+                }
+
+                if let importError {
+                    Text(importError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
                 }
 
                 if !availableDylibs.isEmpty {
-                    Menu {
-                        ForEach(availableDylibs, id: \.self) { p in
-                            Button((p as NSString).lastPathComponent) {
-                                selectedDylibPath = p
+                    ForEach(availableDylibs, id: \.self) { p in
+                        Button {
+                            selectedDylibPath = p
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: selectedDylibPath == p
+                                      ? "largecircle.fill.circle" : "circle")
+                                    .foregroundStyle(selectedDylibPath == p
+                                                     ? Color.accentColor : Color.secondary)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text((p as NSString).lastPathComponent)
+                                        .foregroundStyle(.primary)
+                                    Text(byteSize(p))
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
                             }
                         }
-                    } label: {
-                        Label("从已发现列表选择", systemImage: "list.bullet")
+                        .buttonStyle(.plain)
                     }
                 }
             } header: {
                 Text("注入内容")
             } footer: {
-                Text("需要 .dylib 文件。可先用 AI 分析目标 App 并生成 Hook 配置，编译成动态库后在此注入。")
+                if selectedDylibPath.isEmpty {
+                    Text("从「文件」App 选择 .dylib，导入后保存在本机动态库目录。")
+                } else {
+                    Text("已选择：\((selectedDylibPath as NSString).lastPathComponent)")
+                }
+            }
+
+            // MARK: AI 生成
+            if let onRequestAIHook {
+                Section {
+                    Button {
+                        onRequestAIHook()
+                    } label: {
+                        Label("让 AI 分析并生成 Hook", systemImage: "sparkles")
+                    }
+                } footer: {
+                    Text("AI 会分析目标 App 的二进制与运行时数据，生成 Hook 配置并编译成动态库，完成后会询问是否立即注入。")
+                }
             }
 
             // MARK: 注入模式
@@ -95,7 +122,7 @@ struct InjectPanelView: View {
             } header: {
                 Text("注入模式")
             } footer: {
-                Text("两种模式的注入流程与内核交互完全一致，区别只在 dylib 的临时落点。严格复刻兼容性最好，无痕模式全程不触碰目标 App 目录。")
+                Text("两种模式的注入流程与内核交互完全一致，区别只在 dylib 的临时落点。")
             }
 
             // MARK: 执行
@@ -132,7 +159,7 @@ struct InjectPanelView: View {
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             if !ok {
-                                Text("若目标 App 已闪退，崩溃报告已记录到注入日志。")
+                                Text("详细过程与失败原因见注入日志。")
                                     .font(.caption2)
                                     .foregroundStyle(.tertiary)
                             }
@@ -162,31 +189,65 @@ struct InjectPanelView: View {
             }
         }
         .sheet(isPresented: $showLog) { InjectLogViewer() }
-        .sheet(isPresented: $showPicker) {
-            DylibPathPicker(selected: $selectedDylibPath)
+        .fileImporter(isPresented: $showImporter,
+                      allowedContentTypes: Self.dylibTypes,
+                      allowsMultipleSelection: false) { result in
+            handleImport(result)
         }
-        .onAppear { scanDylibs() }
+        .onAppear { reloadDylibs() }
+    }
+
+    // MARK: - dylib 类型
+
+    static var dylibTypes: [UTType] {
+        var types: [UTType] = []
+        if let t = UTType(filenameExtension: "dylib") { types.append(t) }
+        types.append(.data)
+        return types
     }
 
     // MARK: - 动作
 
-    private func scanDylibs() {
-        var found: [String] = []
-        let fm = FileManager.default
+    private func reloadDylibs() {
+        var found = JailbreakInjector.listImportedDylibs()
 
-        let dirs: [URL] = [
-            app.bundleURL.appendingPathComponent("Frameworks"),
-            fm.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("dylibs"),
-            fm.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("DynamicLibraries"),
-        ]
-        for dir in dirs {
-            guard let items = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { continue }
+        // 目标 App 的 Frameworks 目录里已有的动态库
+        let fw = app.bundleURL.appendingPathComponent("Frameworks")
+        if let items = try? FileManager.default.contentsOfDirectory(at: fw, includingPropertiesForKeys: nil) {
             found.append(contentsOf: items.filter { $0.pathExtension == "dylib" }.map(\.path))
         }
+        // 内置 Hook 引擎
         if let tpl = Bundle.main.path(forResource: "FuckEngine", ofType: "dylib") {
             found.append(tpl)
         }
         availableDylibs = Array(Set(found)).sorted()
+
+        if selectedDylibPath.isEmpty {
+            selectedDylibPath = availableDylibs.first ?? ""
+        }
+    }
+
+    private func handleImport(_ result: Result<[URL], Error>) {
+        importError = nil
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            do {
+                let path = try JailbreakInjector.importDylib(from: url)
+                selectedDylibPath = path
+                reloadDylibs()
+            } catch {
+                importError = "导入失败：\(error.localizedDescription)"
+            }
+        case .failure(let error):
+            importError = "选择失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func byteSize(_ path: String) -> String {
+        let attrs = try? FileManager.default.attributesOfItem(atPath: path)
+        let size = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
+        return ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
     }
 
     private func startInject() {
@@ -202,9 +263,7 @@ struct InjectPanelView: View {
             executableName: app.mainExecutableURL?.lastPathComponent,
             dylibPath: selectedDylibPath,
             mode: mode,
-            progress: { step in
-                progressText = step
-            },
+            progress: { step in progressText = step },
             completion: { outcome in
                 running = false
                 resultSuccess = outcome.success
@@ -212,46 +271,5 @@ struct InjectPanelView: View {
                 progressText = ""
             }
         )
-    }
-}
-
-// MARK: - dylib 路径选择
-
-struct DylibPathPicker: View {
-    @Environment(\.dismiss) private var dismiss
-    @Binding var selected: String
-
-    @State private var manual = ""
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section("手动输入路径") {
-                    TextField("/var/containers/Bundle/Application/…/xxx.dylib", text: $manual)
-                        .font(.caption.monospaced())
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                    Button("使用该路径") {
-                        let p = manual.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !p.isEmpty else { return }
-                        selected = p
-                        dismiss()
-                    }
-                    .disabled(manual.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-                Section {
-                    Text("可先在详情页「浏览 Bundle / 数据容器」找到 .dylib，复制其路径粘贴到此处。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .navigationTitle("选择动态库")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
-                }
-            }
-        }
     }
 }

@@ -102,6 +102,38 @@ struct MinisApp: App {
     @State private var pendingURLWhileLocked: URL?
 
     #if DEBUG
+    /// 动态注入 root 子进程入口。
+    /// 由 init() 第一行调用；仅当 argv 含 -FuckInject 时才执行并退出进程。
+    ///
+    /// 参数：-FuckInject <dylibPath> <bundleID> [mode]
+    ///   mode 0 = 严格复刻，1 = 无痕
+    private static func handleInjectionSubprocessIfNeeded() {
+        let args = CommandLine.arguments
+        guard args.count >= 4, args[1] == "-FuckInject" else { return }
+
+        let dylibPath = args[2]
+        let bundleID  = args[3]
+        let mode      = args.count >= 5 ? (Int32(args[4]) ?? 0) : 0
+
+        // 子进程的 stdout/stderr 重定向到注入日志，避免管道无人读取触发 SIGHUP
+        let logPath: String = {
+            if let env = getenv("FUCK_INJECT_LOG_PATH"), let p = String(validatingUTF8: env) {
+                return p
+            }
+            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            return (docs?.appendingPathComponent("inject_debug.log").path) ?? "/tmp/inject_debug.log"
+        }()
+        if let fh = fopen(logPath, "a") {
+            dup2(fileno(fh), STDOUT_FILENO)
+            dup2(fileno(fh), STDERR_FILENO)
+        }
+
+        let ret = FuckDynamicInjector.cliInject(withDylibPath: dylibPath,
+                                                bundleID: bundleID,
+                                                mode: mode)
+        exit(ret)
+    }
+
     let debugServer = DebugServer()
     #endif
 
@@ -109,6 +141,19 @@ struct MinisApp: App {
     @State private var backgroundEntryDate: Date?
 
     init() {
+        // ═══════════════════════════════════════════════════════════════
+        // 命令行子进程分发 —— 必须是整个 init 的第一段代码。
+        //
+        // 动态注入以「主进程 spawn 自身为 root 子进程」的方式执行：
+        //     Minis -FuckInject <dylibPath> <bundleID> [mode]
+        // 子进程必须在任何 UI / 子系统初始化之前退出，否则它会继续构建
+        // 视图树、启动 WKWebView 预热等，而父进程已返回、标准输出无人接管，
+        // 子进程会被 SIGHUP（信号 1）杀死 —— 表现为「注入子进程被信号 1 杀死」。
+        //
+        // 同时把 stdout/stderr 重定向到注入日志，保证子进程的输出可回溯。
+        // ═══════════════════════════════════════════════════════════════
+        Self.handleInjectionSubprocessIfNeeded()
+
         // [T-ios-mac-uncaught-nsexception] FIRST statement in the process's own
         // code — before any subsystem gets a chance to throw.
         //

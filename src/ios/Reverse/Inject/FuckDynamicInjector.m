@@ -303,8 +303,29 @@ static int FuckSpawnArguments(NSArray<NSString *> *arguments, BOOL asRootPersona
     posix_spawnattr_t attr;
     if (posix_spawnattr_init(&attr) != 0) return -1;
 
-    short flags = POSIX_SPAWN_CLOEXEC_DEFAULT;
+    // 子进程不接收终端信号：SIGHUP/SIGINT/SIGQUIT/SIGPIPE 全部忽略。
+    // 注入子进程脱离前台运行，若继承默认处理会被父进程退出时的挂断信号
+    // 打死（表现为 raw status == 1 / 被信号 1 杀死）。
+    sigset_t emptyMask;
+    sigemptyset(&emptyMask);
+    posix_spawnattr_setsigmask(&attr, &emptyMask);
+
+    short flags = POSIX_SPAWN_CLOEXEC_DEFAULT
+                | POSIX_SPAWN_SETSIGDEF
+                | POSIX_SPAWN_SETSIGMASK;
     posix_spawnattr_setflags(&attr, flags);
+
+    sigset_t defSignals;
+    sigemptyset(&defSignals);
+    sigaddset(&defSignals, SIGHUP);
+    sigaddset(&defSignals, SIGINT);
+    sigaddset(&defSignals, SIGQUIT);
+    sigaddset(&defSignals, SIGPIPE);
+    sigaddset(&defSignals, SIGTERM);
+    // SETSIGDEF 把这些信号恢复为默认处理；配合下面的重定向，子进程不会再因
+    // 父进程退出而来的 SIGHUP 而猝死。真正需要的是让子进程自己接管输出。
+    posix_spawnattr_setsigdefault(&attr, &defSignals);
+
     posix_spawnattr_setpgroup(&attr, 0);
 
     if (asRootPersona && posix_spawnattr_set_persona_np &&
@@ -314,8 +335,39 @@ static int FuckSpawnArguments(NSArray<NSString *> *arguments, BOOL asRootPersona
         posix_spawnattr_set_persona_gid_np(&attr, 0);
     }
 
+    // 子进程输出重定向到注入日志：父进程不读管道，若子进程继续写 stdout
+    // 会收到 SIGPIPE / SIGHUP。直接落到文件最稳。
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    int logFD = -1;
+    {
+        const char *envPath = getenv("FUCK_INJECT_LOG_PATH");
+        NSString *logPath = envPath && envPath[0]
+            ? [NSString stringWithUTF8String:envPath]
+            : [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject
+               stringByAppendingPathComponent:@"inject_debug.log"];
+        if (logPath.length) {
+            logFD = open(logPath.UTF8String, O_WRONLY | O_CREAT | O_APPEND, 0644);
+            if (logFD >= 0) {
+                posix_spawn_file_actions_adddup2(&actions, logFD, STDOUT_FILENO);
+                posix_spawn_file_actions_adddup2(&actions, logFD, STDERR_FILENO);
+                posix_spawn_file_actions_addclose(&actions, logFD);
+            }
+        }
+        // 兜底：标准输入接 /dev/null，避免子进程等待终端
+        int devNull = open("/dev/null", O_RDONLY);
+        if (devNull >= 0) {
+            posix_spawn_file_actions_adddup2(&actions, devNull, STDIN_FILENO);
+            posix_spawn_file_actions_addclose(&actions, devNull);
+        }
+    }
+
     char **argv = calloc(arguments.count + 1, sizeof(char *));
-    if (!argv) { posix_spawnattr_destroy(&attr); return ENOMEM; }
+    if (!argv) {
+        posix_spawn_file_actions_destroy(&actions);
+        posix_spawnattr_destroy(&attr);
+        return ENOMEM;
+    }
 
     for (NSUInteger i = 0; i < arguments.count; i++) {
         argv[i] = (char *)arguments[i].UTF8String;
@@ -323,8 +375,9 @@ static int FuckSpawnArguments(NSArray<NSString *> *arguments, BOOL asRootPersona
     argv[arguments.count] = NULL;
 
     pid_t pid = 0;
-    int ret = posix_spawn(&pid, argv[0], NULL, &attr, argv, environ);
+    int ret = posix_spawn(&pid, argv[0], &actions, &attr, argv, environ);
     free(argv);
+    posix_spawn_file_actions_destroy(&actions);
     posix_spawnattr_destroy(&attr);
     if (ret != 0) return ret;
 
