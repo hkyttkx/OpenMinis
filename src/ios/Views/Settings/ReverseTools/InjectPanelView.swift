@@ -22,6 +22,7 @@ struct InjectPanelView: View {
 
     @State private var showLog = false
     @State private var showImporter = false
+    @State private var showAIHook = false
     @State private var importError: String?
     @State private var availableDylibs: [String] = []
 
@@ -82,16 +83,14 @@ struct InjectPanelView: View {
             }
 
             // MARK: AI 生成
-            if let onRequestAIHook {
-                Section {
-                    Button {
-                        onRequestAIHook()
-                    } label: {
-                        Label("让 AI 分析并生成 Hook", systemImage: "sparkles")
-                    }
-                } footer: {
-                    Text("AI 会分析目标 App 的二进制与运行时数据，生成 Hook 配置并编译成动态库，完成后会询问是否立即注入。")
+            Section {
+                Button {
+                    showAIHook = true
+                } label: {
+                    Label("让 AI 生成并编译 Hook", systemImage: "sparkles")
                 }
+            } footer: {
+                Text("AI 生成 Hook 源码后在本机 Alpine 沙盒里用 clang 编译成动态库，编译成功会询问是否立即注入。")
             }
 
             // MARK: 注入模式
@@ -189,6 +188,12 @@ struct InjectPanelView: View {
             }
         }
         .sheet(isPresented: $showLog) { InjectLogViewer() }
+        .sheet(isPresented: $showAIHook) {
+            AIHookSheet(app: app) { dylibPath in
+                selectedDylibPath = dylibPath
+                reloadDylibs()
+            }
+        }
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: Self.dylibTypes,
                       allowsMultipleSelection: false) { result in

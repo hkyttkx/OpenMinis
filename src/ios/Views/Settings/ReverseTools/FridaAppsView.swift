@@ -165,33 +165,7 @@ struct FridaAppDetailView: View {
 
                 Section("动态注入") {
                     NavigationLink {
-                        InjectPanelView(app: app)
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "bolt.fill")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 28, height: 28)
-                                .background(Color.orange, in: Circle())
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("注入动态库")
-                                Text("运行时注入，重启后失效；支持严格复刻 / 无痕两种模式")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-
-                    NavigationLink {
-                        InjectLogViewer()
-                    } label: {
-                        Label("注入日志", systemImage: "doc.text.magnifyingglass")
-                    }
-                }
-
-                Section("动态注入") {
-                    NavigationLink {
-                        InjectPanelView(app: app)
+                        InjectPanelView(app: app, onRequestAIHook: nil)
                     } label: {
                         HStack(spacing: 12) {
                             Image(systemName: "bolt.fill")
