@@ -265,6 +265,34 @@ static NSString *FuckRoothideJbroot(void) {
     return p ? [NSString stringWithUTF8String:p] : nil;
 }
 
+// 请 roothide 把指定进程标记为可调试（这是 iOS 17 上拿到有效 task port 的前提）
+static BOOL FuckRoothideSetProcessDebugged(uint64_t pid, BOOL fully) {
+    void *h = FuckLoadLibJailbreak();
+    if (!h) return NO;
+
+    typedef int (*Fn)(uint64_t, bool);
+    void *sym = dlsym(h, "jbclient_platform_set_process_debugged");
+    if (!sym) {
+        FLog(@"[roothide] 无 jbclient_platform_set_process_debugged 符号");
+        return NO;
+    }
+    int r = ((Fn)sym)(pid, fully ? true : false);
+    FLog(@"[roothide] set_process_debugged(pid=%llu, fully=%d) => %d", pid, fully ? 1 : 0, r);
+    return r == 0;
+}
+
+// 请 roothide 重新校验当前进程的签名（标记 debugged 后有时需要配合这一步）
+static BOOL FuckRoothideCSRevalidate(void) {
+    void *h = FuckLoadLibJailbreak();
+    if (!h) return NO;
+    typedef int (*Fn)(void);
+    void *sym = dlsym(h, "jbclient_cs_revalidate");
+    if (!sym) return NO;
+    int r = ((Fn)sym)();
+    FLog(@"[roothide] cs_revalidate => %d", r);
+    return r == 0;
+}
+
 // ============== CDHash 常量 ==============
 #define FUCK_CS_MAGIC_EMBEDDED_SIGNATURE 0xfade0cc0
 #define FUCK_CS_MAGIC_CODEDIRECTORY      0xfade0c02
@@ -1289,14 +1317,43 @@ static int FuckOpaInject(pid_t targetPID, const char *dylibPath, FuckInjectMode 
         FLog(@"[环境] %s", kv);
     }
 
+    // ── 获取 task port ──
+    //
+    // iOS 17 上 task_for_pid 可能返回 KERN_SUCCESS 但给到 MACH_PORT_DEAD
+    // 之类的无效值（实测 targetTask == -1）。根因是目标进程未被内核标记为
+    // 「可调试」—— 即使调用方持有 task_for_pid-allow 权限，AMFI 也会拦。
+    //
+    // roothide 提供 jbserver 接口可以给指定 pid 打上 debugged 标记，
+    // 这正是越狱环境下 Dopamine/Relaxin 自己调试 App 的方式。
     mach_port_t targetTask = MACH_PORT_NULL;
     kern_return_t kr = task_for_pid(mach_task_self(), targetPID, &targetTask);
+
+    if (kr != KERN_SUCCESS || targetTask == MACH_PORT_NULL || targetTask == MACH_PORT_DEAD) {
+        FLog(@"[TP] 首次 task_for_pid 未拿到有效 port (kr=%d, port=%d)，尝试经 roothide 标记后重试",
+             kr, targetTask);
+
+        // 经 jbserver 把目标进程标记为 fully-debugged
+        BOOL marked = FuckRoothideSetProcessDebugged((uint64_t)targetPID, YES);
+        FLog(@"[TP] roothide set_process_debugged => %@", marked ? @"成功" : @"失败");
+
+        // 再尝试一次（有些实现需要目标进程重新校验签名才生效）
+        if (marked) {
+            FuckRoothideCSRevalidate();
+            usleep(120000);
+        }
+
+        targetTask = MACH_PORT_NULL;
+        kr = task_for_pid(mach_task_self(), targetPID, &targetTask);
+        FLog(@"[TP] 重试 task_for_pid: kr=%d, port=%d", kr, targetTask);
+    }
+
     if (kr != KERN_SUCCESS) {
         FLogError(@"task_for_pid 失败: %d (%s)", kr, mach_error_string(kr));
         return -1;
     }
     if (targetTask == MACH_PORT_NULL || targetTask == MACH_PORT_DEAD) {
-        FLogError(@"获取的 task port 无效: %d", targetTask);
+        FLogError(@"获取的 task port 无效: %d（目标进程可能拒绝被调试，或需要该 App 处于前台）",
+                  targetTask);
         return -2;
     }
     FLog(@"获取 task port: %d", targetTask);
@@ -1828,7 +1885,14 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
             injectedDylibPath = destPath;
             FLogSuccess(@"[CLI] copied to: %@", destPath);
         } else {
+            // 目标 App 的 bundle 同级目录由 container-manager 管控，
+            // 普通 App 进程即使有 no-sandbox 也可能被拒（实测报
+            //「没有访问该容器的许可」）。此时自动降级为无痕模式：
+            // dylib 留在原处，靠 sandbox extension 让目标进程能读。
             FLogError(@"[CLI] copy failed: %@", copyErr.localizedDescription);
+            FLog(@"[CLI] ⤵️ 自动降级为无痕模式：dylib 保持原路径，改用 sandbox extension 授权");
+            mode = FuckInjectModeB;
+            injectedDylibPath = dylibPath;
         }
     } else if (mode == FuckInjectModeA) {
         FLogError(@"[CLI] cannot get target bundle path");
@@ -1856,7 +1920,11 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
         } else {
             FLog(@"[CLI] (模式B) ldid 不在 bundle 内，跳过 ad-hoc 签名");
         }
-    } else if (targetTeamID.length > 0) {
+    // 签名步骤依赖 spawn 本 bundle 内的 ldid / ct_bypass，而 spawn 在本环境
+    // 不可用（实测 ret=1 且文件大小无变化，说明工具根本没有执行）。
+    // roothide 信任链由 jbserver 完成，不依赖本地签名结果，因此直接跳过。
+    BOOL needLocalSign = NO;
+    if (needLocalSign && targetTeamID.length > 0) {
         NSString *ctBypassPath = FuckResourcePath(@"ct_bypass");
         NSString *ldidPath = FuckResourcePath(@"ldid");
 
@@ -1896,7 +1964,7 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
             FLogError(@"tools missing: ct_bypass=%@, ldid=%@", ctBypassPath ?: @"nil", ldidPath ?: @"nil");
         }
     } else {
-        FLogError(@"no TeamID extracted, skipping ct_bypass");
+        FLog(@"[CLI] 已跳过本地签名（roothide 信任链不依赖）");
     }
 
     // ===== Step 3: chmod/chown =====
