@@ -1278,6 +1278,25 @@ struct ContentView: View {
     @State private var hostAccessRequest: HostMountRequest?
     /// AI 写操作待确认（仅整盘档位触发）
     @State private var pendingWriteApproval = false
+
+    /// 写操作确认弹窗正文。
+    ///
+    /// 抽成独立方法有两个原因：一是这段插值（可选值的 map + 多行字面量）本身
+    /// 就很重，二是外层 `body` 已经很大 —— 内联时编译器在 `.task` 那一行报
+    /// "unable to type-check this expression in reasonable time"。搬出来后
+    /// body 里只剩一次调用，类型检查压力显著下降，输出内容保持逐字一致。
+    @MainActor
+    private func writeApprovalMessage() -> String {
+        guard let r = WriteConfirmationCenter.shared.pending else {
+            return "AI 请求修改文件"
+        }
+        let systemMark = r.isSystemPath ? "\n⚠️ 这是系统关键路径" : ""
+        let sizeLine = r.contentSize.map { "大小：\($0) 字符" } ?? ""
+        let reasonLine = r.reason.map { "\n说明：\($0)" } ?? ""
+        let previewLine = r.preview.map { "\n\n预览：\n\($0)" } ?? ""
+        return "操作：\(r.operation)\n路径：\(r.path)\(systemMark)\n\(sizeLine)\n\(reasonLine)\n\(previewLine)"
+    }
+
     @State private var sessions: [ChatSession] = []
     @State private var folders: [ChatFolder] = []
     /// Collapsed folder sections. Pure UI view-state: persisted locally, never
@@ -1672,17 +1691,7 @@ struct ContentView: View {
                 WriteConfirmationCenter.shared.respond(false)
             }
         } message: {
-            if let r = WriteConfirmationCenter.shared.pending {
-                Text("""
-                操作：\(r.operation)
-                路径：\(r.path)\(r.isSystemPath ? "\n⚠️ 这是系统关键路径" : "")
-                \(r.contentSize.map { "大小：\($0) 字符" } ?? "")
-                \(r.reason.map { "\n说明：\($0)" } ?? "")
-                \(r.preview.map { "\n\n预览：\n\($0)" } ?? "")
-                """)
-            } else {
-                Text("AI 请求修改文件")
-            }
+            Text(writeApprovalMessage())
         }
         .alert(item: $hostAccessRequest) { req in
             Alert(
@@ -2103,7 +2112,14 @@ struct ContentView: View {
                 return true
             }()
             let quickActionPending = quickActionRouter.newChatTrigger != consumedQuickActionTrigger || workflowActive
-            shareLog.info("[Share] .task: hasPendingShare=\(shareCoordinator.hasPendingShare) launchScreen=\(launchScreen) sessions=\(sessions.count) bufferVersion=\(shareCoordinator.bufferVersion) shareAlreadyHandled=\(shareAlreadyHandled) quickActionPending=\(quickActionPending) workflowActive=\(workflowActive)")
+            let shareTaskState = "hasPendingShare=\(shareCoordinator.hasPendingShare)"
+                + " launchScreen=\(launchScreen)"
+                + " sessions=\(sessions.count)"
+                + " bufferVersion=\(shareCoordinator.bufferVersion)"
+                + " shareAlreadyHandled=\(shareAlreadyHandled)"
+                + " quickActionPending=\(quickActionPending)"
+                + " workflowActive=\(workflowActive)"
+            shareLog.info("[Share] .task: " + shareTaskState)
 
             // [T-notification-tap-vs-launch-session] A notification tap's
             // explicit target session outranks every launch-screen default.
