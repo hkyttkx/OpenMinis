@@ -85,8 +85,11 @@ struct HostLocation: Identifiable, Hashable {
     let hostPath: String
     let title: String
     let detail: String
-    /// 是否允许切换为读写；系统路径固定 false
+    /// 是否允许切换为读写（所有位置都可，由用户决定）
     let allowsWrite: Bool
+    /// 写入是否需要逐次弹窗确认。
+    /// 只有「整个文件系统」这类全盘权限才需要；普通 App 目录不打扰。
+    var requiresWriteConfirmation: Bool = false
 
     var guestPath: String { "/var/minis/workspace/host/\(key)" }
     var isSystemPath: Bool { !allowsWrite }
@@ -96,7 +99,7 @@ struct HostLocation: Identifiable, Hashable {
                      hostPath: "/var/containers/Bundle/Application",
                      title: "已安装 App",
                      detail: "所有 App 的安装包，含主二进制与 Frameworks",
-                     allowsWrite: false),
+                     allowsWrite: true),
         HostLocation(key: "containers",
                      hostPath: "/var/mobile/Containers/Data/Application",
                      title: "App 数据容器",
@@ -116,12 +119,13 @@ struct HostLocation: Identifiable, Hashable {
                      hostPath: "/var/jb",
                      title: "越狱根",
                      detail: "越狱环境文件（roothide 下为随机路径）",
-                     allowsWrite: false),
+                     allowsWrite: true),
         HostLocation(key: "root",
                      hostPath: "/",
                      title: "整个文件系统",
-                     detail: "根目录，系统路径仍强制只读",
-                     allowsWrite: false),
+                     detail: "根目录，含系统文件。开启读写后 AI 每次改动都会弹窗确认",
+                     allowsWrite: true,
+                     requiresWriteConfirmation: true),
     ]
 }
 
@@ -216,8 +220,9 @@ final class HostAccessManager: ObservableObject {
             lastError = "路径不存在：\(path)"
             return false
         }
-        var perm = permission ?? (loc.allowsWrite ? .readWrite : .readOnly)
-        if !loc.allowsWrite { perm = .readOnly }
+        // 默认只读：由用户在设置里决定是否放开为读写。
+        // 所有位置都支持切换（不再有强制只读），但默认保持安全。
+        let perm = permission ?? .readOnly
         mounted[loc.key] = perm
         persistGrants()
         lastError = nil
@@ -235,10 +240,6 @@ final class HostAccessManager: ObservableObject {
     }
 
     func setPermission(_ loc: HostLocation, _ permission: HostMountPermission) {
-        guard loc.allowsWrite || permission == .readOnly else {
-            lastError = "\(loc.title) 是系统路径，仅支持只读"
-            return
-        }
         if mounted[loc.key] != nil {
             mounted[loc.key] = permission
             persistGrants()
@@ -292,6 +293,16 @@ final class HostAccessManager: ObservableObject {
             lines.append("• \(loc.key) — \(loc.title)：\(state)\n    路径 \(loc.hostPath)")
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// 某路径是否需要写确认（命中「需确认」的位置才需要）
+    func needsWriteConfirmation(for path: String) -> Bool {
+        for loc in HostLocation.builtins where loc.requiresWriteConfirmation {
+            guard isMounted(loc) else { continue }
+            let root = resolvedPath(loc)
+            if path == root || path.hasPrefix(root + "/") { return true }
+        }
+        return false
     }
 
     /// 供 HostFileAccess 判定真实路径（越狱根动态解析）

@@ -1276,6 +1276,8 @@ struct ContentView: View {
     }
     /// 待用户确认的宿主文件访问请求（AI 发起）
     @State private var hostAccessRequest: HostMountRequest?
+    /// AI 写操作待确认（仅整盘档位触发）
+    @State private var pendingWriteApproval = false
     @State private var sessions: [ChatSession] = []
     @State private var folders: [ChatFolder] = []
     /// Collapsed folder sections. Pure UI view-state: persisted locally, never
@@ -1657,6 +1659,30 @@ struct ContentView: View {
         // 这里统一弹窗；批准后由 HostAccessManager 完成 bind mount。
         .onReceive(HostAccessManager.shared.$pendingRequest.compactMap { $0 }) { req in
             hostAccessRequest = req
+        }
+        // AI 对「整个文件系统」的写操作需要逐次确认
+        .onReceive(WriteConfirmationCenter.shared.$pending.compactMap { $0 }) { _ in
+            pendingWriteApproval = true
+        }
+        .alert("AI 请求修改文件", isPresented: $pendingWriteApproval) {
+            Button("允许", role: .destructive) {
+                WriteConfirmationCenter.shared.respond(true)
+            }
+            Button("拒绝", role: .cancel) {
+                WriteConfirmationCenter.shared.respond(false)
+            }
+        } message: {
+            if let r = WriteConfirmationCenter.shared.pending {
+                Text("""
+                操作：\(r.operation)
+                路径：\(r.path)\(r.isSystemPath ? "\n⚠️ 这是系统关键路径" : "")
+                \(r.contentSize.map { "大小：\($0) 字符" } ?? "")
+                \(r.reason.map { "\n说明：\($0)" } ?? "")
+                \(r.preview.map { "\n\n预览：\n\($0)" } ?? "")
+                """)
+            } else {
+                Text("AI 请求修改文件")
+            }
         }
         .alert(item: $hostAccessRequest) { req in
             Alert(

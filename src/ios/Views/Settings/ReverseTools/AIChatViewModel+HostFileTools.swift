@@ -100,6 +100,22 @@ extension AIChatViewModel {
                 if let reason = await writeGuardError(for: path) {
                     return (reason, false)
                 }
+                // 整盘档位下，每次写入都要用户确认
+                let wd = await WriteConfirmationCenter.shared.requestApproval(
+                    operation: "写入文件",
+                    path: path,
+                    contentSize: content.count,
+                    preview: String(content.prefix(200)),
+                    reason: (args["reason"] as? String)
+                )
+                switch wd {
+                case .approved:
+                    break
+                case .denied:
+                    return ("用户拒绝了对 \(path) 的写入。", false)
+                case .timedOut:
+                    return ("写入确认超时（用户未响应），已取消：\(path)", false)
+                }
                 switch HostFileAccess.write(path, content: content) {
                 case .success:
                     return ("✅ 已写入 \(path)（\(content.count) 字符）", true)
@@ -111,6 +127,16 @@ extension AIChatViewModel {
                 let path = try need("path")
                 if let reason = await writeGuardError(for: path) {
                     return (reason, false)
+                }
+                let wd = await WriteConfirmationCenter.shared.requestApproval(
+                    operation: "删除",
+                    path: path,
+                    reason: (args["reason"] as? String)
+                )
+                switch wd {
+                case .approved: break
+                case .denied:   return ("用户拒绝了对 \(path) 的删除。", false)
+                case .timedOut: return ("删除确认超时，已取消：\(path)", false)
                 }
                 switch HostFileAccess.remove(path) {
                 case .success:  return ("✅ 已删除 \(path)", true)

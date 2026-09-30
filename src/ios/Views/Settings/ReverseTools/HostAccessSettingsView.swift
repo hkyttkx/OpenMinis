@@ -53,22 +53,22 @@ struct HostAccessSettingsView: View {
             } header: {
                 Text("位置权限")
             } footer: {
-                Text("逐项开启。系统路径（/、越狱根、App 安装包）强制只读，无法切换为读写。开启后 AI 可经 host_file 工具直接读取。")
+                Text("逐项开启，每项可单独设为只读或读写，默认只读。开启后 AI 可经 host_file 工具访问。注意：对「整个文件系统」开启读写时，AI 的每次修改都会弹窗请你确认。")
             }
 
             // MARK: 写保护
             Section {
                 Toggle(isOn: $manager.confirmWrites) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("写操作需确认")
-                        Text("AI 每次写入或删除前弹窗确认")
+                        Text("整盘读写需确认")
+                        Text("AI 修改「整个文件系统」范围内的文件前弹窗确认")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
             } header: {
                 Text("写保护")
             } footer: {
-                Text("开启后 AI 的写/删操作都会先询问你。系统路径无论如何都不可写。")
+                Text("仅对「整个文件系统」这一档生效。普通目录（App 容器、共享目录、媒体目录）的读写不会打扰你。")
             }
 
             // MARK: 状态
@@ -158,19 +158,19 @@ private struct HostLocationRow: View {
                 .lineLimit(1).truncationMode(.middle)
 
             if isOn {
-                if location.allowsWrite {
-                    Picker("权限", selection: Binding(
-                        get: { perm ?? .readOnly },
-                        set: { manager.setPermission(location, $0) }
-                    )) {
-                        ForEach(HostMountPermission.allCases) { p in
-                            Text(p.title).tag(p)
-                        }
+                Picker("权限", selection: Binding(
+                    get: { perm ?? .readOnly },
+                    set: { manager.setPermission(location, $0) }
+                )) {
+                    ForEach(HostMountPermission.allCases) { p in
+                        Text(p.title).tag(p)
                     }
-                    .pickerStyle(.segmented)
-                } else {
-                    Label("只读（系统路径）", systemImage: "lock.fill")
-                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                .pickerStyle(.segmented)
+
+                if location.requiresWriteConfirmation {
+                    Label("读写模式下，AI 每次改动都会弹窗请你确认", systemImage: "exclamationmark.shield")
+                        .font(.caption2).foregroundStyle(.orange)
                 }
             }
         }

@@ -310,6 +310,26 @@ extension AIChatViewModel {
                 propertyOrdering: ["tool_title", "action", "task", "agent", "model_choice", "context", "max_minutes", "wait", "progress_report", "job_id", "message", "child_session_id"]
             ))
         }
+        // ── 抓包工具 ──
+        //
+        // 让 AI 能自主完成整个抓包流程：开始 → 打开目标 App → 等待 →
+        // 停止 → 读取数据 → 分析。数据带时间戳，可按关键词检索。
+        tools.append(AgentToolDefinition(
+            name: "capture",
+            description: "控制抓包（HTTPS 解密）并读取抓到的请求。可以先 start 开始抓包、open_app 打开目标 App，等一会儿 stop，再用 sessions/flows/detail/search 读取数据。需要用户先在系统设置里信任 CA 证书才能解密 HTTPS。",
+            parameters: [
+                "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user. Use the same language as the user."),
+                "action": AgentToolParam(type: .string, description: "status（状态）/ ca_status（证书）/ start（开始抓包）/ stop（停止）/ open_app（打开目标 App）/ sessions（会话列表）/ flows（请求列表）/ detail（单条详情）/ search（关键词搜索）/ clear（清空）。", enumValues: ["status","ca_status","start","stop","open_app","sessions","flows","detail","search","clear"]),
+                "bundle_id": AgentToolParam(type: .string, description: "目标 App 的 bundle identifier（open_app 必填）。"),
+                "session": AgentToolParam(type: .string, description: "会话编号（flows 可选，用于只看某次会话）。"),
+                "id": AgentToolParam(type: .string, description: "记录编号（detail 必填）。"),
+                "keyword": AgentToolParam(type: .string, description: "搜索关键词（search 必填，匹配 URL 与请求/响应头）。"),
+                "limit": AgentToolParam(type: .integer, description: "返回条数上限，默认 30-50。"),
+            ],
+            required: ["tool_title", "action"],
+            propertyOrdering: ["tool_title","action","bundle_id","session","id","keyword","limit"]
+        ))
+
         // ── 宿主文件直读工具 ──
         //
         // 参考实现从不挂载：App 凭 no-sandbox 权限直读宿主，读到的文件按需
@@ -324,6 +344,7 @@ extension AIChatViewModel {
                 "bundle_id": AgentToolParam(type: .string, description: "目标 App 的 bundle identifier（container 动作必填）。"),
                 "content": AgentToolParam(type: .string, description: "写入内容（write 必填）。"),
                 "keyword": AgentToolParam(type: .string, description: "搜索关键词（search 必填，按文件名匹配）。"),
+                "reason": AgentToolParam(type: .string, description: "修改文件的理由（write / rm 建议填写，会显示在用户确认弹窗里）。"),
                 "limit": AgentToolParam(type: .integer, description: "返回条数上限，默认 200-500。"),
             ],
             required: ["tool_title", "action"],

@@ -493,6 +493,7 @@
 		RQ000S1B /* RelayQuotaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = RQ000S1R /* RelayQuotaService.swift */; };
 		TM000S1B /* TerminalSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = TM000S1R /* TerminalSettingsView.swift */; };
 		HF000S1B /* HostFileAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = HF000S1R /* HostFileAccess.swift */; };
+		WC000S1B /* WriteConfirmationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = WC000S1R /* WriteConfirmationCenter.swift */; };
 		HF000S2B /* AIChatViewModel+HostFileTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = HF000S2R /* AIChatViewModel+HostFileTools.swift */; };
 		RQ000S2B /* RelayQuotaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = RQ000S2R /* RelayQuotaView.swift */; };
 		LS000S2B /* LocalSnapshotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = LS000S2R /* LocalSnapshotView.swift */; };
@@ -612,7 +613,7 @@
 /* Begin PBXContainerItemProxy section */
 		PTP0000000000000001 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
-			containerPortal = AA26CCA32F31070000AECF2D /* Project object */;
+			containerPortal = E51000060 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = TST0000000000000001;
 			remoteInfo = TunnelServices;
@@ -1268,6 +1269,7 @@
 		RQ000S1R /* RelayQuotaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RelayQuotaService.swift"; sourceTree = "<group>"; };
 		TM000S1R /* TerminalSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalSettingsView.swift"; sourceTree = "<group>"; };
 		HF000S1R /* HostFileAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostFileAccess.swift"; sourceTree = "<group>"; };
+		WC000S1R /* WriteConfirmationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WriteConfirmationCenter.swift"; sourceTree = "<group>"; };
 		HF000S2R /* AIChatViewModel+HostFileTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+HostFileTools.swift"; sourceTree = "<group>"; };
 		RQ000S2R /* RelayQuotaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RelayQuotaView.swift"; sourceTree = "<group>"; };
 		LS000S2R /* LocalSnapshotView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LocalSnapshotView.swift"; sourceTree = "<group>"; };
@@ -2531,6 +2533,7 @@
 				RQ000S1R /* RelayQuotaService.swift */,
 				TM000S1R /* TerminalSettingsView.swift */,
 				HF000S1R /* HostFileAccess.swift */,
+				WC000S1R /* WriteConfirmationCenter.swift */,
 				HF000S2R /* AIChatViewModel+HostFileTools.swift */,
 				RQ000S2R /* RelayQuotaView.swift */,
 				LS000S2R /* LocalSnapshotView.swift */,
@@ -3126,6 +3129,7 @@
 				RQ000S1B /* RelayQuotaService.swift in Sources */,
 				TM000S1B /* TerminalSettingsView.swift in Sources */,
 				HF000S1B /* HostFileAccess.swift in Sources */,
+				WC000S1B /* WriteConfirmationCenter.swift in Sources */,
 				HF000S2B /* AIChatViewModel+HostFileTools.swift in Sources */,
 				RQ000S2B /* RelayQuotaView.swift in Sources */,
 				LS000S2B /* LocalSnapshotView.swift in Sources */,
