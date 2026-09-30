@@ -66,16 +66,6 @@
 	<array>
 		<string>/</string>
 	</array>
-	<!-- ══════════ 抓包（NetworkExtension / VPN） ══════════ -->
-	<!-- 主 App 需要这两项才能创建并管理 PacketTunnel 配置 -->
-	<key>com.apple.developer.networking.networkextension</key>
-	<array>
-		<string>packet-tunnel-provider</string>
-	</array>
-	<key>com.apple.developer.networking.vpn.api</key>
-	<array>
-		<string>allow-vpn</string>
-	</array>
 
 	<!-- 调试 / 任务端口（砸壳与动态分析预留） -->
 	<key>get-task-allow</key>

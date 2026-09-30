@@ -7,28 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0500074CF39984E1753D973D /* Atomics in Frameworks */ = {isa = PBXBuildFile; productRef = 274DF9B7B190CCC94DE30D7A /* Atomics */; };
-		EE42F42A11FE3343AD9D6140 /* Atomics in Frameworks (PT) */ = {isa = PBXBuildFile; productRef = 274DF9B7B190CCC94DE30D7A /* Atomics */; };
-		EF796AF532547E7394590568 /* NIO in Frameworks */ = {isa = PBXBuildFile; productRef = 0D7ECDA540096B1264BF54E1 /* NIO */; };
-		435EF28779FB23175ADE23A0 /* NIOSSL in Frameworks */ = {isa = PBXBuildFile; productRef = 77BE848A7196B9F9C6EFF7E0 /* NIOSSL */; };
 		71384EC71581056C9B82CB69 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = ADC4F5C69962E6874ECEDFA4 /* SQLite */; };
-		9E88359EC199A6D06DE7BA60 /* NIOHTTP1 in Frameworks */ = {isa = PBXBuildFile; productRef = 6F0CA94B033F21E559ACB4E3 /* NIOHTTP1 */; };
-		16605D0B91194D45C2B2E71F /* NIOFoundationCompat in Frameworks */ = {isa = PBXBuildFile; productRef = 044197FD420895B6CB8254A5 /* NIOFoundationCompat */; };
-		0D63D8E629E8EAA72D960743 /* NIOConcurrencyHelpers in Frameworks */ = {isa = PBXBuildFile; productRef = FF08D68CCC62E9C607A53DAC /* NIOConcurrencyHelpers */; };
-		26BBFE0B7EB7478519183BFC /* NIOWebSocket in Frameworks */ = {isa = PBXBuildFile; productRef = 65968B8404BD54C9C1BD3E48 /* NIOWebSocket */; };
-		FF5B429057CEDCF4F2AE4636 /* NIOTLS in Frameworks */ = {isa = PBXBuildFile; productRef = 61E18D2FBDC2C321AB1B06D6 /* NIOTLS */; };
-		3F197707C05377A2630296E6 /* NIO in Frameworks (PT) */ = {isa = PBXBuildFile; productRef = 0D7ECDA540096B1264BF54E1 /* NIO */; };
-		CFE2045F97B4B32972505FA3 /* NIOHTTP1 in Frameworks (PT) */ = {isa = PBXBuildFile; productRef = 6F0CA94B033F21E559ACB4E3 /* NIOHTTP1 */; };
-		3F73D05FEE186430E0090068 /* NIOFoundationCompat in Frameworks (PT) */ = {isa = PBXBuildFile; productRef = 044197FD420895B6CB8254A5 /* NIOFoundationCompat */; };
-		104C024B60B7807D347BF565 /* NIOConcurrencyHelpers in Frameworks (PT) */ = {isa = PBXBuildFile; productRef = FF08D68CCC62E9C607A53DAC /* NIOConcurrencyHelpers */; };
-		490AA45AF0E58685D0F045D0 /* NIOWebSocket in Frameworks (PT) */ = {isa = PBXBuildFile; productRef = 65968B8404BD54C9C1BD3E48 /* NIOWebSocket */; };
-		692874EFADD2408CCE64119F /* NIOSSL in Frameworks (PT) */ = {isa = PBXBuildFile; productRef = 77BE848A7196B9F9C6EFF7E0 /* NIOSSL */; };
-		DA0599D7CB33DBBF6E9823EC /* NIOTLS in Frameworks (PT) */ = {isa = PBXBuildFile; productRef = 61E18D2FBDC2C321AB1B06D6 /* NIOTLS */; };
 		7745C3FC09D680A0F7CB95C7 /* SQLite in Frameworks (PT) */ = {isa = PBXBuildFile; productRef = ADC4F5C69962E6874ECEDFA4 /* SQLite */; };
-		TSB0000000000000001 /* TunnelServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = TSF0000000000000001 /* TunnelServices.framework */; };
-		TSB0000000000000002 /* TunnelServices.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = TSF0000000000000001 /* TunnelServices.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		TSB0000000000000003 /* TunnelServices.framework in Frameworks (appex) */ = {isa = PBXBuildFile; fileRef = TSF0000000000000001 /* TunnelServices.framework */; };
-		PTB0000000000000001 /* PacketTunnel.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = PTF0000000000000001 /* PacketTunnel.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		21FED4B7BB6F6D9476C9992E /* VoiceProvider+System.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88993FC8E3F0199C6638F664 /* VoiceProvider+System.swift */; };
 		241D530017827D7F0EB604DE /* VoiceProviderFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2941B643B8A2F048A2B154E /* VoiceProviderFactory.swift */; };
 		2A4FD49F872431D703328384 /* VoiceOutputPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424510790AF3FB2452D3CCE3 /* VoiceOutputPlayer.swift */; };
@@ -626,44 +606,30 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		PTP0000000000000001 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = E51000060 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = TST0000000000000001;
-			remoteInfo = TunnelServices;
-		};
 		AA8A56912F6FBB7A00A3E54E /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
-			containerPortal = E51000060 /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = E51000040;
 			remoteInfo = Minis;
 		};
 		BB1000B10F700000000000AA /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
-			containerPortal = E51000060 /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = E51000040;
 			remoteInfo = Minis;
 		};
 		E5E000081 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
-			containerPortal = E51000060 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = E5E000040;
 			remoteInfo = MinisShare;
 		};
 		E5FP00081 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
-			containerPortal = E51000060 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = E5FP00040;
 			remoteInfo = MinisFileProvider;
 		};
 		E5H000081 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
-			containerPortal = E51000060 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = E5H000040;
 			remoteInfo = AgentWidgetExtension;
@@ -681,43 +647,9 @@
 			name = "Copy Alpine Rootfs";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		AAF00F032F50A00000049557 /* Embed Frameworks */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-				TSB0000000000000002 /* TunnelServices.framework in Embed Frameworks */,
-				AAF00F022F50A00000049557 /* FFmpeg.framework in Embed Frameworks */,
-				AAF10F022F50A00000049557 /* libavcodec.framework in Embed Frameworks */,
-				AAF10F052F50A00000049557 /* libavformat.framework in Embed Frameworks */,
-				AAF10F082F50A00000049557 /* libavutil.framework in Embed Frameworks */,
-				AAF10F0B2F50A00000049557 /* libavfilter.framework in Embed Frameworks */,
-				AAF10F0E2F50A00000049557 /* libswresample.framework in Embed Frameworks */,
-				AAF10F112F50A00000049557 /* libswscale.framework in Embed Frameworks */,
-			);
-			name = "Embed Frameworks";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		E5E000060 /* Embed Foundation Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
-				E5E000009 /* MinisShare.appex in Embed Foundation Extensions */,
-				E5H000009 /* AgentWidgetExtension.appex in Embed Foundation Extensions */,
-				E5FP00009 /* MinisFileProvider.appex in Embed Foundation Extensions */,
-				PTB0000000000000001 /* PacketTunnel.appex in Embed Foundation Extensions */,
-			);
-			name = "Embed Foundation Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		TSF0000000000000001 /* TunnelServices.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = TunnelServices.framework; sourceTree = BUILT_PRODUCTS_DIR; };
-		PTF0000000000000001 /* PacketTunnel.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PacketTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		0ED149397BEA7E0408C92688 /* GroupVoiceModelsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GroupVoiceModelsView.swift; sourceTree = "<group>"; };
 		0F5379380323FA8C6477708C /* GroupSlotPicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GroupSlotPicker.swift; sourceTree = "<group>"; };
 		16FF3462D09402F14B610CD6 /* VoiceWaveformView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceWaveformView.swift; sourceTree = "<group>"; };
@@ -1438,39 +1370,12 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		TSS0000000000000001 /* TunnelServices */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = TunnelServices; sourceTree = "<group>"; };
-		PTS0000000000000001 /* PacketTunnel */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = PacketTunnel; sourceTree = "<group>"; };
-		CAPS000000000000001 /* PacketCapture */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = PacketCapture; sourceTree = "<group>"; };
 		AA0838CB2F3CA8A900049557 /* Terminal */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Terminal; sourceTree = "<group>"; };
 		AA8A568C2F6FBB7A00A3E54E /* MinisUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = MinisUITests; sourceTree = "<group>"; };
 		BB1000012F700000000000AA /* MinisTests */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (E5EXC0001 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = MinisTests; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		TSFRM00000000000001 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				EF796AF532547E7394590568 /* NIO in Frameworks */,
-				9E88359EC199A6D06DE7BA60 /* NIOHTTP1 in Frameworks */,
-				16605D0B91194D45C2B2E71F /* NIOFoundationCompat in Frameworks */,
-				0D63D8E629E8EAA72D960743 /* NIOConcurrencyHelpers in Frameworks */,
-				26BBFE0B7EB7478519183BFC /* NIOWebSocket in Frameworks */,
-				435EF28779FB23175ADE23A0 /* NIOSSL in Frameworks */,
-				FF5B429057CEDCF4F2AE4636 /* NIOTLS in Frameworks */,
-				71384EC71581056C9B82CB69 /* SQLite in Frameworks */,
-				0500074CF39984E1753D973D /* Atomics in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		PTFRM00000000000001 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				TSB0000000000000003 /* TunnelServices.framework in Frameworks (appex) */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		AA8A56882F6FBB7A00A3E54E /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -1482,31 +1387,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		E51000020 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				TSB0000000000000001 /* TunnelServices.framework in Frameworks */,
-				AA9C2BF92F65996900F41633 /* SwiftMath in Frameworks */,
-				AAF00F012F50A00000049557 /* FFmpeg.framework in Frameworks */,
-				RCL000010 /* Rclone.xcframework in Frameworks */,
-				AAF10F012F50A00000049557 /* libavcodec.framework in Frameworks */,
-				AAF10F032F50A00000049557 /* libavformat.framework in Frameworks */,
-				AAF10F062F50A00000049557 /* libavutil.framework in Frameworks */,
-				AAF10F092F50A00000049557 /* libavfilter.framework in Frameworks */,
-				AAF10F0C2F50A00000049557 /* libswresample.framework in Frameworks */,
-				AAF10F0F2F50A00000049557 /* libswscale.framework in Frameworks */,
-				AA26CCB92F31070A00AECF2D /* libsqlite3.tbd in Frameworks */,
-				AA26CCC32F31090100AECF2D /* libresolv.tbd in Frameworks */,
-				AA26CCC12F31090000AECF2D /* SystemConfiguration.framework in Frameworks */,
-				E52000005 /* SwiftAnthropic in Frameworks */,
-				E5M000001 /* cmark-gfm in Frameworks */,
-				E5M000002 /* cmark-gfm-extensions in Frameworks */,
-				E5S000005 /* CloudKit.framework in Frameworks */,
-				891443CAA4679D09A6D32AE4 /* RealTimeCutVADLibrary in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2684,46 +2564,6 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		TST0000000000000001 /* TunnelServices */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = TSCL00000000000001 /* Build configuration list for PBXNativeTarget "TunnelServices" */;
-			buildPhases = (
-				TSSRC00000000000001 /* Sources */,
-				TSFRM00000000000001 /* Frameworks */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				TSS0000000000000001 /* TunnelServices */,
-			);
-			name = TunnelServices;
-
-			productName = TunnelServices;
-			productReference = TSF0000000000000001 /* TunnelServices.framework */;
-			productType = "com.apple.product-type.framework";
-		};
-		PTT0000000000000001 /* PacketTunnel */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = PTCL00000000000001 /* Build configuration list for PBXNativeTarget "PacketTunnel" */;
-			buildPhases = (
-				PTSRC00000000000001 /* Sources */,
-				PTFRM00000000000001 /* Frameworks */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				PTD0000000000000001 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				PTS0000000000000001 /* PacketTunnel */,
-			);
-			name = PacketTunnel;
-			productName = PacketTunnel;
-			productReference = PTF0000000000000001 /* PacketTunnel.appex */;
-			productType = "com.apple.product-type.app-extension";
-		};
 		AA8A568A2F6FBB7A00A3E54E /* MinisUITests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = AA8A56952F6FBB7A00A3E54E /* Build configuration list for PBXNativeTarget "MinisUITests" */;
@@ -2765,43 +2605,6 @@
 			productName = MinisTests;
 			productReference = BB1000010F700000000000AA /* MinisTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
-		};
-		E51000040 /* Minis */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = E51000050 /* Build configuration list for PBXNativeTarget "Minis" */;
-			buildPhases = (
-				AC0000200 /* Generate Provider Customization */,
-				E54000AD0 /* Generate Debug Skill */,
-				E51000041 /* Sources */,
-				E51000020 /* Frameworks */,
-				E51000042 /* Resources */,
-				AA26BD2D2F2E659300AECF2D /* Copy Alpine Rootfs */,
-				AAF00F032F50A00000049557 /* Embed Frameworks */,
-				E5E000060 /* Embed Foundation Extensions */,
-				E54000AE0 /* Strip Third-Party VAD Framework Symbols */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				E5E000080 /* PBXTargetDependency */,
-				E5H000080 /* PBXTargetDependency */,
-				E5FP00080 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				AA0838CB2F3CA8A900049557 /* Terminal */,
-				CAPS000000000000001 /* PacketCapture */,
-			);
-			name = Minis;
-			packageProductDependencies = (
-				E52000021 /* SwiftAnthropic */,
-				E5M000021 /* cmark-gfm */,
-				E5M000022 /* cmark-gfm-extensions */,
-				E5X000021 /* SwiftMath */,
-				C42120806C66A2C804F89620 /* RealTimeCutVADLibrary */,
-			);
-			productName = Minis;
-			productReference = E51000010 /* Minis.app */;
-			productType = "com.apple.product-type.application";
 		};
 		E5E000040 /* MinisShare */ = {
 			isa = PBXNativeTarget;
@@ -2854,81 +2657,6 @@
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		E51000060 /* Project object */ = {
-			isa = PBXProject;
-			attributes = {
-				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1500;
-				LastUpgradeCheck = 1500;
-				TargetAttributes = {
-					AA8A568A2F6FBB7A00A3E54E = {
-						CreatedOnToolsVersion = 26.2;
-						TestTargetID = E51000040;
-					};
-					E51000040 = {
-						CreatedOnToolsVersion = 15.0;
-					};
-					E5E000040 = {
-						CreatedOnToolsVersion = 15.0;
-					};
-					E5FP00040 = {
-						CreatedOnToolsVersion = 15.0;
-					};
-					E5H000040 = {
-						CreatedOnToolsVersion = 15.0;
-					};
-				};
-			};
-			buildConfigurationList = E51000061 /* Build configuration list for PBXProject "Minis" */;
-			compatibilityVersion = "Xcode 14.0";
-			developmentRegion = en;
-			hasScannedForEncodings = 0;
-			knownRegions = (
-				en,
-				Base,
-				"zh-Hans",
-				"zh-Hant",
-				ja,
-				ko,
-				fr,
-				de,
-				ru,
-				es,
-				id,
-				ms,
-				fil,
-				th,
-				tr,
-				pl,
-				ro,
-				"pt-BR",
-				hr,
-			);
-			mainGroup = E51000030;
-			packageReferences = (
-				E52000020 /* XCRemoteSwiftPackageReference "SwiftAnthropic" */,
-				E5M000020 /* XCRemoteSwiftPackageReference "swift-cmark" */,
-				E5X000020 /* XCRemoteSwiftPackageReference "SwiftMath" */,
-				B318C2F47DB3F301A17E49BE /* XCRemoteSwiftPackageReference "RealTimeCutVADLibrary" */,
-				420B9A3EDB2ED499930F87B1 /* XCRemoteSwiftPackageReference "swift-nio" */,
-				749CE588ECB1739AF6D7D198 /* XCRemoteSwiftPackageReference "swift-nio-ssl" */,
-				5640A246964B91D204AD888D /* XCRemoteSwiftPackageReference "SQLite" */,
-				4D31E5448B5B5EE06CA5E2A9 /* XCRemoteSwiftPackageReference "swift-atomics" */,
-			);
-			productRefGroup = E51000032 /* Products */;
-			projectDirPath = "";
-			projectRoot = "";
-			targets = (
-				E51000040 /* Minis */,
-				E5E000040 /* MinisShare */,
-				E5H000040 /* AgentWidgetExtension */,
-				E5FP00040 /* MinisFileProvider */,
-				AA8A568A2F6FBB7A00A3E54E /* MinisUITests */,
-				BB1000070F700000000000AA /* MinisTests */,
-				TST0000000000000001 /* TunnelServices */,
-				PTT0000000000000001 /* PacketTunnel */,
-			);
-		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
@@ -3656,19 +3384,12 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		PTD0000000000000001 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = TST0000000000000001 /* TunnelServices */;
-			targetProxy = PTP0000000000000001 /* PBXContainerItemProxy */;
-		};
 		AA8A56922F6FBB7A00A3E54E /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = E51000040 /* Minis */;
 			targetProxy = AA8A56912F6FBB7A00A3E54E /* PBXContainerItemProxy */;
 		};
 		BB1000B00F700000000000AA /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = E51000040 /* Minis */;
 			targetProxy = BB1000B10F700000000000AA /* PBXContainerItemProxy */;
 		};
 		E5E000080 /* PBXTargetDependency */ = {
@@ -3727,116 +3448,6 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
-		TSBC00000000000001 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				MODULE_VERIFIER_SUPPORTED_LANGUAGES = "objective-c objective-c++";
-				MODULE_VERIFIER_SUPPORTED_LANGUAGE_STANDARDS = "gnu17 gnu++20";
-				ENABLE_MODULE_VERIFIER = YES;
-				BUILD_LIBRARY_FOR_DISTRIBUTION = NO;
-				CODE_SIGN_STYLE = Manual;
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
-				CODE_SIGN_IDENTITY = "";
-				CURRENT_PROJECT_VERSION = 1;
-				DEFINES_MODULE = YES;
-				DYLIB_COMPATIBILITY_VERSION = 1;
-				DYLIB_CURRENT_VERSION = 1;
-				DYLIB_INSTALL_NAME_BASE = "@rpath";
-				GENERATE_INFOPLIST_FILE = YES;
-				HEADER_SEARCH_PATHS = (
-					"$(SRCROOT)/TunnelServices/lwip/include",
-					"$(SRCROOT)/TunnelServices/MMWormhole/Source",
-				);
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@loader_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.openminis.app.TunnelServices;
-				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
-				SKIP_INSTALL = YES;
-				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/TunnelServices/lwip/include";
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Release;
-		};
-		TSBC00000000000002 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				MODULE_VERIFIER_SUPPORTED_LANGUAGES = "objective-c objective-c++";
-				MODULE_VERIFIER_SUPPORTED_LANGUAGE_STANDARDS = "gnu17 gnu++20";
-				ENABLE_MODULE_VERIFIER = YES;
-				BUILD_LIBRARY_FOR_DISTRIBUTION = NO;
-				CODE_SIGN_STYLE = Manual;
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
-				CODE_SIGN_IDENTITY = "";
-				CURRENT_PROJECT_VERSION = 1;
-				DEFINES_MODULE = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				HEADER_SEARCH_PATHS = (
-					"$(SRCROOT)/TunnelServices/lwip/include",
-					"$(SRCROOT)/TunnelServices/MMWormhole/Source",
-				);
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/TunnelServices/lwip/include";
-				SWIFT_VERSION = 5.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.openminis.app.TunnelServices;
-				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
-				SKIP_INSTALL = YES;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
-		PTBC00000000000001 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
-				CODE_SIGN_STYLE = Manual;
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
-				CODE_SIGN_IDENTITY = "";
-				CURRENT_PROJECT_VERSION = 1;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = PacketTunnel/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@loader_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.openminis.app.PacketTunnel;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Release;
-		};
-		PTBC00000000000002 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
-				CODE_SIGN_STYLE = Manual;
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
-				CODE_SIGN_IDENTITY = "";
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = PacketTunnel/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.openminis.app.PacketTunnel;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
 		AA8A56932F6FBB7A00A3E54E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -4362,24 +3973,6 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		TSCL00000000000001 /* Build configuration list for PBXNativeTarget "TunnelServices" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				TSBC00000000000002 /* Debug */,
-				TSBC00000000000001 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		PTCL00000000000001 /* Build configuration list for PBXNativeTarget "PacketTunnel" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				PTBC00000000000002 /* Debug */,
-				PTBC00000000000001 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		AA8A56952F6FBB7A00A3E54E /* Build configuration list for PBXNativeTarget "MinisUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -4446,30 +4039,6 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		4D31E5448B5B5EE06CA5E2A9 /* XCRemoteSwiftPackageReference "swift-atomics" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/apple/swift-atomics.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.3.0;
-			};
-		};
-		420B9A3EDB2ED499930F87B1 /* XCRemoteSwiftPackageReference "swift-nio" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/apple/swift-nio.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.95.0;
-			};
-		};
-		749CE588ECB1739AF6D7D198 /* XCRemoteSwiftPackageReference "swift-nio-ssl" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/apple/swift-nio-ssl.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.36.0;
-			};
-		};
 		5640A246964B91D204AD888D /* XCRemoteSwiftPackageReference "SQLite" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/stephencelis/SQLite.swift";
@@ -4513,50 +4082,10 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		274DF9B7B190CCC94DE30D7A /* Atomics */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 4D31E5448B5B5EE06CA5E2A9 /* XCRemoteSwiftPackageReference "swift-atomics" */;
-			productName = Atomics;
-		};
-		0D7ECDA540096B1264BF54E1 /* NIO */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 420B9A3EDB2ED499930F87B1 /* XCRemoteSwiftPackageReference "swift-nio" */;
-			productName = NIO;
-		};
-		77BE848A7196B9F9C6EFF7E0 /* NIOSSL */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 749CE588ECB1739AF6D7D198 /* XCRemoteSwiftPackageReference "swift-nio-ssl" */;
-			productName = NIOSSL;
-		};
 		ADC4F5C69962E6874ECEDFA4 /* SQLite */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 5640A246964B91D204AD888D /* XCRemoteSwiftPackageReference "SQLite" */;
 			productName = SQLite;
-		};
-		6F0CA94B033F21E559ACB4E3 /* NIOHTTP1 */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 420B9A3EDB2ED499930F87B1 /* XCRemoteSwiftPackageReference "swift-nio" */;
-			productName = NIOHTTP1;
-		};
-		044197FD420895B6CB8254A5 /* NIOFoundationCompat */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 420B9A3EDB2ED499930F87B1 /* XCRemoteSwiftPackageReference "swift-nio" */;
-			productName = NIOFoundationCompat;
-		};
-		FF08D68CCC62E9C607A53DAC /* NIOConcurrencyHelpers */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 420B9A3EDB2ED499930F87B1 /* XCRemoteSwiftPackageReference "swift-nio" */;
-			productName = NIOConcurrencyHelpers;
-		};
-		65968B8404BD54C9C1BD3E48 /* NIOWebSocket */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 420B9A3EDB2ED499930F87B1 /* XCRemoteSwiftPackageReference "swift-nio" */;
-			productName = NIOWebSocket;
-		};
-		61E18D2FBDC2C321AB1B06D6 /* NIOTLS */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 749CE588ECB1739AF6D7D198 /* XCRemoteSwiftPackageReference "swift-nio-ssl" */;
-			productName = NIOTLS;
 		};
 		C42120806C66A2C804F89620 /* RealTimeCutVADLibrary */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -4585,5 +4114,4 @@
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
-	rootObject = E51000060 /* Project object */;
 }
