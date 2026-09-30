@@ -5345,6 +5345,20 @@ struct ContentView: View {
     /// `scrollProxy` is forwarded to `toggleFolderCollapsed` so an expand can
     /// re-anchor this header after the accordion removes the previously-open
     /// folder's rows ([T-ios-folder-accordion-scroll-anchor]).
+    /// 「开发者」分组里统一的行样式（小图标 + 标题）。
+    @ViewBuilder
+    private func dtLabel(_ title: String, _ icon: String, _ color: Color) -> some View {
+        Label {
+            Text(title)
+        } icon: {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+                .foregroundStyle(.white)
+                .frame(width: 21, height: 21)
+                .background(color, in: Circle())
+        }
+    }
+
     private func folderSectionHeader(_ group: SidebarGroup, scrollProxy: ScrollViewProxy? = nil) -> some View {
         // Content + onTapGesture instead of a Button: the Button's own
         // long-press handling raced the contextMenu recognizer on some
@@ -8395,6 +8409,43 @@ private struct SettingsSheet: View {
                             }
                         }
                     }
+                }
+
+                // MARK: - 开发者工具
+                // 宿主访问 / 终端 / GitHub / 中转站 / 上下文窗口。
+                // 这些原先都挤在「挂载外部文件夹」里，职责不匹配：
+                // 那个页面只管挂载用户从「文件」App 选的目录，而下面这些
+                // 走的是越狱权限与网络 API，彼此无关。
+                Section {
+                    NavigationLink {
+                        HostAccessSettingsView()
+                    } label: {
+                        dtLabel("宿主访问", "externaldrive.connected.to.line.below", .purple)
+                    }
+                    NavigationLink {
+                        TerminalSettingsView()
+                    } label: {
+                        dtLabel("终端", "terminal.fill", .gray)
+                    }
+                    NavigationLink {
+                        GitHubSettingsView()
+                    } label: {
+                        dtLabel("GitHub 连接", "chevron.left.forwardslash.chevron.right", .black)
+                    }
+                    NavigationLink {
+                        RelayQuotaView()
+                    } label: {
+                        dtLabel("中转站账户", "creditcard.fill", .green)
+                    }
+                    NavigationLink {
+                        ContextLimitSettingsView()
+                    } label: {
+                        dtLabel("上下文窗口", "text.append", .teal)
+                    }
+                } header: {
+                    Text("开发者")
+                } footer: {
+                    Text("宿主访问：让 AI 读取手机上任意文件（含已装 App 与数据容器）。终端：选择命令以什么身份执行。GitHub：让 AI 直接操作仓库与代码。中转站：余额与用量。上下文窗口：对话可用的上下文上限。")
                 }
 
                 // MARK: - 逆向工具（静态分析）

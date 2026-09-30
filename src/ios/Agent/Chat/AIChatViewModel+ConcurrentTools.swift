@@ -371,6 +371,13 @@ extension AIChatViewModel {
         do {
         switch tu.name {
         case "shell_execute":
+            // 用户在「设置 → 终端」里可以彻底关闭 AI 的终端调用。
+            let aiShellEnabled = await MainActor.run { TerminalSettings.shared.allowAIShell }
+            if !aiShellEnabled {
+                toolOutput = "Error: AI 终端调用已被用户在「设置 → 终端」中关闭。"
+                toolSuccess = false
+                break
+            }
             let (command, timeout, delay) = parseToolInput(from: argsJson)
 
             if command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
