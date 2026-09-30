@@ -303,52 +303,28 @@ static int FuckSpawnArguments(NSArray<NSString *> *arguments, BOOL asRootPersona
     posix_spawnattr_t attr;
     if (posix_spawnattr_init(&attr) != 0) return -1;
 
-    // ── 信号与会话处理（这是「子进程被信号 1 杀死」的根因所在）──
+    // ── 信号与会话处理（「子进程被信号 1 杀死」的根因所在）──
     //
-    // 注意 SETSIGDEF 的语义：它把集合内的信号恢复为「系统默认处理」，
-    // 而 SIGHUP 的默认处理正是终止进程 —— 用错了等于主动要求 SIGHUP 杀死子进程。
-    // 正确做法是 SETSIGIGN：把集合内的信号显式设为忽略。
-    sigset_t ignoreSignals;
-    sigemptyset(&ignoreSignals);
-    sigaddset(&ignoreSignals, SIGHUP);
-    sigaddset(&ignoreSignals, SIGINT);
-    sigaddset(&ignoreSignals, SIGQUIT);
-    sigaddset(&ignoreSignals, SIGPIPE);
-    sigaddset(&ignoreSignals, SIGTERM);
-
-    short flags = POSIX_SPAWN_CLOEXEC_DEFAULT
-                | POSIX_SPAWN_SETSIGIGN
-                | POSIX_SPAWN_SETSIGMASK;
+    // 这里有一个必须避开的陷阱：
+    //   POSIX_SPAWN_SETSIGDEF 的语义是「把集合内的信号恢复为系统默认处理」，
+    //   而 SIGHUP 的默认处理恰恰是终止进程。把 SIGHUP 放进 sigdefault 集合，
+    //   等于主动要求内核在挂断时杀死子进程 —— 刚好制造了要避免的结果。
+    //
+    //   而 POSIX_SPAWN_SETSIGIGN 在 Darwin SDK 中并未导出，无法用于设置忽略集。
+    //
+    // 因此实际生效的手段是：
+    //   (a) POSIX_SPAWN_SETSID（存在时）让子进程脱离父进程的会话与进程组；
+    //   (b) 子进程自身在入口处 signal(SIG_IGN) —— 见 MinisApp.swift 的
+    //       handleInjectionSubprocessIfNeeded，这是最可靠的一层防护。
+    short flags = POSIX_SPAWN_CLOEXEC_DEFAULT;
 
 #ifdef POSIX_SPAWN_SETSID
-    // 让子进程成为新会话的首进程，彻底脱离父进程的会话与进程组。
-    // 父进程被切到后台或被系统冻结时，不会再向子进程投递挂断信号。
     flags |= POSIX_SPAWN_SETSID;
 #endif
 
     posix_spawnattr_setflags(&attr, flags);
 
-    // posix_spawnattr_setsigignore_np 在部分 SDK 版本缺失，动态解析后调用
-    {
-        typedef int (*setsigignore_fn)(posix_spawnattr_t *, const sigset_t *);
-        static setsigignore_fn fn = NULL;
-        static BOOL resolved = NO;
-        if (!resolved) {
-            resolved = YES;
-            void *sym = dlsym(RTLD_DEFAULT, "posix_spawnattr_setsigignore_np");
-            if (sym) fn = (setsigignore_fn)sym;
-        }
-        if (fn) {
-            int r = fn(&attr, &ignoreSignals);
-            FLog(@"[SPAWN] setsigignore_np -> %d", r);
-        } else {
-            FLog(@"[SPAWN] setsigignore_np 不可用，依赖子进程自身的 signal(SIG_IGN)");
-        }
-    }
-
-    sigset_t emptyMask;
-    sigemptyset(&emptyMask);
-    posix_spawnattr_setsigmask(&attr, &emptyMask);
+    FLog(@"[SPAWN] flags=0x%x, ignoreSignals 由子进程自身处理", flags);
 
     if (asRootPersona && posix_spawnattr_set_persona_np &&
         posix_spawnattr_set_persona_uid_np && posix_spawnattr_set_persona_gid_np) {
