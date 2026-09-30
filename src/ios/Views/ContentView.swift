@@ -5345,20 +5345,6 @@ struct ContentView: View {
     /// `scrollProxy` is forwarded to `toggleFolderCollapsed` so an expand can
     /// re-anchor this header after the accordion removes the previously-open
     /// folder's rows ([T-ios-folder-accordion-scroll-anchor]).
-    /// 「开发者」分组里统一的行样式（小图标 + 标题）。
-    @ViewBuilder
-    private func dtLabel(_ title: String, _ icon: String, _ color: Color) -> some View {
-        Label {
-            Text(title)
-        } icon: {
-            Image(systemName: icon)
-                .font(.system(size: 9))
-                .foregroundStyle(.white)
-                .frame(width: 21, height: 21)
-                .background(color, in: Circle())
-        }
-    }
-
     private func folderSectionHeader(_ group: SidebarGroup, scrollProxy: ScrollViewProxy? = nil) -> some View {
         // Content + onTapGesture instead of a Button: the Button's own
         // long-press handling raced the contextMenu recognizer on some
@@ -8645,6 +8631,20 @@ private struct SettingsSheet: View {
     /// `.environments` keeps its existing prefill semantics — the
     /// environments view consumes `pendingEnvVarCreate` separately on
     /// appear, so we only have to navigate here.
+    /// 「开发者」分组里统一的行样式（小图标 + 标题）。
+    @ViewBuilder
+    private func dtLabel(_ title: String, _ icon: String, _ color: Color) -> some View {
+        Label {
+            Text(title)
+        } icon: {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+                .foregroundStyle(.white)
+                .frame(width: 21, height: 21)
+                .background(color, in: Circle())
+        }
+    }
+
     private func applyPendingDeepLink() {
         guard let target = deepLink.pendingSettingsTarget else { return }
         // Reset path so deep links are predictable: a deep link always
