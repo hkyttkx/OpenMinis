@@ -281,7 +281,7 @@ extension AIChatViewModel {
                 "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user. Use the same language as the user."),
                 "hooks": AgentToolParam(type: .string, description: "JSON array string of hook objects. Each object: {\"className\": \"SomeClass\", \"methodName\": \"someMethod\", \"isClassMethod\": false, \"hookType\": \"logMethod\"|\"returnConstant\"|\"blockMethod\"|\"modifyProperty\"|\"flexOverride\"|\"methodSwizzle\", optional \"returnValue\": \"1\", optional \"property\": \"someProp\"}. Example: '[{\"className\":\"LoginVC\",\"methodName\":\"verifyToken\",\"hookType\":\"returnConstant\",\"returnValue\":\"1\"}]'"),
                 "name": AgentToolParam(type: .string, description: "Output dylib base name (no extension), e.g. 'MyHook'. Only letters, digits, underscore and hyphen are kept."),
-                "hook_delay": AgentToolParam(type: .number, description: "Seconds to wait after the engine loads before applying hooks. Default 3. Increase for apps with slow startup."),
+                "hook_delay": AgentToolParam(type: .integer, description: "Seconds to wait after the engine loads before applying hooks. Default 3. Increase for apps with slow startup."),
             ],
             required: ["tool_title", "hooks", "name"],
             propertyOrdering: ["tool_title", "hooks", "name", "hook_delay"]

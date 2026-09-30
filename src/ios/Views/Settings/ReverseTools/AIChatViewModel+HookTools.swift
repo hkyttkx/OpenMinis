@@ -174,7 +174,7 @@ extension AIChatViewModel {
         }
 
         // 把日志尾部一并回传，便于 AI 解释失败原因
-        let logTail = JailbreakInjector.tailOfLog(lines: 40)
+        let logTail = Self.readInjectLogTail(lines: 40)
 
         if outcome.success {
             HookChatRouter.clearPendingTask()
@@ -196,5 +196,22 @@ extension AIChatViewModel {
             可参考日志判断失败环节（信任缓存通道 / 权限 / 目标进程状态）。
             """, false)
         }
+    }
+}
+
+
+// MARK: - 注入日志读取
+
+extension AIChatViewModel {
+
+    /// 读取注入日志末尾若干行（供 dylib_inject 回传诊断信息）
+    static func readInjectLogTail(lines: Int = 40) -> String {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        guard let path = docs?.appendingPathComponent("inject_debug.log").path,
+              let content = try? String(contentsOfFile: path, encoding: .utf8) else {
+            return "（注入日志为空）"
+        }
+        let all = content.components(separatedBy: "\n")
+        return all.suffix(lines).joined(separator: "\n")
     }
 }

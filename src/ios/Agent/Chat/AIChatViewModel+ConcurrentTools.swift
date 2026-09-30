@@ -802,16 +802,25 @@ extension AIChatViewModel {
 
 
         case "hook_compile":
+            // Hook 配置 → dylib：基于内置 FuckEngine 模板做 section 原地替换，
+            // 不需要编译器，因此不经过沙盒执行管线。
             if let r = await executeHookCompileTool(from: argsJson, msgIdx: msgIdx, blockIdx: blockIdx) {
-                return r
+                toolOutput = r.output
+                toolSuccess = r.success
+            } else {
+                toolOutput = "Error: invalid arguments for hook_compile"
+                toolSuccess = false
             }
-            return ("Error: hook_compile failed.", false)
 
         case "dylib_inject":
+            // 注入是宿主侧操作（起 root 子进程），不走沙盒执行管线。
             if let r = await executeDylibInjectTool(from: argsJson, msgIdx: msgIdx, blockIdx: blockIdx) {
-                return r
+                toolOutput = r.output
+                toolSuccess = r.success
+            } else {
+                toolOutput = "Error: invalid arguments for dylib_inject"
+                toolSuccess = false
             }
-            return ("Error: dylib_inject failed.", false)
 
         case "r2_execute":
             // [T-r2-tool] radare2 静态分析：拼装 r2 命令行走 shell 执行管线

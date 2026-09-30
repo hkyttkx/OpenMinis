@@ -145,17 +145,25 @@ enum HookConfigBuilder {
             // 占位符 + 结尾 NUL 一起覆盖为目标内容 + NUL，其余保持原样（NUL 填充）
             var replacement = valueData
             replacement.append(0)
-            if replacement.count > op.marker.utf8.count + 1 {
-                // 目标比占位符长：需要占用占位符后面的 NUL 填充区
-                let needed = replacement.count
-                let start = range.location
-                guard start + needed <= data.length else {
-                    return BuildResult(success: false, dylibPath: nil,
-                                       message: "模板剩余空间不足")
-                }
-                data.replaceBytes(in: NSRange(location: start, length: needed), withBytes: (replacement as NSData).bytes)
-            } else {
-                data.replaceBytes(in: range, withBytes: (replacement as NSData).bytes)
+
+            // 占位符区（含其后的 NUL 填充）整体覆盖为目标内容 + NUL。
+            // 模型是「模板里预留 capacity 字节的静区」，写入量不会超过该区，
+            // 因为上面已经校验 valueData.count < op.capacity。
+            let needed = max(replacement.count, op.marker.utf8.count + 1)
+            let start = range.location
+            guard start + needed <= data.length else {
+                return BuildResult(success: false, dylibPath: nil,
+                                   message: "模板剩余空间不足（需要 \(needed) 字节）")
+            }
+
+            var padded = replacement
+            if padded.count < needed {
+                padded.append(contentsOf: [UInt8](repeating: 0, count: needed - padded.count))
+            }
+
+            padded.withUnsafeBytes { raw in
+                guard let base = raw.baseAddress else { return }
+                data.replaceBytes(in: NSRange(location: start, length: needed), withBytes: base)
             }
         }
 
