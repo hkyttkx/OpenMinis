@@ -15,6 +15,14 @@
 		0D63D8E629E8EAA72D960743 /* NIOConcurrencyHelpers in Frameworks */ = {isa = PBXBuildFile; productRef = FF08D68CCC62E9C607A53DAC /* NIOConcurrencyHelpers */; };
 		26BBFE0B7EB7478519183BFC /* NIOWebSocket in Frameworks */ = {isa = PBXBuildFile; productRef = 65968B8404BD54C9C1BD3E48 /* NIOWebSocket */; };
 		FF5B429057CEDCF4F2AE4636 /* NIOTLS in Frameworks */ = {isa = PBXBuildFile; productRef = 61E18D2FBDC2C321AB1B06D6 /* NIOTLS */; };
+		3F197707C05377A2630296E6 /* NIO in Frameworks (PT) */ = {isa = PBXBuildFile; productRef = 0D7ECDA540096B1264BF54E1 /* NIO */; };
+		CFE2045F97B4B32972505FA3 /* NIOHTTP1 in Frameworks (PT) */ = {isa = PBXBuildFile; productRef = 6F0CA94B033F21E559ACB4E3 /* NIOHTTP1 */; };
+		3F73D05FEE186430E0090068 /* NIOFoundationCompat in Frameworks (PT) */ = {isa = PBXBuildFile; productRef = 044197FD420895B6CB8254A5 /* NIOFoundationCompat */; };
+		104C024B60B7807D347BF565 /* NIOConcurrencyHelpers in Frameworks (PT) */ = {isa = PBXBuildFile; productRef = FF08D68CCC62E9C607A53DAC /* NIOConcurrencyHelpers */; };
+		490AA45AF0E58685D0F045D0 /* NIOWebSocket in Frameworks (PT) */ = {isa = PBXBuildFile; productRef = 65968B8404BD54C9C1BD3E48 /* NIOWebSocket */; };
+		692874EFADD2408CCE64119F /* NIOSSL in Frameworks (PT) */ = {isa = PBXBuildFile; productRef = 77BE848A7196B9F9C6EFF7E0 /* NIOSSL */; };
+		DA0599D7CB33DBBF6E9823EC /* NIOTLS in Frameworks (PT) */ = {isa = PBXBuildFile; productRef = 61E18D2FBDC2C321AB1B06D6 /* NIOTLS */; };
+		7745C3FC09D680A0F7CB95C7 /* SQLite in Frameworks (PT) */ = {isa = PBXBuildFile; productRef = ADC4F5C69962E6874ECEDFA4 /* SQLite */; };
 		TSB0000000000000001 /* TunnelServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = TSF0000000000000001 /* TunnelServices.framework */; };
 		TSB0000000000000002 /* TunnelServices.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = TSF0000000000000001 /* TunnelServices.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		TSB0000000000000003 /* TunnelServices.framework in Frameworks (appex) */ = {isa = PBXBuildFile; fileRef = TSF0000000000000001 /* TunnelServices.framework */; };
@@ -1457,6 +1465,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				TSB0000000000000003 /* TunnelServices.framework in Frameworks (appex) */,
+				3F197707C05377A2630296E6 /* NIO in Frameworks (PT) */,
+				CFE2045F97B4B32972505FA3 /* NIOHTTP1 in Frameworks (PT) */,
+				3F73D05FEE186430E0090068 /* NIOFoundationCompat in Frameworks (PT) */,
+				104C024B60B7807D347BF565 /* NIOConcurrencyHelpers in Frameworks (PT) */,
+				490AA45AF0E58685D0F045D0 /* NIOWebSocket in Frameworks (PT) */,
+				692874EFADD2408CCE64119F /* NIOSSL in Frameworks (PT) */,
+				DA0599D7CB33DBBF6E9823EC /* NIOTLS in Frameworks (PT) */,
+				7745C3FC09D680A0F7CB95C7 /* SQLite in Frameworks (PT) */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2718,6 +2734,16 @@
 				PTS0000000000000001 /* PacketTunnel */,
 			);
 			name = PacketTunnel;
+			packageProductDependencies = (
+				0D7ECDA540096B1264BF54E1 /* NIO */,
+				6F0CA94B033F21E559ACB4E3 /* NIOHTTP1 */,
+				044197FD420895B6CB8254A5 /* NIOFoundationCompat */,
+				FF08D68CCC62E9C607A53DAC /* NIOConcurrencyHelpers */,
+				65968B8404BD54C9C1BD3E48 /* NIOWebSocket */,
+				77BE848A7196B9F9C6EFF7E0 /* NIOSSL */,
+				61E18D2FBDC2C321AB1B06D6 /* NIOTLS */,
+				ADC4F5C69962E6874ECEDFA4 /* SQLite */,
+			);
 			productName = PacketTunnel;
 			productReference = PTF0000000000000001 /* PacketTunnel.appex */;
 			productType = "com.apple.product-type.app-extension";
