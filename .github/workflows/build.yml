@@ -143,13 +143,56 @@ jobs:
           sed -i '' "s#'-fuse-ld=lld'#'--ld-path=$LDP'#" deps/ish/vdso/arm64/meson.build
           grep -n "ld-path" deps/ish/vdso/arm64/meson.build
 
+      - name: 缓存第三方依赖产物（FFmpeg / LAME / iSH / Rclone / proot）
+        id: deps-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps/frameworks
+            deps/libs
+            deps/include
+            deps/resources
+            deps/lame-build
+            deps/build
+            build/framework
+            deps/ish/build-ios
+            deps/ish/build-native
+            deps/ffmpeg/build-ios
+            deps/lame-3.100
+          key: deps-ios-${{ runner.os }}-${{ hashFiles('deps/build_*.sh', 'deps/*.patch', 'deps/ish', 'deps/proot') }}
+          restore-keys: |
+            deps-ios-${{ runner.os }}-
+
+      - name: 缓存 SwiftPM 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            ~/Library/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ hashFiles('src/ios/Minis.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
+
+      - name: 缓存 Homebrew 与工具链
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/Homebrew
+            /opt/homebrew/Cellar
+          key: brew-${{ runner.os }}-ninja-llvm-meson-lld-ldid
+          restore-keys: |
+            brew-${{ runner.os }}-
+
       - name: 编译 LAME
+        if: steps.deps-cache.outputs.cache-hit != 'true'
         run: ./deps/build_lame.sh
 
       - name: 编译 FFmpeg
+        if: steps.deps-cache.outputs.cache-hit != 'true'
         run: ./deps/build_ffmpeg.sh
 
       - name: 编译 iSH 内核
+        if: steps.deps-cache.outputs.cache-hit != 'true'
         run: ./deps/build_ish.sh
 
       - name: 准备 Alpine rootfs（含逆向工具链预装）
@@ -160,6 +203,7 @@ jobs:
           du -sh deps/resources/alpine-rootfs
 
       - name: 编译 Rclone
+        if: steps.deps-cache.outputs.cache-hit != 'true'
         run: ./deps/build_rclone_ios.sh
 
       - name: 编译逆向注入组件
