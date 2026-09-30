@@ -2017,11 +2017,27 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
         }
         FLog(@"[SPAWN] target PID: %d", targetPid);
 
-        // Spawn self as root subprocess with -FuckInject <dylibPath> <bundleID>
-        // 参考项目: DGSpawnArgumentsNoWait(injectArgs, YES)
+        // 以 root 身份 spawn 独立的注入子进程。
+        //
+        // 之前是 spawn 主程序自身（Minis.app/Minis + -FuckInject），但那条路
+        // 有个无解的时序问题：子进程要先跑完 dyld + Swift runtime + UIKit 初始化
+        // 才能执行到 CLI 分发代码，而 SIGHUP 在约 50ms 内就到了 ——
+        // 子进程在任何 signal(SIG_IGN) 生效之前就已被终止（实测 WIFSIGNALED=1，
+        // 日志只多出 410 字节即 dyld 的常规输出）。
+        //
+        // 改为 spawn 一个纯 Objective-C 的独立可执行文件 FuckInjectRunner：
+        // 它没有 SwiftUI 生命周期，main() 第一件事就是忽略相关信号，
+        // 然后直接调用 cliInject。启动路径极短，信号来不及打断。
         reportProgress(@"[3/3] 执行 root 注入...");
 
-        NSString *exe = [[NSBundle mainBundle] executablePath];
+        NSString *exe = FuckResourcePath(@"FuckInjectRunner");
+        if (!exe.length) {
+            // 兜底：退回主程序自身（老路径，在新环境可能仍被 SIGHUP 打断）
+            exe = [[NSBundle mainBundle] executablePath];
+            FLogError(@"[SPAWN] FuckInjectRunner 不存在，回退到主程序自身");
+        } else {
+            chmod(exe.UTF8String, 0755);
+        }
         FLog(@"[SPAWN] executable: %@", exe);
 
 
@@ -2031,8 +2047,15 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
         setenv("FUCK_INJECT_LOG_PATH", logPath.UTF8String, 1);
         setenv("FUCK_INJECT_MODE", [[NSString stringWithFormat:@"%d", mode] UTF8String], 1);
 
-        NSArray *args = @[exe, @"-FuckInject", dylibPath, bundleID,
-                          [NSString stringWithFormat:@"%d", mode]];
+        // 独立 runner 的参数形式：<dylibPath> <bundleID> [mode]
+        // 主程序自身那条兜底路径仍需要 -FuckInject 标记
+        NSArray *args;
+        if ([exe.lastPathComponent isEqualToString:@"FuckInjectRunner"]) {
+            args = @[exe, dylibPath, bundleID, [NSString stringWithFormat:@"%d", mode]];
+        } else {
+            args = @[exe, @"-FuckInject", dylibPath, bundleID,
+                     [NSString stringWithFormat:@"%d", mode]];
+        }
         FLog(@"[SPAWN] argv = %@", [args componentsJoinedByString:@" | "]);
         FLog(@"[SPAWN] 即将 spawn，mode=%d，日志路径=%@", mode, logPath);
 

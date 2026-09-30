@@ -69,6 +69,28 @@ else
 fi
 
 # ───────────────────────────────────────────────────────────────
+# 2.5 FuckInjectRunner（独立注入子进程，纯 ObjC，无 SwiftUI 生命周期）
+#     以 root 身份被 spawn，入口极短，避免主程序自身启动时被 SIGHUP 打断
+# ───────────────────────────────────────────────────────────────
+if [ -f "${script_dir}/FuckInjectRunner.m" ]; then
+  echo "[inject-build] 编译 FuckInjectRunner…"
+  xcrun -sdk "${sdk}" clang \
+    -arch arm64 \
+    -miphoneos-version-min="${min_ios}" \
+    -fobjc-arc \
+    -I"${script_dir}" \
+    -framework Foundation \
+    -Os -Wno-deprecated-declarations \
+    "${script_dir}/FuckInjectRunner.m" \
+    "${script_dir}/FuckDynamicInjector.m" \
+    -o "${out_dir}/FuckInjectRunner"
+  chmod 0755 "${out_dir}/FuckInjectRunner"
+  echo "[inject-build] FuckInjectRunner: $(wc -c < "${out_dir}/FuckInjectRunner") bytes"
+else
+  echo "[inject-build] 跳过 FuckInjectRunner（源码不存在）"
+fi
+
+# ───────────────────────────────────────────────────────────────
 # 3. opainject（注入 CLI，与主程序共用同一引擎源码）
 #    这里只做存在性检查 —— 该二进制随仓库 Resources/Reverse 一起分发，
 #    如需重新编译需要额外的 CLI main 包装，当前保持预编译产物。
@@ -85,7 +107,7 @@ fi
 # ───────────────────────────────────────────────────────────────
 echo "[inject-build] 修正权限…"
 for f in opainject ldid ct_bypass insert_dylib install_name_tool optool trollstorehelper \
-         cp mv rm mkdir chown cat FuckKfdHelper cp-15 mv-15; do
+         cp mv rm mkdir chown cat FuckKfdHelper FuckInjectRunner cp-15 mv-15; do
   [ -f "${out_dir}/${f}" ] && chmod 0755 "${out_dir}/${f}"
 done
 for f in libcrypto.3.dylib libintl.8.dylib libiosexec.1.dylib libxar.1.dylib FuckEngine.dylib; do
