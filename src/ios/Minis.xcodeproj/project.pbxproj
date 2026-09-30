@@ -2731,7 +2731,6 @@
 			name = PacketTunnel;
 			packageProductDependencies = (
 				274DF9B7B190CCC94DE30D7A /* Atomics */,
-				274DF9B7B190CCC94DE30D7A /* Atomics */,
 				0D7ECDA540096B1264BF54E1 /* NIO */,
 				6F0CA94B033F21E559ACB4E3 /* NIOHTTP1 */,
 				044197FD420895B6CB8254A5 /* NIOFoundationCompat */,
@@ -3816,6 +3815,13 @@
 		PTBC00000000000001 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				HEADER_SEARCH_PATHS = (
+					"$(OBJROOT)/../../SourcePackages/checkouts/swift-atomics/Sources/_AtomicsShims/include",
+					"$(OBJROOT)/../../SourcePackages/checkouts/swift-nio/Sources/*/include",
+				);
+				SWIFT_INCLUDE_PATHS = (
+					"$(OBJROOT)/../../SourcePackages/checkouts/swift-atomics/Sources/_AtomicsShims/include",
+				);
 				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
 				CODE_SIGN_STYLE = Manual;
 				CODE_SIGNING_ALLOWED = NO;
@@ -3843,6 +3849,13 @@
 		PTBC00000000000002 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				HEADER_SEARCH_PATHS = (
+					"$(OBJROOT)/../../SourcePackages/checkouts/swift-atomics/Sources/_AtomicsShims/include",
+					"$(OBJROOT)/../../SourcePackages/checkouts/swift-nio/Sources/*/include",
+				);
+				SWIFT_INCLUDE_PATHS = (
+					"$(OBJROOT)/../../SourcePackages/checkouts/swift-atomics/Sources/_AtomicsShims/include",
+				);
 				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
 				CODE_SIGN_STYLE = Manual;
 				CODE_SIGNING_ALLOWED = NO;
