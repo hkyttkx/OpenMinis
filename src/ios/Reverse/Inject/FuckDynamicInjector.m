@@ -303,30 +303,52 @@ static int FuckSpawnArguments(NSArray<NSString *> *arguments, BOOL asRootPersona
     posix_spawnattr_t attr;
     if (posix_spawnattr_init(&attr) != 0) return -1;
 
-    // 子进程不接收终端信号：SIGHUP/SIGINT/SIGQUIT/SIGPIPE 全部忽略。
-    // 注入子进程脱离前台运行，若继承默认处理会被父进程退出时的挂断信号
-    // 打死（表现为 raw status == 1 / 被信号 1 杀死）。
+    // ── 信号与会话处理（这是「子进程被信号 1 杀死」的根因所在）──
+    //
+    // 注意 SETSIGDEF 的语义：它把集合内的信号恢复为「系统默认处理」，
+    // 而 SIGHUP 的默认处理正是终止进程 —— 用错了等于主动要求 SIGHUP 杀死子进程。
+    // 正确做法是 SETSIGIGN：把集合内的信号显式设为忽略。
+    sigset_t ignoreSignals;
+    sigemptyset(&ignoreSignals);
+    sigaddset(&ignoreSignals, SIGHUP);
+    sigaddset(&ignoreSignals, SIGINT);
+    sigaddset(&ignoreSignals, SIGQUIT);
+    sigaddset(&ignoreSignals, SIGPIPE);
+    sigaddset(&ignoreSignals, SIGTERM);
+
+    short flags = POSIX_SPAWN_CLOEXEC_DEFAULT
+                | POSIX_SPAWN_SETSIGIGN
+                | POSIX_SPAWN_SETSIGMASK;
+
+#ifdef POSIX_SPAWN_SETSID
+    // 让子进程成为新会话的首进程，彻底脱离父进程的会话与进程组。
+    // 父进程被切到后台或被系统冻结时，不会再向子进程投递挂断信号。
+    flags |= POSIX_SPAWN_SETSID;
+#endif
+
+    posix_spawnattr_setflags(&attr, flags);
+
+    // posix_spawnattr_setsigignore_np 在部分 SDK 版本缺失，动态解析后调用
+    {
+        typedef int (*setsigignore_fn)(posix_spawnattr_t *, const sigset_t *);
+        static setsigignore_fn fn = NULL;
+        static BOOL resolved = NO;
+        if (!resolved) {
+            resolved = YES;
+            void *sym = dlsym(RTLD_DEFAULT, "posix_spawnattr_setsigignore_np");
+            if (sym) fn = (setsigignore_fn)sym;
+        }
+        if (fn) {
+            int r = fn(&attr, &ignoreSignals);
+            FLog(@"[SPAWN] setsigignore_np -> %d", r);
+        } else {
+            FLog(@"[SPAWN] setsigignore_np 不可用，依赖子进程自身的 signal(SIG_IGN)");
+        }
+    }
+
     sigset_t emptyMask;
     sigemptyset(&emptyMask);
     posix_spawnattr_setsigmask(&attr, &emptyMask);
-
-    short flags = POSIX_SPAWN_CLOEXEC_DEFAULT
-                | POSIX_SPAWN_SETSIGDEF
-                | POSIX_SPAWN_SETSIGMASK;
-    posix_spawnattr_setflags(&attr, flags);
-
-    sigset_t defSignals;
-    sigemptyset(&defSignals);
-    sigaddset(&defSignals, SIGHUP);
-    sigaddset(&defSignals, SIGINT);
-    sigaddset(&defSignals, SIGQUIT);
-    sigaddset(&defSignals, SIGPIPE);
-    sigaddset(&defSignals, SIGTERM);
-    // SETSIGDEF 把这些信号恢复为默认处理；配合下面的重定向，子进程不会再因
-    // 父进程退出而来的 SIGHUP 而猝死。真正需要的是让子进程自己接管输出。
-    posix_spawnattr_setsigdefault(&attr, &defSignals);
-
-    posix_spawnattr_setpgroup(&attr, 0);
 
     if (asRootPersona && posix_spawnattr_set_persona_np &&
         posix_spawnattr_set_persona_uid_np && posix_spawnattr_set_persona_gid_np) {
@@ -2025,7 +2047,7 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
 
         NSString *exe = [[NSBundle mainBundle] executablePath];
         FLog(@"[SPAWN] executable: %@", exe);
-        FLog(@"[SPAWN] args: -FuckInject %@ %@", dylibPath, bundleID);
+
 
         // 把日志路径与注入模式通过环境变量传给 root 子进程
         NSString *logPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject
@@ -2035,7 +2057,27 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
 
         NSArray *args = @[exe, @"-FuckInject", dylibPath, bundleID,
                           [NSString stringWithFormat:@"%d", mode]];
+        FLog(@"[SPAWN] argv = %@", [args componentsJoinedByString:@" | "]);
+        FLog(@"[SPAWN] 即将 spawn，mode=%d，日志路径=%@", mode, logPath);
+
+        // 记录 spawn 前的日志文件大小，便于判断子进程是否写入
+        unsigned long long logSizeBefore = [[[NSFileManager defaultManager]
+            attributesOfItemAtPath:logPath error:NULL][NSFileSize] unsignedLongLongValue];
+
         int rawStatus = FuckSpawnArguments(args, YES);
+        FLog(@"[SPAWN] spawn 返回 rawStatus=%d, WIFEXITED=%d, WIFSIGNALED=%d",
+             rawStatus, WIFEXITED(rawStatus) ? 1 : 0, WIFSIGNALED(rawStatus) ? 1 : 0);
+        if (WIFSIGNALED(rawStatus)) {
+            FLog(@"[SPAWN] 子进程被信号 %d 终止", WTERMSIG(rawStatus));
+        }
+
+        unsigned long long logSizeAfter = [[[NSFileManager defaultManager]
+            attributesOfItemAtPath:logPath error:NULL][NSFileSize] unsignedLongLongValue];
+        if (logSizeAfter == logSizeBefore) {
+            FLogError(@"[SPAWN] ⚠️ 子进程未向日志写入任何内容 —— 说明它没有执行到 CLI 入口");
+        } else {
+            FLog(@"[SPAWN] 子进程写入日志 %llu 字节", logSizeAfter - logSizeBefore);
+        }
 
         // FuckSpawnArguments 返回 waitpid 的 raw status，需要 WEXITSTATUS 解析
         int ret = WIFEXITED(rawStatus) ? WEXITSTATUS(rawStatus) : -1;

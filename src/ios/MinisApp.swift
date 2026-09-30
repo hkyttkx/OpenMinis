@@ -1,5 +1,6 @@
 import SwiftUI
 import ObjectiveC
+import Darwin
 import FileProvider
 import UserNotifications
 
@@ -109,6 +110,18 @@ struct MinisApp: App {
     private static func handleInjectionSubprocessIfNeeded() {
         let args = CommandLine.arguments
         guard args.count >= 4, args[1] == "-FuckInject" else { return }
+
+        // ── 第一件事：忽略所有会导致子进程猝死的信号 ──
+        //
+        // 注入子进程 spawn 出来后，父进程会立刻返回并恢复前台，
+        // 子进程若沿用默认信号处理，会在极短时间内被 SIGHUP 打死
+        // （raw status == 1，约 50ms 内退出，日志停在 [SPAWN] 之后）。
+        // 这里在进入任何实际逻辑之前先把信号处理改掉。
+        signal(SIGHUP, SIG_IGN)
+        signal(SIGINT, SIG_IGN)
+        signal(SIGQUIT, SIG_IGN)
+        signal(SIGPIPE, SIG_IGN)
+        signal(SIGTERM, SIG_IGN)
 
         let dylibPath = args[2]
         let bundleID  = args[3]
