@@ -28,7 +28,10 @@ struct GitHubAccount: Codable, Equatable {
 
 // MARK: - 仓库
 
-struct GitHubRepo: Codable, Identifiable, Hashable {
+/// 只实现解码：该类只用于接收 GitHub API 响应，从不编码回请求体。
+/// 声明为 Codable 会强制同时满足 Encodable，而自定义的 init(from:)
+/// 不会自动获得 encode(to:)，会报「does not conform to Encodable」。
+struct GitHubRepo: Decodable, Identifiable, Hashable {
     var id: Int
     var fullName: String
     var name: String

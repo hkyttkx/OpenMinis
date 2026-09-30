@@ -64,10 +64,13 @@ extension AIChatViewModel {
             // 自定义路径：临时构造一个 HostLocation（key 由路径派生）
             let safeKey = p.replacingOccurrences(of: "/", with: "_")
                 .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+            // 自定义路径默认按「非系统路径」处理，允许读写 —— 用户显式填的
+            // 路径由用户自己负责；若确实指向系统位置，写入会被内核拒绝。
             loc = HostLocation(key: safeKey.isEmpty ? "custom" : safeKey,
                                hostPath: p,
                                title: "自定义路径",
-                               detail: p)
+                               detail: p,
+                               allowsWrite: true)
         } else {
             return ("Error: 'request' 需要 location 或 path 参数之一。", false)
         }
