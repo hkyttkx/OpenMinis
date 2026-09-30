@@ -242995,7 +242995,7 @@
         }
       }
     },
-    "Welcome to Minis" : {
+    "Welcome to KyTuT" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -243006,7 +243006,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Welcome to Minis"
+            "value" : "Welcome to KyTuT"
           }
         },
         "es" : {
@@ -243096,7 +243096,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "欢迎使用 Minis"
+            "value" : "欢迎使用 KyTuT"
           }
         },
         "zh-Hant" : {
@@ -248360,7 +248360,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "您的首个本地 Agent 即将就绪。"
+            "value" : "你的本地 Agent 即将就绪。"
           }
         },
         "zh-Hant" : {

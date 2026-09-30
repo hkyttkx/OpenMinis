@@ -115,9 +115,22 @@ jobs:
             fi
             sed -i '' 's/Minis/KyTuT/g' "$p"
           done
+          # 4. 本地化文案（界面里所有 "Minis" 显示文本）
+          #    只改 value 里的显示文本，不动键名与 bundle ID / App Group /
+          #    URL scheme（那些是小写 openminis，不受大写 Minis 替换影响）。
+          if [ -f src/ios/Localizable.xcstrings ]; then
+            sed -i '' 's/"value" : "\([^"]*\)Minis\([^"]*\)"/"value" : "\1KyTuT\2"/g' src/ios/Localizable.xcstrings
+            echo "xcstrings 剩余 Minis 显示文本: $(grep -c '"value" : "[^"]*Minis' src/ios/Localizable.xcstrings || true)"
+          fi
+
+          # 5. 启动页与欢迎页
+          [ -f "src/ios/Launch Screen.storyboard" ] && \
+            sed -i '' 's/Open Minis/KyTuT/g' "src/ios/Launch Screen.storyboard"
+
           echo "=== 改名结果抽查 ==="
           /usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" src/ios/Info.plist
           grep -m1 "KyTuT" src/ios/Views/Settings/AboutView.swift
+          grep -m1 -o 'text="KyTuT"' "src/ios/Launch Screen.storyboard" || true
 
       - name: 修补 VDSO 链接器（Homebrew LLVM 已拆分 lld）
         run: |

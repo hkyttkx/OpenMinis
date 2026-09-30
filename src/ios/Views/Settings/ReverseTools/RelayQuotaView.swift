@@ -120,11 +120,10 @@ struct RelayQuotaView: View {
             dashboardRow(icon: "clock", tint: .red, title: "平均响应",
                          value: String(format: "%.2fs", u.avgResponseSeconds))
 
-            DisclosureGroup("原始数据") {
-                Text(a.rawText ?? u.raw)
-                    .font(.system(.caption2, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxHeight: 220)
+            NavigationLink {
+                RelayRawDataView(title: entry.displayLabel, text: a.rawText ?? u.raw)
+            } label: {
+                Label("查看原始数据", systemImage: "curlybraces")
             }
         } else {
             Text(svc.isLoggedIn(entry.id) ? "正在加载…" : "该账号尚未登录")
@@ -240,5 +239,80 @@ private struct RelayLoginView: View {
         }
         .navigationTitle("登录")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - 原始数据查看页（完整、可滚动、可复制、可搜索）
+
+struct RelayRawDataView: View {
+    let title: String
+    let text: String
+
+    @State private var search = ""
+    @State private var copied = false
+
+    private var pretty: String {
+        // 尝试格式化 JSON，失败则原样
+        guard let d = text.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: d),
+              let out = try? JSONSerialization.data(withJSONObject: obj,
+                                                    options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
+              let s = String(data: out, encoding: .utf8) else { return text }
+        return s
+    }
+
+    private var lines: [String] { pretty.components(separatedBy: "\n") }
+
+    private var filtered: [(Int, String)] {
+        if search.isEmpty { return lines.enumerated().map { ($0.offset, $0.element) } }
+        let kw = search.lowercased()
+        return lines.enumerated().filter { $0.element.lowercased().contains(kw) }.map { ($0.offset, $0.element) }
+    }
+
+    var body: some View {
+        List {
+            Section {
+                HStack {
+                    Text("\(lines.count) 行 · \(pretty.count) 字符")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        UIPasteboard.general.string = pretty
+                        copied = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
+                    } label: {
+                        Label(copied ? "已复制" : "复制", systemImage: copied ? "checkmark" : "doc.on.doc")
+                            .font(.caption)
+                    }
+                }
+            }
+
+            Section {
+                ScrollView(.horizontal, showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(filtered, id: \.0) { idx, line in
+                            HStack(alignment: .top, spacing: 8) {
+                                Text("\(idx + 1)")
+                                    .font(.system(size: 9, design: .monospaced))
+                                    .foregroundStyle(.tertiary)
+                                    .frame(width: 32, alignment: .trailing)
+                                Text(line)
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .textSelection(.enabled)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+        .navigationTitle("原始数据")
+        .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $search, prompt: "搜索字段")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                ShareLink(item: pretty) { Image(systemName: "square.and.arrow.up") }
+            }
+        }
     }
 }

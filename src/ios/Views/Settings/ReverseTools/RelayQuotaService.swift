@@ -316,9 +316,24 @@ final class RelayQuotaService: ObservableObject {
                 acc = RelayAccount(from: me)
                 acc.rawText = Self.pretty(me)
             }
+
+            // 统计接口：dashboard 用的是 /usage/dashboard/*，不是 /usage。
+            // /usage 是账单记录列表（分页用），拿它当统计必然全 0。
             var usage = RelayUsage()
-            if let u = try await getJSON(base: base, path: "/usage", token: token) as? [String: Any] {
-                usage = parseUsage(u)
+            var merged: [String: Any] = [:]
+
+            // 最全的快照接口（含今日/累计的请求数、消费、Token、性能）
+            if let snap = try await getJSON(base: base, path: "/usage/dashboard/snapshot-v2", token: token) as? [String: Any] {
+                merged.merge(snap) { a, _ in a }
+            }
+            // 兜底：基础统计
+            if merged.isEmpty,
+               let st = try await getJSON(base: base, path: "/usage/dashboard/stats", token: token) as? [String: Any] {
+                merged.merge(st) { a, _ in a }
+            }
+            if !merged.isEmpty {
+                usage = parseUsage(merged)
+                usage.raw = Self.pretty(merged)
             }
 
             let now = Date()
