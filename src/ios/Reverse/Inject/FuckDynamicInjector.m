@@ -268,7 +268,10 @@ static NSString *FuckRoothideJbroot(void) {
 // 请 roothide 把指定进程标记为可调试（这是 iOS 17 上拿到有效 task port 的前提）
 static BOOL FuckRoothideSetProcessDebugged(uint64_t pid, BOOL fully) {
     void *h = FuckLoadLibJailbreak();
-    if (!h) return NO;
+    if (!h) {
+        FLogError(@"[roothide] libjailbreak 未加载，无法调用 set_process_debugged");
+        return NO;
+    }
 
     typedef int (*Fn)(uint64_t, bool);
     void *sym = dlsym(h, "jbclient_platform_set_process_debugged");
@@ -1317,6 +1320,32 @@ static int FuckOpaInject(pid_t targetPID, const char *dylibPath, FuckInjectMode 
         FLog(@"[环境] %s", kv);
     }
 
+    // ── 先做权限与状态的完整诊断（失败时才有迹可循）──
+    {
+        // 自身权限：jbserver 的 platform 域要求调用方带 CS_PLATFORM_BINARY
+        uint32_t selfFlags = 0;
+        int selfRet = csops(getpid(), FUCK_CS_OPS_STATUS, &selfFlags, sizeof(selfFlags));
+        FLog(@"[DIAG] 本进程 cs_flags=0x%x (csops ret=%d)", selfFlags, selfRet);
+        FLog(@"[DIAG]   CS_PLATFORM_BINARY=%d  ← jbserver platform 域要求此标志",
+             (selfFlags & FUCK_CS_PLATFORM_BINARY) ? 1 : 0);
+        FLog(@"[DIAG]   CS_GET_TASK_ALLOW=%d", (selfFlags & FUCK_CS_GET_TASK_ALLOW) ? 1 : 0);
+        FLog(@"[DIAG]   CS_DEBUGGED=%d", (selfFlags & FUCK_CS_DEBUGGED) ? 1 : 0);
+
+        // 目标进程权限：决定 task_for_pid 能否成功
+        uint32_t targetFlags = 0;
+        int tfRet = csops(targetPID, FUCK_CS_OPS_STATUS, &targetFlags, sizeof(targetFlags));
+        FLog(@"[DIAG] 目标进程 cs_flags=0x%x (csops ret=%d)", targetFlags, tfRet);
+        FLog(@"[DIAG]   CS_PLATFORM=%d CS_GET_TASK_ALLOW=%d CS_DEBUGGED=%d CS_RUNTIME=%d",
+             (targetFlags & FUCK_CS_PLATFORM_BINARY) ? 1 : 0,
+             (targetFlags & FUCK_CS_GET_TASK_ALLOW) ? 1 : 0,
+             (targetFlags & FUCK_CS_DEBUGGED) ? 1 : 0,
+             (targetFlags & 0x10000) ? 1 : 0);
+        if ((targetFlags & FUCK_CS_GET_TASK_ALLOW) == 0) {
+            FLog(@"[DIAG] ⚠️ 目标进程未带 CS_GET_TASK_ALLOW —— task_for_pid 很可能被软拒绝（返回死端口）");
+            FLog(@"[DIAG]    这正是「kr=0 但 port=-1」的原因，必须靠 roothide 打 debugged 标记绕过");
+        }
+    }
+
     // ── 获取 task port ──
     //
     // iOS 17 上 task_for_pid 可能返回 KERN_SUCCESS 但给到 MACH_PORT_DEAD
@@ -1334,7 +1363,7 @@ static int FuckOpaInject(pid_t targetPID, const char *dylibPath, FuckInjectMode 
 
         // 经 jbserver 把目标进程标记为 fully-debugged
         BOOL marked = FuckRoothideSetProcessDebugged((uint64_t)targetPID, YES);
-        FLog(@"[TP] roothide set_process_debugged => %@", marked ? @"成功" : @"失败");
+        FLog(@"[TP] roothide set_process_debugged => %@", marked ? @"成功" : @"失败（多为调用方缺 CS_PLATFORM_BINARY 或 jbserver 未响应）");
 
         // 再尝试一次（有些实现需要目标进程重新校验签名才生效）
         if (marked) {

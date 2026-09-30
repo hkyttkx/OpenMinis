@@ -310,6 +310,37 @@ extension AIChatViewModel {
                 propertyOrdering: ["tool_title", "action", "task", "agent", "model_choice", "context", "max_minutes", "wait", "progress_report", "job_id", "message", "child_session_id"]
             ))
         }
+        // ── GitHub 工具 ──
+        //
+        // 用户在「设置 → GitHub 连接」填入个人访问令牌后，AI 即可直接操作
+        // 仓库、文件、提交、Issue/PR 与搜索。令牌存 Keychain，AI 无需再索取。
+        tools.append(AgentToolDefinition(
+            name: "github",
+            description: "直接操作 GitHub：查看/创建仓库、读写文件并提交、管理分支、处理 Issue 与 PR、搜索。需要用户先在「设置 → GitHub 连接」填写个人访问令牌；未连接时返回提示。所有操作以用户账号身份执行，权限范围取决于令牌。",
+            parameters: [
+                "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user. Use the same language as the user."),
+                "action": AgentToolParam(type: .string, description: "要执行的操作。whoami（当前账号）/ list_repos / get_repo / list_files / read_file / write_file / delete_file / list_commits / create_branch / list_issues / create_issue / comment_issue / search / api（直接调用任意 API 路径）。", enumValues: ["whoami","list_repos","get_repo","list_files","read_file","write_file","delete_file","list_commits","create_branch","list_issues","create_issue","comment_issue","search","api"]),
+                "repo": AgentToolParam(type: .string, description: "仓库全名，格式 owner/name，如 'hkyttkx/OpenMinis'。除 whoami / list_repos / search / api 外都要填。"),
+                "path": AgentToolParam(type: .string, description: "文件或目录路径（list_files / read_file / write_file / delete_file 用）；api 动作时填 API 路径（如 /repos/owner/name）。"),
+                "content": AgentToolParam(type: .string, description: "文件内容（write_file 必填）。"),
+                "message": AgentToolParam(type: .string, description: "提交信息（write_file / delete_file 可选）。"),
+                "branch": AgentToolParam(type: .string, description: "分支名（write_file / delete_file / list_commits / create_branch 用）。create_branch 时是新建的分支名。"),
+                "ref": AgentToolParam(type: .string, description: "读取文件或列目录时的 ref（分支/tag/commit，可选）。"),
+                "from": AgentToolParam(type: .string, description: "create_branch 的源分支，默认 main。"),
+                "title": AgentToolParam(type: .string, description: "Issue 标题（create_issue 必填）。"),
+                "body": AgentToolParam(type: .string, description: "Issue 正文或评论内容（create_issue / comment_issue）；api 动作时作为 JSON 请求体。"),
+                "number": AgentToolParam(type: .integer, description: "Issue / PR 编号（comment_issue 必填）。"),
+                "query": AgentToolParam(type: .string, description: "搜索关键词（search 必填）。"),
+                "kind": AgentToolParam(type: .string, description: "搜索类型（search 用），默认 repositories。", enumValues: ["repositories","code","issues","commits","users"]),
+                "state": AgentToolParam(type: .string, description: "Issue 状态筛选（list_issues 用），默认 open。", enumValues: ["open","closed","all"]),
+                "limit": AgentToolParam(type: .integer, description: "返回条数上限，默认 20-30。"),
+                "owner": AgentToolParam(type: .string, description: "list_repos 时可指定用户名，默认当前登录账号。"),
+                "method": AgentToolParam(type: .string, description: "api 动作的 HTTP 方法，默认 GET。", enumValues: ["GET","POST","PATCH","PUT","DELETE"]),
+            ],
+            required: ["tool_title", "action"],
+            propertyOrdering: ["tool_title","action","repo","path","content","message","branch","ref","from","title","body","number","query","kind","state","limit","owner","method"]
+        ))
+
         // ── 宿主文件访问工具 ──
         //
         // 让 AI 在静态分析时直接读取手机上的原始文件，而不必先让用户

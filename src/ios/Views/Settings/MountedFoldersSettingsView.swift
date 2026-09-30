@@ -64,6 +64,33 @@ struct MountedFoldersSettingsView: View {
                 Text("允许 AI 在静态分析时直接读取手机上任意文件（已装 App 的二进制、数据容器、越狱目录等）。三档：关闭 / 询问后访问 / 全自动访问。")
             }
 
+            // GitHub 连接：AI 可直接操作仓库、文件、Issue 与 PR
+            Section {
+                NavigationLink {
+                    GitHubSettingsView()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "chevron.left.forwardslash.chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 28, height: 28)
+                            .background(Color.black, in: Circle())
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("GitHub 连接")
+                            Text(GitHubService.shared.connected
+                                 ? "@\(GitHubService.shared.account?.login ?? "")"
+                                 : "未连接")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } header: {
+                Text("代码托管")
+            } footer: {
+                Text("填入个人访问令牌后，AI 可直接操作你的 GitHub：查看与创建仓库、读写代码并提交、管理分支、处理 Issue 与 PR、搜索。")
+            }
+
             if model.entries.isEmpty {
                 Section {
                     VStack(spacing: 10) {

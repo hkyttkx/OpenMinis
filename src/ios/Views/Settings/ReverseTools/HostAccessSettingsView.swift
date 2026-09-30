@@ -66,11 +66,17 @@ struct HostAccessSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(manager.mounted) { loc in
+                    ForEach(HostLocation.builtins.filter { manager.mounted[$0.key] != nil }) { loc in
                         HStack {
                             Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(loc.title).font(.body)
+                                HStack(spacing: 6) {
+                                    Text(loc.title).font(.body)
+                                    Text(manager.mounted[loc.key]?.title ?? "")
+                                        .font(.caption2)
+                                        .padding(.horizontal, 5).padding(.vertical, 1)
+                                        .background(Capsule().fill(.quaternary))
+                                }
                                 Text(loc.guestPath)
                                     .font(.caption2.monospaced())
                                     .foregroundStyle(.secondary)
@@ -82,6 +88,12 @@ struct HostAccessSettingsView: View {
                     } label: {
                         Label("全部卸载", systemImage: "eject")
                     }
+                }
+
+                if let err = manager.lastError {
+                    Text(err)
+                        .font(.caption)
+                        .foregroundStyle(.red)
                 }
             } header: {
                 Text("挂载状态")
@@ -100,8 +112,9 @@ private struct HostLocationRow: View {
     let location: HostLocation
     @ObservedObject var manager: HostAccessManager
 
-    private var isMounted: Bool { manager.mounted.contains { $0.key == location.key } }
+    private var isMounted: Bool { manager.isMounted(location) }
     private var isAllowed: Bool { manager.isAllowed(location) }
+    private var currentPerm: HostMountPermission? { manager.mounted[location.key] }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -131,10 +144,34 @@ private struct HostLocationRow: View {
                     }
                     .font(.caption)
                     .buttonStyle(.bordered)
+
+                    // 读写切换：仅对允许写的位置显示
+                    if location.allowsWrite {
+                        Menu {
+                            ForEach(HostMountPermission.allCases) { p in
+                                Button {
+                                    _ = manager.setPermission(location, p)
+                                } label: {
+                                    if currentPerm == p {
+                                        Label(p.title, systemImage: "checkmark")
+                                    } else {
+                                        Text(p.title)
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label(currentPerm?.title ?? "只读", systemImage: "lock.open")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.bordered)
+                    } else {
+                        Label("只读（系统路径）", systemImage: "lock.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 } else {
                     Button(isAllowed ? "挂载" : "授权并挂载") {
                         manager.approve(HostMountRequest(location: location, requester: "手动"))
-                        _ = manager.ensureMounted(location)
                     }
                     .font(.caption)
                     .buttonStyle(.bordered)

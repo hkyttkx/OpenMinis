@@ -966,6 +966,15 @@ extension AIChatViewModel {
                 toolOutput = helperResult.output
                 toolSuccess = helperResult.success
             }
+        case "github":
+            if let r = await executeGitHubTool(from: argsJson, msgIdx: msgIdx, blockIdx: blockIdx) {
+                toolOutput = r.output
+                toolSuccess = r.success
+            } else {
+                toolOutput = "Error: invalid arguments for github"
+                toolSuccess = false
+            }
+
         case "host_access":
             if let r = await executeHostAccessTool(from: argsJson, msgIdx: msgIdx, blockIdx: blockIdx) {
                 toolOutput = r.output

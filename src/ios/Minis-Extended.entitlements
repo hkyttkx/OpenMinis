@@ -2,6 +2,16 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- ══════════ 应用身份（CloudKit 必需） ══════════ -->
+	<!-- 没有这两项，CKContainer(identifier:) 会直接报
+	     "Trying to initialize a container without an application ID"，
+	     导致 iCloud 同步、备份、迁移全部失效。
+	     TrollStore 安装的 App 默认不带这两项，必须显式声明。 -->
+	<key>application-identifier</key>
+	<string>OPENMINIS01.com.openminis.app</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>OPENMINIS01</string>
+
 	<!-- ══════════ 原版权限（保留） ══════════ -->
 	<key>com.apple.developer.healthkit</key>
 	<true/>
