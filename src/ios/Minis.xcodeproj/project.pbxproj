@@ -2720,7 +2720,6 @@
 				PTS0000000000000001 /* PacketTunnel */,
 			);
 			name = PacketTunnel;
-;
 			productName = PacketTunnel;
 			productReference = PTF0000000000000001 /* PacketTunnel.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -3796,8 +3795,6 @@
 		PTBC00000000000001 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-;
-;
 				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
 				CODE_SIGN_STYLE = Manual;
 				CODE_SIGNING_ALLOWED = NO;
@@ -3824,8 +3821,6 @@
 		PTBC00000000000002 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-;
-;
 				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
 				CODE_SIGN_STYLE = Manual;
 				CODE_SIGNING_ALLOWED = NO;
