@@ -7,8 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		71384EC71581056C9B82CB69 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = ADC4F5C69962E6874ECEDFA4 /* SQLite */; };
-		7745C3FC09D680A0F7CB95C7 /* SQLite in Frameworks (PT) */ = {isa = PBXBuildFile; productRef = ADC4F5C69962E6874ECEDFA4 /* SQLite */; };
 		21FED4B7BB6F6D9476C9992E /* VoiceProvider+System.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88993FC8E3F0199C6638F664 /* VoiceProvider+System.swift */; };
 		241D530017827D7F0EB604DE /* VoiceProviderFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2941B643B8A2F048A2B154E /* VoiceProviderFactory.swift */; };
 		2A4FD49F872431D703328384 /* VoiceOutputPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424510790AF3FB2452D3CCE3 /* VoiceOutputPlayer.swift */; };
@@ -608,28 +606,35 @@
 /* Begin PBXContainerItemProxy section */
 		AA8A56912F6FBB7A00A3E54E /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
+			containerPortal = E51000060 /* Project object */;
 			proxyType = 1;
+			remoteGlobalIDString = E51000040;
 			remoteInfo = Minis;
 		};
 		BB1000B10F700000000000AA /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
+			containerPortal = E51000060 /* Project object */;
 			proxyType = 1;
+			remoteGlobalIDString = E51000040;
 			remoteInfo = Minis;
 		};
 		E5E000081 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
+			containerPortal = E51000060 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = E5E000040;
 			remoteInfo = MinisShare;
 		};
 		E5FP00081 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
+			containerPortal = E51000060 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = E5FP00040;
 			remoteInfo = MinisFileProvider;
 		};
 		E5H000081 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
+			containerPortal = E51000060 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = E5H000040;
 			remoteInfo = AgentWidgetExtension;
@@ -645,6 +650,36 @@
 			files = (
 			);
 			name = "Copy Alpine Rootfs";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AAF00F032F50A00000049557 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				AAF00F022F50A00000049557 /* FFmpeg.framework in Embed Frameworks */,
+				AAF10F022F50A00000049557 /* libavcodec.framework in Embed Frameworks */,
+				AAF10F052F50A00000049557 /* libavformat.framework in Embed Frameworks */,
+				AAF10F082F50A00000049557 /* libavutil.framework in Embed Frameworks */,
+				AAF10F0B2F50A00000049557 /* libavfilter.framework in Embed Frameworks */,
+				AAF10F0E2F50A00000049557 /* libswresample.framework in Embed Frameworks */,
+				AAF10F112F50A00000049557 /* libswscale.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E5E000060 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				E5E000009 /* MinisShare.appex in Embed Foundation Extensions */,
+				E5H000009 /* AgentWidgetExtension.appex in Embed Foundation Extensions */,
+				E5FP00009 /* MinisFileProvider.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -1387,6 +1422,30 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E51000020 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA9C2BF92F65996900F41633 /* SwiftMath in Frameworks */,
+				AAF00F012F50A00000049557 /* FFmpeg.framework in Frameworks */,
+				RCL000010 /* Rclone.xcframework in Frameworks */,
+				AAF10F012F50A00000049557 /* libavcodec.framework in Frameworks */,
+				AAF10F032F50A00000049557 /* libavformat.framework in Frameworks */,
+				AAF10F062F50A00000049557 /* libavutil.framework in Frameworks */,
+				AAF10F092F50A00000049557 /* libavfilter.framework in Frameworks */,
+				AAF10F0C2F50A00000049557 /* libswresample.framework in Frameworks */,
+				AAF10F0F2F50A00000049557 /* libswscale.framework in Frameworks */,
+				AA26CCB92F31070A00AECF2D /* libsqlite3.tbd in Frameworks */,
+				AA26CCC32F31090100AECF2D /* libresolv.tbd in Frameworks */,
+				AA26CCC12F31090000AECF2D /* SystemConfiguration.framework in Frameworks */,
+				E52000005 /* SwiftAnthropic in Frameworks */,
+				E5M000001 /* cmark-gfm in Frameworks */,
+				E5M000002 /* cmark-gfm-extensions in Frameworks */,
+				E5S000005 /* CloudKit.framework in Frameworks */,
+				891443CAA4679D09A6D32AE4 /* RealTimeCutVADLibrary in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2606,6 +2665,42 @@
 			productReference = BB1000010F700000000000AA /* MinisTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		E51000040 /* Minis */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E51000050 /* Build configuration list for PBXNativeTarget "Minis" */;
+			buildPhases = (
+				AC0000200 /* Generate Provider Customization */,
+				E54000AD0 /* Generate Debug Skill */,
+				E51000041 /* Sources */,
+				E51000020 /* Frameworks */,
+				E51000042 /* Resources */,
+				AA26BD2D2F2E659300AECF2D /* Copy Alpine Rootfs */,
+				AAF00F032F50A00000049557 /* Embed Frameworks */,
+				E5E000060 /* Embed Foundation Extensions */,
+				E54000AE0 /* Strip Third-Party VAD Framework Symbols */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E5E000080 /* PBXTargetDependency */,
+				E5H000080 /* PBXTargetDependency */,
+				E5FP00080 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				AA0838CB2F3CA8A900049557 /* Terminal */,
+			);
+			name = Minis;
+			packageProductDependencies = (
+				E52000021 /* SwiftAnthropic */,
+				E5M000021 /* cmark-gfm */,
+				E5M000022 /* cmark-gfm-extensions */,
+				E5X000021 /* SwiftMath */,
+				C42120806C66A2C804F89620 /* RealTimeCutVADLibrary */,
+			);
+			productName = Minis;
+			productReference = E51000010 /* Minis.app */;
+			productType = "com.apple.product-type.application";
+		};
 		E5E000040 /* MinisShare */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = E5E000050 /* Build configuration list for PBXNativeTarget "MinisShare" */;
@@ -2657,6 +2752,76 @@
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
+		E51000060 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					AA8A568A2F6FBB7A00A3E54E = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = E51000040;
+					};
+					E51000040 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+					E5E000040 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+					E5FP00040 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+					E5H000040 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = E51000061 /* Build configuration list for PBXProject "Minis" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+				"zh-Hans",
+				"zh-Hant",
+				ja,
+				ko,
+				fr,
+				de,
+				ru,
+				es,
+				id,
+				ms,
+				fil,
+				th,
+				tr,
+				pl,
+				ro,
+				"pt-BR",
+				hr,
+			);
+			mainGroup = E51000030;
+			packageReferences = (
+				E52000020 /* XCRemoteSwiftPackageReference "SwiftAnthropic" */,
+				E5M000020 /* XCRemoteSwiftPackageReference "swift-cmark" */,
+				E5X000020 /* XCRemoteSwiftPackageReference "SwiftMath" */,
+				B318C2F47DB3F301A17E49BE /* XCRemoteSwiftPackageReference "RealTimeCutVADLibrary" */,
+				5640A246964B91D204AD888D /* XCRemoteSwiftPackageReference "SQLite" */,
+			);
+			productRefGroup = E51000032 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E51000040 /* Minis */,
+				E5E000040 /* MinisShare */,
+				E5H000040 /* AgentWidgetExtension */,
+				E5FP00040 /* MinisFileProvider */,
+				AA8A568A2F6FBB7A00A3E54E /* MinisUITests */,
+				BB1000070F700000000000AA /* MinisTests */,
+			);
+		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
@@ -2781,20 +2946,6 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		TSSRC00000000000001 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		PTSRC00000000000001 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		AA8A56872F6FBB7A00A3E54E /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -3386,10 +3537,12 @@
 /* Begin PBXTargetDependency section */
 		AA8A56922F6FBB7A00A3E54E /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
+			target = E51000040 /* Minis */;
 			targetProxy = AA8A56912F6FBB7A00A3E54E /* PBXContainerItemProxy */;
 		};
 		BB1000B00F700000000000AA /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
+			target = E51000040 /* Minis */;
 			targetProxy = BB1000B10F700000000000AA /* PBXContainerItemProxy */;
 		};
 		E5E000080 /* PBXTargetDependency */ = {
@@ -4082,11 +4235,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		ADC4F5C69962E6874ECEDFA4 /* SQLite */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 5640A246964B91D204AD888D /* XCRemoteSwiftPackageReference "SQLite" */;
-			productName = SQLite;
-		};
 		C42120806C66A2C804F89620 /* RealTimeCutVADLibrary */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = B318C2F47DB3F301A17E49BE /* XCRemoteSwiftPackageReference "RealTimeCutVADLibrary" */;
@@ -4114,4 +4262,5 @@
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
+	rootObject = E51000060 /* Project object */;
 }
