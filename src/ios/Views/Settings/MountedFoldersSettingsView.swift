@@ -89,6 +89,33 @@ struct MountedFoldersSettingsView: View {
                 Text("控制每次对话可用的上下文上限。可跟随模型原生窗口、自定义大小，或完全不限制（同时关闭自动压缩）。单个会话可在聊天页单独覆盖。")
             }
 
+            // 中转站账户：余额、用量、性能指标直接显示在 App 内
+            Section {
+                NavigationLink {
+                    RelayQuotaView()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "creditcard.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 28, height: 28)
+                            .background(Color.green, in: Circle())
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("中转站账户")
+                            Text(RelayQuotaService.shared.account?.balance
+                                 .map { String(format: "余额 $%.2f", $0) }
+                                 ?? (RelayQuotaService.shared.loggedIn ? "已登录" : "查看余额与用量"))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } header: {
+                Text("账户")
+            } footer: {
+                Text("登录中转站后，余额、今日与累计的请求数、消费、Token 用量与性能指标直接显示在 App 内，不必再开浏览器。")
+            }
+
             // GitHub 连接：AI 可直接操作仓库、文件、Issue 与 PR
             Section {
                 NavigationLink {

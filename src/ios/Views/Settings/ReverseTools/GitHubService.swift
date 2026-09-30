@@ -11,7 +11,6 @@
 //
 
 import Foundation
-import Security
 
 // MARK: - 账号
 
@@ -132,40 +131,17 @@ final class GitHubService: ObservableObject {
     // MARK: 令牌（Keychain）
 
     var token: String? {
-        let q: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: tokenService,
-            kSecAttrAccount as String: tokenAccount,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var out: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
-              let data = out as? Data,
-              let s = String(data: data, encoding: .utf8) else { return nil }
-        return s
+        Keychain.string(service: tokenService, account: tokenAccount)
     }
 
     func setToken(_ raw: String) {
         let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let q: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: tokenService,
-            kSecAttrAccount as String: tokenAccount,
-        ]
-        SecItemDelete(q as CFDictionary)
-
-        guard !t.isEmpty else {
+        Keychain.set(service: tokenService, account: tokenAccount, value: t.isEmpty ? nil : t)
+        if t.isEmpty {
             account = nil
             connected = false
             UserDefaults.standard.removeObject(forKey: accountCacheKey)
-            return
         }
-
-        var add = q
-        add[kSecValueData as String] = Data(t.utf8)
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        SecItemAdd(add as CFDictionary, nil)
     }
 
     func disconnect() {

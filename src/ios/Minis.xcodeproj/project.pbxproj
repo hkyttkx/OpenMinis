@@ -483,6 +483,8 @@
 		INJ002S1B /* HostAccessManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ002S1R /* HostAccessManager.swift */; };
 		GH000S1B /* GitHubService.swift in Sources */ = {isa = PBXBuildFile; fileRef = GH000S1R /* GitHubService.swift */; };
 		LS000S1B /* LocalSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = LS000S1R /* LocalSnapshotStore.swift */; };
+		RQ000S1B /* RelayQuotaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = RQ000S1R /* RelayQuotaService.swift */; };
+		RQ000S2B /* RelayQuotaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = RQ000S2R /* RelayQuotaView.swift */; };
 		LS000S2B /* LocalSnapshotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = LS000S2R /* LocalSnapshotView.swift */; };
 		CTX00S1B /* ContextLimitSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = CTX00S1R /* ContextLimitSettings.swift */; };
 		GH000S2B /* GitHubSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = GH000S2R /* GitHubSettingsView.swift */; };
@@ -1242,6 +1244,8 @@
 		INJ002S1R /* HostAccessManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostAccessManager.swift"; sourceTree = "<group>"; };
 		GH000S1R /* GitHubService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GitHubService.swift"; sourceTree = "<group>"; };
 		LS000S1R /* LocalSnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LocalSnapshotStore.swift"; sourceTree = "<group>"; };
+		RQ000S1R /* RelayQuotaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RelayQuotaService.swift"; sourceTree = "<group>"; };
+		RQ000S2R /* RelayQuotaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RelayQuotaView.swift"; sourceTree = "<group>"; };
 		LS000S2R /* LocalSnapshotView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LocalSnapshotView.swift"; sourceTree = "<group>"; };
 		CTX00S1R /* ContextLimitSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContextLimitSettings.swift"; sourceTree = "<group>"; };
 		GH000S2R /* GitHubSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GitHubSettingsView.swift"; sourceTree = "<group>"; };
@@ -2478,6 +2482,8 @@
 				INJ002S1R /* HostAccessManager.swift */,
 				GH000S1R /* GitHubService.swift */,
 				LS000S1R /* LocalSnapshotStore.swift */,
+				RQ000S1R /* RelayQuotaService.swift */,
+				RQ000S2R /* RelayQuotaView.swift */,
 				LS000S2R /* LocalSnapshotView.swift */,
 				CTX00S1R /* ContextLimitSettings.swift */,
 				GH000S2R /* GitHubSettingsView.swift */,
@@ -3007,6 +3013,8 @@
 				INJ002S1B /* HostAccessManager.swift in Sources */,
 				GH000S1B /* GitHubService.swift in Sources */,
 				LS000S1B /* LocalSnapshotStore.swift in Sources */,
+				RQ000S1B /* RelayQuotaService.swift in Sources */,
+				RQ000S2B /* RelayQuotaView.swift in Sources */,
 				LS000S2B /* LocalSnapshotView.swift in Sources */,
 				CTX00S1B /* ContextLimitSettings.swift in Sources */,
 				GH000S2B /* GitHubSettingsView.swift in Sources */,
