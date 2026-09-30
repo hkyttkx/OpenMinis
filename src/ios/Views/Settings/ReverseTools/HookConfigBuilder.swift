@@ -251,12 +251,16 @@ enum HookConfigBuilder {
 
     /// 读取 dylib，确认占位符已被替换（用于自检）
     static func verify(dylibPath: String) -> String {
-        guard let data = NSData(contentsOfFile: dylibPath) else { return "❌ 无法读取产物" }
-        let marker = markerHookConfig.data(using: .utf8)!
-        let stillPlaceholder = data.range(of: marker).location != NSNotFound
-        if stillPlaceholder {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: dylibPath)) else {
+            return "❌ 无法读取产物"
+        }
+        guard let marker = markerHookConfig.data(using: .utf8) else {
+            return "❌ 占位符编码失败"
+        }
+        // Data.range(of:) 返回 Range<Int>?，未命中即为 nil
+        if data.range(of: marker) != nil {
             return "❌ 占位符未被替换，配置注入失败"
         }
-        return "✅ 配置已写入（文件 \(data.length) 字节）"
+        return "✅ 配置已写入（文件 \(data.count) 字节）"
     }
 }
