@@ -1279,6 +1279,112 @@ struct ContentView: View {
     /// AI 写操作待确认（仅整盘档位触发）
     @State private var pendingWriteApproval = false
 
+    /// 首次启动时的落点决策（通知点击 / 快捷指令 / 分享 / 崩溃循环 / 启动屏设置）。
+    ///
+    /// 这段逻辑原本内联在 `.task` 闭包里。闭包本身已经很长，编译器在
+    /// 收尾那几行（`if isWideLayout, let sid = ...`）报
+    /// "unable to type-check this expression in reasonable time"。
+    /// 把整段搬进独立方法后，闭包里只剩一次调用，推断压力回到可控范围，
+    /// 行为与顺序保持逐行一致。
+    @MainActor
+    private func performInitialLaunch(shareAlreadyHandled: Bool, quickActionPending: Bool) {
+        // [T-notification-tap-vs-launch-session] A notification tap's
+        // explicit target session outranks every launch-screen default.
+        // Cold launch: didReceive fired before our .onReceive subscriber
+        // existed, so the post was lost — the buffered copy is the only
+        // surviving signal. Consume it and navigate. Warm-ish overlap: the
+        // post arrived while this .task was awaiting listSessions() and
+        // .onReceive already navigated — handledRecently suppresses the
+        // launch-screen default so it can't clobber that navigation.
+        if let notificationTarget = NotificationNavigationStore.shared.takePending() {
+            shareLog.info("[Share] .task: notification tap target=\(notificationTarget.prefix(8)) — overriding launchScreen logic")
+            var tx = Transaction()
+            tx.disablesAnimations = true
+            withTransaction(tx) { openSession(notificationTarget) }
+        } else if NotificationNavigationStore.shared.handledRecently {
+            shareLog.info("[Share] .task: notification navigation just handled — skipping launchScreen logic")
+        } else if quickActionPending {
+            shareLog.info("[Share] .task: quick action pending — deferring launchScreen logic to QuickActionRouter")
+        } else if shareAlreadyHandled {
+            // onChange(hasPendingShare) already processed the share and
+            // opened a new session before .task ran. Skip normal launch
+            // screen logic so we don't clobber it with a different session.
+            shareLog.info("[Share] .task: share already handled by onChange — skipping launchScreen logic")
+        } else if shareCoordinator.hasPendingShare {
+            // onChange hasn't fired yet (e.g. onOpenURL arrived during await).
+            // Process share here and open a new session for it.
+            shareLog.info("[Share] .task: processing pending share")
+            processPendingShare()
+            shareLog.info("[Share] .task: buffer stored, bufferVersion=\(shareCoordinator.bufferVersion) buffer=\(shareCoordinator.pendingShareBuffer != nil)")
+            // [T-share-routes-to-background-session] Cold launch: nothing is
+            // on screen yet (this branch runs before any launch-screen
+            // navigation), so the "foreground session" the warm path looks
+            // for does not exist and a new session IS the right
+            // destination. It is still stamped onto the buffer, which is
+            // what stops a session restored moments later — e.g. the
+            // Launch-Session default, or a chat resuming an agent loop —
+            // from mounting first and swallowing the share.
+            let target = Self.makeNewSessionId()
+            shareCoordinator.setBufferTarget(target)
+            shareLog.info("[Share] .task: cold launch — opening new session \(target.prefix(16)) for share")
+            var tx = Transaction()
+            tx.disablesAnimations = true
+            withTransaction(tx) { openSession(target) }
+        } else if CrashReporter.shared.shouldBypassSessionRestore {
+            // [T-ios-session-crash-loop] The last two launches both died in
+            // the foreground within a minute of each other — the signature
+            // of a session that faults while loading and is then re-opened
+            // automatically on the next launch, which the user cannot
+            // escape from inside the app (they can reach neither Settings
+            // to change the launch screen nor the list to delete it).
+            //
+            // Open nothing: fall through to the session list so the app is
+            // usable again. Deliberately placed AFTER the notification-tap
+            // and share branches — those are explicit, just-expressed user
+            // intent, and a stale crash flag must not swallow them.
+            CrashReporter.shared.clearCrashLoopFlag()
+            shareLog.warning("[Share] .task: crash-loop detected — skipping session restore, landing on the session list")
+        } else {
+            // No share — normal launch screen behavior
+            switch launchScreen {
+            case 1:
+                if let latest = sessions.first {
+                    var tx = Transaction()
+                    tx.disablesAnimations = true
+                    withTransaction(tx) { openSession(latest.id) }
+                }
+            case 2:
+                var tx = Transaction()
+                tx.disablesAnimations = true
+                withTransaction(tx) { openSession(Self.makeNewSessionId()) }
+            case 3:
+                break
+            default:
+                if !sessions.isEmpty,
+                   let latest = sessions.first,
+                   Date().timeIntervalSince(latest.updatedAt) > 15 * 60 {
+                    var tx = Transaction()
+                    tx.disablesAnimations = true
+                    withTransaction(tx) { openSession(Self.makeNewSessionId()) }
+                } else if isWideLayout, let latest = sessions.first {
+                    var tx = Transaction()
+                    tx.disablesAnimations = true
+                    withTransaction(tx) { openSession(latest.id) }
+                }
+            }
+        }
+        // iPad split launch: every launchScreen branch above has resolved
+        // by now, so if the restored selection lives inside a collapsed
+        // folder, expand that folder (accordion — closes the others) so
+        // the selected row is actually visible in the sidebar instead of
+        // hidden behind a collapsed card.
+        if isWideLayout, let sid = selectedSessionId,
+           let fid = sessions.first(where: { $0.id == sid })?.folderId,
+           collapsedFolderIds.contains(fid) {
+            toggleFolderCollapsed(fid)
+        }
+    }
+
     /// 写操作确认弹窗正文。
     ///
     /// 抽成独立方法有两个原因：一是这段插值（可选值的 map + 多行字面量）本身
@@ -2121,101 +2227,8 @@ struct ContentView: View {
                 + " workflowActive=\(workflowActive)"
             shareLog.info("[Share] .task: " + shareTaskState)
 
-            // [T-notification-tap-vs-launch-session] A notification tap's
-            // explicit target session outranks every launch-screen default.
-            // Cold launch: didReceive fired before our .onReceive subscriber
-            // existed, so the post was lost — the buffered copy is the only
-            // surviving signal. Consume it and navigate. Warm-ish overlap: the
-            // post arrived while this .task was awaiting listSessions() and
-            // .onReceive already navigated — handledRecently suppresses the
-            // launch-screen default so it can't clobber that navigation.
-            if let notificationTarget = NotificationNavigationStore.shared.takePending() {
-                shareLog.info("[Share] .task: notification tap target=\(notificationTarget.prefix(8)) — overriding launchScreen logic")
-                var tx = Transaction()
-                tx.disablesAnimations = true
-                withTransaction(tx) { openSession(notificationTarget) }
-            } else if NotificationNavigationStore.shared.handledRecently {
-                shareLog.info("[Share] .task: notification navigation just handled — skipping launchScreen logic")
-            } else if quickActionPending {
-                shareLog.info("[Share] .task: quick action pending — deferring launchScreen logic to QuickActionRouter")
-            } else if shareAlreadyHandled {
-                // onChange(hasPendingShare) already processed the share and
-                // opened a new session before .task ran. Skip normal launch
-                // screen logic so we don't clobber it with a different session.
-                shareLog.info("[Share] .task: share already handled by onChange — skipping launchScreen logic")
-            } else if shareCoordinator.hasPendingShare {
-                // onChange hasn't fired yet (e.g. onOpenURL arrived during await).
-                // Process share here and open a new session for it.
-                shareLog.info("[Share] .task: processing pending share")
-                processPendingShare()
-                shareLog.info("[Share] .task: buffer stored, bufferVersion=\(shareCoordinator.bufferVersion) buffer=\(shareCoordinator.pendingShareBuffer != nil)")
-                // [T-share-routes-to-background-session] Cold launch: nothing is
-                // on screen yet (this branch runs before any launch-screen
-                // navigation), so the "foreground session" the warm path looks
-                // for does not exist and a new session IS the right
-                // destination. It is still stamped onto the buffer, which is
-                // what stops a session restored moments later — e.g. the
-                // Launch-Session default, or a chat resuming an agent loop —
-                // from mounting first and swallowing the share.
-                let target = Self.makeNewSessionId()
-                shareCoordinator.setBufferTarget(target)
-                shareLog.info("[Share] .task: cold launch — opening new session \(target.prefix(16)) for share")
-                var tx = Transaction()
-                tx.disablesAnimations = true
-                withTransaction(tx) { openSession(target) }
-            } else if CrashReporter.shared.shouldBypassSessionRestore {
-                // [T-ios-session-crash-loop] The last two launches both died in
-                // the foreground within a minute of each other — the signature
-                // of a session that faults while loading and is then re-opened
-                // automatically on the next launch, which the user cannot
-                // escape from inside the app (they can reach neither Settings
-                // to change the launch screen nor the list to delete it).
-                //
-                // Open nothing: fall through to the session list so the app is
-                // usable again. Deliberately placed AFTER the notification-tap
-                // and share branches — those are explicit, just-expressed user
-                // intent, and a stale crash flag must not swallow them.
-                CrashReporter.shared.clearCrashLoopFlag()
-                shareLog.warning("[Share] .task: crash-loop detected — skipping session restore, landing on the session list")
-            } else {
-                // No share — normal launch screen behavior
-                switch launchScreen {
-                case 1:
-                    if let latest = sessions.first {
-                        var tx = Transaction()
-                        tx.disablesAnimations = true
-                        withTransaction(tx) { openSession(latest.id) }
-                    }
-                case 2:
-                    var tx = Transaction()
-                    tx.disablesAnimations = true
-                    withTransaction(tx) { openSession(Self.makeNewSessionId()) }
-                case 3:
-                    break
-                default:
-                    if !sessions.isEmpty,
-                       let latest = sessions.first,
-                       Date().timeIntervalSince(latest.updatedAt) > 15 * 60 {
-                        var tx = Transaction()
-                        tx.disablesAnimations = true
-                        withTransaction(tx) { openSession(Self.makeNewSessionId()) }
-                    } else if isWideLayout, let latest = sessions.first {
-                        var tx = Transaction()
-                        tx.disablesAnimations = true
-                        withTransaction(tx) { openSession(latest.id) }
-                    }
-                }
-            }
-            // iPad split launch: every launchScreen branch above has resolved
-            // by now, so if the restored selection lives inside a collapsed
-            // folder, expand that folder (accordion — closes the others) so
-            // the selected row is actually visible in the sidebar instead of
-            // hidden behind a collapsed card.
-            if isWideLayout, let sid = selectedSessionId,
-               let fid = sessions.first(where: { $0.id == sid })?.folderId,
-               collapsedFolderIds.contains(fid) {
-                toggleFolderCollapsed(fid)
-            }
+            performInitialLaunch(shareAlreadyHandled: shareAlreadyHandled,
+                                 quickActionPending: quickActionPending)
             didInitialLoad = true
             fetchAlarmsIfNeeded()
             await refreshRemoteDeviceSessions()
