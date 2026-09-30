@@ -210,6 +210,22 @@ jobs:
             echo "签名: $appex/$exe"
             ldid -S/tmp/ext.entitlements "$appex/$exe"
           done
+
+          # PacketTunnel 扩展：需要 NetworkExtension 权限，单独用它的 entitlements 签名
+          PT_APPEX="$APP/PlugIns/PacketTunnel.appex"
+          if [ -d "$PT_APPEX" ]; then
+            ldid -Ssrc/ios/PacketTunnel/PacketTunnel.entitlements "$PT_APPEX/PacketTunnel"
+            echo "已签名: PacketTunnel.appex"
+          else
+            echo "警告: PacketTunnel.appex 不存在"
+          fi
+
+          # TunnelServices.framework 内嵌签名
+          TS_FW="$APP/Frameworks/TunnelServices.framework"
+          if [ -d "$TS_FW" ]; then
+            ldid -S "$TS_FW/TunnelServices"
+            echo "已签名: TunnelServices.framework"
+          fi
           # 打印签名摘要供核对
           ldid -e "$APP/Minis" | head -20
 
