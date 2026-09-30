@@ -1427,6 +1427,39 @@ static void handle_process_exit(struct task *task, int code) {
     }
 
     int result = 0;
+
+    // Register every parent directory first. fakefs_bind_mount returns EINVAL
+    // (-22) if /var/minis/host or its ancestors do not have inodes in meta.db.
+    NSMutableArray<NSString *> *parents = [NSMutableArray array];
+    NSString *cursor = [linuxPath stringByDeletingLastPathComponent];
+    while (cursor.length > 1 && ![cursor isEqualToString:@"/"]) {
+        [parents addObject:cursor];
+        cursor = [cursor stringByDeletingLastPathComponent];
+    }
+    for (NSString *parent in [parents reverseObjectEnumerator]) {
+        sqlite3_stmt *pc = NULL;
+        if (sqlite3_prepare_v2(db, "SELECT inode FROM paths WHERE path = ?", -1, &pc, NULL) != SQLITE_OK) continue;
+        sqlite3_bind_text(pc, 1, parent.UTF8String, -1, SQLITE_TRANSIENT);
+        BOOL exists = sqlite3_step(pc) == SQLITE_ROW;
+        sqlite3_finalize(pc);
+        if (exists) continue;
+
+        uint32_t pmode = 040755;
+        uint8_t pstat[16] = {0};
+        memcpy(pstat, &pmode, sizeof(pmode));
+        sqlite3_stmt *ps = NULL, *pp = NULL;
+        if (sqlite3_prepare_v2(db, "INSERT INTO stats (stat) VALUES (?)", -1, &ps, NULL) == SQLITE_OK &&
+            sqlite3_prepare_v2(db, "INSERT OR REPLACE INTO paths (path, inode) VALUES (?, last_insert_rowid())", -1, &pp, NULL) == SQLITE_OK) {
+            sqlite3_bind_blob(ps, 1, pstat, sizeof(pstat), SQLITE_TRANSIENT);
+            if (sqlite3_step(ps) == SQLITE_DONE) {
+                sqlite3_bind_text(pp, 1, parent.UTF8String, -1, SQLITE_TRANSIENT);
+                sqlite3_step(pp);
+            }
+        }
+        if (ps) sqlite3_finalize(ps);
+        if (pp) sqlite3_finalize(pp);
+    }
+
     sqlite3_stmt *check = NULL;
     if (sqlite3_prepare_v2(db, "SELECT inode FROM paths WHERE path = ?", -1, &check, NULL) != SQLITE_OK) {
         sqlite3_close(db); return -3;

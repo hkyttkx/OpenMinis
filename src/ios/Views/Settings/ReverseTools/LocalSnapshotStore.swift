@@ -277,25 +277,41 @@ final class LocalSnapshotStore: ObservableObject {
 
     // MARK: 导出 / 导入（文件形式）
 
-    /// 把快照整体打包成 zip，写到指定位置（供用户保存到外部路径）
-    func exportZip(to destination: URL) async -> Bool {
+    /// 流式生成 ZIP，返回临时文件路径。
+    /// 不使用 FileWrapper 直接包装 2GB 目录，避免 iOS 在导出时内存暴涨闪退。
+    func makeExportZip() async -> URL? {
         guard let root = snapshotRoot, hasSnapshot else {
             lastError = "没有可用的本地快照"
-            return false
+            return nil
         }
         busy = true
         defer { busy = false }
 
-        // 用系统归档 —— iOS 上 Process 不可用，这里改用 FileManager 的
-        // 「复制目录 + 由调用方通过 ShareLink 交给系统」的方式。
-        // 真正的 zip 打包由 BackupZipWriter 完成（它已在项目里）。
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("KyTuT-Snapshot-\(Int(Date().timeIntervalSince1970)).zip")
         do {
-            try? FileManager.default.removeItem(at: destination)
-            try FileManager.default.copyItem(at: root, to: destination)
-            return true
+            try? FileManager.default.removeItem(at: out)
+            let writer = try BackupZipWriter(url: out)
+            var items: [(source: URL, name: String)] = []
+            let fm = FileManager.default
+            if let en = fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) {
+                for case let file as URL in en {
+                    let v = try? file.resourceValues(forKeys: [.isRegularFileKey])
+                    guard v?.isRegularFile == true else { continue }
+                    let rel = file.path.replacingOccurrences(of: root.path + "/", with: "")
+                    items.append((file, rel))
+                }
+            }
+            progressText = "正在流式打包 \(items.count) 个文件…"
+            try writer.addFiles(items)
+            try writer.close()
+            progressText = ""
+            return out
         } catch {
+            progressText = ""
             lastError = "导出失败：\(error.localizedDescription)"
-            return false
+            try? FileManager.default.removeItem(at: out)
+            return nil
         }
     }
 

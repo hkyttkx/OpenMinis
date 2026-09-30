@@ -162,9 +162,17 @@ final class WebViewHolder: NSObject, ObservableObject {
             return
         }
         windowWaitRetries += 1
-        if windowWaitRetries > 40 { // ~2s
+        // [T-webview-blank-wait] 原来超过 ~2s 就强行 load，而调用方注释已说明
+        // 「未挂到 window 的 WKWebView 会进入病态状态（didFinish 是 stub 页，
+        // 然后以 ~20ms 循环重发原请求）」—— 这正是白屏的表现。
+        // 改为等更久，且超时后不再强行 load：宁可让用户看到重试按钮，
+        // 也不进入那个病态分支。
+        if windowWaitRetries > 300 { // ~15s
             didStart = true
-            performLoad(url: url)
+            loadError = WebLoadError(title: AppLocalized("Cannot Open Page"),
+                                     message: "页面容器未能就绪，请点「重试」。",
+                                     systemImage: "exclamationmark.triangle",
+                                     failedURL: url)
             return
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
@@ -177,8 +185,21 @@ final class WebViewHolder: NSObject, ObservableObject {
         if pendingLocalFile {
             loadLocalFileBypassingCache(url)
         } else {
-            webView.load(URLRequest(url: url))
+            webView.load(URLRequest(url: Self.normalized(url)))
         }
+    }
+
+    /// 规范化为可加载的绝对 URL。
+    ///
+    /// `URL(string: "example.com")` 得到的是**相对** URL，scheme/host 均为空，
+    /// `webView.load` 会直接失败 —— 用户看到的就是白屏。这里补上 https://，
+    /// 已经是绝对 URL 的原样返回。
+    static func normalized(_ url: URL) -> URL {
+        if url.scheme?.isEmpty == false { return url }
+        let raw = url.absoluteString
+        if raw.isEmpty { return url }
+        if let fixed = URL(string: "https://" + raw) { return fixed }
+        return url
     }
 
     /// [T-ios-webview-error-ui] Retry the URL that failed (or reload current).

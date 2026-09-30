@@ -32,9 +32,20 @@ struct LocalSnapshotView: View {
                         .foregroundStyle(store.containerAvailable ? Color.green : Color.orange)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(store.containerAvailable ? "共享容器可用" : "共享容器不可用")
-                        Text("group.com.openminis.app")
+                        Text(store.snapshotRoot?.path ?? "group.com.openminis.app")
                             .font(.caption2.monospaced())
                             .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                    }
+                }
+                if let root = store.snapshotRoot {
+                    Button {
+                        UIPasteboard.general.string = root.path
+                        report("路径已复制，可粘贴到「文件」App 或终端查看", isError: false)
+                    } label: {
+                        Label("复制存储路径", systemImage: "doc.on.doc")
                     }
                 }
                 if !store.containerAvailable {
@@ -114,7 +125,7 @@ struct LocalSnapshotView: View {
             // MARK: 导出 / 导入
             Section {
                 Button {
-                    prepareExport()
+                    Task { await prepareExport() }
                 } label: {
                     Label("导出为文件", systemImage: "square.and.arrow.up")
                 }
@@ -170,8 +181,8 @@ struct LocalSnapshotView: View {
         }
         .fileExporter(isPresented: $showExporter,
                       document: exportDoc,
-                      contentType: .folder,
-                      defaultFilename: "KyTuT-Snapshot") { result in
+                      contentType: .zip,
+                      defaultFilename: "KyTuT-Snapshot.zip") { result in
             switch result {
             case .success(let url):
                 report("已导出到 \(url.lastPathComponent)", isError: false)
@@ -199,9 +210,12 @@ struct LocalSnapshotView: View {
         resultIsError = isError
     }
 
-    private func prepareExport() {
-        guard let root = store.snapshotRoot else { return }
-        exportDoc = SnapshotExportDoc(url: root)
+    private func prepareExport() async {
+        guard let zip = await store.makeExportZip() else {
+            report(store.lastError ?? "导出失败", isError: true)
+            return
+        }
+        exportDoc = SnapshotExportDoc(url: zip)
         showExporter = true
     }
 
@@ -224,7 +238,7 @@ struct LocalSnapshotView: View {
 // MARK: - 导出用的 Document
 
 struct SnapshotExportDoc: FileDocument {
-    static var readableContentTypes: [UTType] { [.folder] }
+    static var readableContentTypes: [UTType] { [.zip, .data] }
 
     var url: URL
 
@@ -234,7 +248,7 @@ struct SnapshotExportDoc: FileDocument {
     }
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        // 直接引用已有目录 —— fileExporter 会把它整体拷到用户选的位置
+        // 这里是已经流式生成的单个 ZIP 文件，不是目录。
         return try FileWrapper(url: url, options: .immediate)
     }
 }

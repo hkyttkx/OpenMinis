@@ -56,7 +56,7 @@ struct HostAccessSettingsView: View {
             } header: {
                 Text("可用位置")
             } footer: {
-                Text("挂载后的位置在沙盒内以 /var/minis/host/<短名> 访问。全部为只读挂载，AI 无法修改宿主文件。")
+                Text("挂载后的位置在沙盒内以 /var/minis/host/<短名> 访问。系统路径强制只读；App 数据容器与 App Group 默认读写，可随时切换。")
             }
 
             // MARK: 状态
