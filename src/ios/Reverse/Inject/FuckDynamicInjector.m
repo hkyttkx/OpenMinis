@@ -1920,6 +1920,8 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
         } else {
             FLog(@"[CLI] (模式B) ldid 不在 bundle 内，跳过 ad-hoc 签名");
         }
+    }
+
     // 签名步骤依赖 spawn 本 bundle 内的 ldid / ct_bypass，而 spawn 在本环境
     // 不可用（实测 ret=1 且文件大小无变化，说明工具根本没有执行）。
     // roothide 信任链由 jbserver 完成，不依赖本地签名结果，因此直接跳过。

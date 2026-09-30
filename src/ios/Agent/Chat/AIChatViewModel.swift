@@ -5416,7 +5416,8 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 case .readImageTool: return "readImage"
                 case .memoryTool: return "memory"
                 case .delegateTool: return SubAgentDefinition.toolName
-                case .r2Tool: return "r2"                case .info: return "info"
+                case .r2Tool: return "r2"
+                case .info: return "info"
                 }
             }()
             let statusStr: String = {

@@ -94,7 +94,8 @@ struct AssistantBlockView: View {
             // 用户一眼能认出「这步用的是 r2 在分析」。
             ToolCapsuleView(block: block, icon: "wand.and.stars", accentColor: .purple,
                             commandStartTime: commandStartTime, onStop: onStop,
-                            toolSnapshots: toolSnapshots, detailBlock: $detailBlock)        case .info:
+                            toolSnapshots: toolSnapshots, detailBlock: $detailBlock)
+        case .info:
             let allLines = block.content.components(separatedBy: "\n").filter { !$0.isEmpty }
             // Separate reason lines (⚠️) from the final switched line (✅)
             let reasonLines = allLines.filter { $0.hasPrefix("⚠️") }
@@ -303,7 +304,8 @@ struct ToolCapsuleView: View {
         case .readImageTool: toolName = "read_image"
         case .memoryTool:    toolName = "memory"
         case .delegateTool:  toolName = SubAgentDefinition.toolName
-        case .r2Tool:        toolName = "r2_execute"        case .text, .thinking, .info: toolName = "unknown"
+        case .r2Tool:        toolName = "r2_execute"
+        case .text, .thinking, .info: toolName = "unknown"
         }
 
         // Pretty-print the input JSON when possible; otherwise emit raw.

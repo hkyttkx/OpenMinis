@@ -650,7 +650,8 @@ enum AssistantBlockKind: Equatable {
     /// helper runs and the result JSON afterwards.
     case delegateTool(title: String)
     /// [T-r2-tool] radare2 静态分析调用（深度分析引擎开启时注册的工具）。
-    case r2Tool(commands: String)    case info
+    case r2Tool(commands: String)
+    case info
 }
 
 enum KernelStatus: Equatable {

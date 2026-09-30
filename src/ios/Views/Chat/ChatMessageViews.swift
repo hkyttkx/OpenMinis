@@ -280,7 +280,8 @@ struct ChatMessageRow: View {
             case .delegateTool(let title):
                 parts.append("Agent: \(title)\n\(block.content)")
             case .r2Tool(let commands):
-                parts.append("r2: \(commands)\n\(block.content)")            case .thinking:
+                parts.append("r2: \(commands)\n\(block.content)")
+            case .thinking:
                 if !block.content.isEmpty { parts.append("[Thinking]\n\(block.content)") }
             case .info:
                 if !block.content.isEmpty { parts.append(block.content) }

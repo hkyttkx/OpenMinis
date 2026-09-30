@@ -1338,7 +1338,8 @@ struct ToolLiveSheet: View {
         case .delegateTool(let title):
             return "delegate_task(\(truncateParam(title)))"
         case .r2Tool(let commands):
-            return "r2(\(truncateParam(commands)))"        case .info:
+            return "r2(\(truncateParam(commands)))"
+            case .info:
             return ""
         }
     }
@@ -1358,7 +1359,8 @@ struct ToolLiveSheet: View {
         case .readImageTool: Image(systemName: "photo")
         case .memoryTool: Image(systemName: "brain.head.profile")
         case .delegateTool: Image(systemName: HelperAccent.icon)
-        case .r2Tool: Image(systemName: "wand.and.stars")        case .info: Image(systemName: "arrow.triangle.2.circlepath")
+        case .r2Tool: Image(systemName: "wand.and.stars")
+        case .info: Image(systemName: "arrow.triangle.2.circlepath")
         case .text: Image(systemName: "text.alignleft")
         case .thinking: Image("ThinkingIcon")
         }
@@ -2695,7 +2697,8 @@ struct ToolLiveSheet: View {
         case .readImageTool: return "Minis is reading Image"
         case .memoryTool: return "Minis is using Memory"
         case .delegateTool: return "Minis is using an Agent"
-        case .r2Tool: return "Minis is using R2"        case .info: return "Minis"
+        case .r2Tool: return "Minis is using R2"
+        case .info: return "Minis"
         case .text: return "Minis"
         case .thinking: return "Minis"
         }

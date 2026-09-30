@@ -5821,7 +5821,8 @@ extension RawMessage {
                 case "r2_execute":
                     let cmds = extractStringParam("commands", from: tu.input)
                     kind = .r2Tool(commands: cmds)
-                    content = "r2 \(cmds)"                default:
+                    content = "r2 \(cmds)"
+                default:
                     kind = .shellTool(command: tu.name)
                     content = tu.name
                 }

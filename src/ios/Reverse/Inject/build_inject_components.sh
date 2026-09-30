@@ -74,16 +74,31 @@ fi
 # ───────────────────────────────────────────────────────────────
 if [ -f "${script_dir}/FuckInjectRunner.m" ]; then
   echo "[inject-build] 编译 FuckInjectRunner…"
-  xcrun -sdk "${sdk}" clang \
-    -arch arm64 \
-    -miphoneos-version-min="${min_ios}" \
-    -fobjc-arc \
-    -I"${script_dir}" \
-    -framework Foundation \
+  # 注意：两个 .m 必须**分别**编译成 .o 再链接。
+  # 若把两个 .m 一起传给 clang，它们会被当作单个翻译单元处理，
+  # FuckDynamicInjector.m 的 @implementation 块与 FuckInjectRunner.m 的
+  # 文件级 main() 会互相破坏结构，报「use of undeclared identifier
+  # 'injectDylib'」「expected '}'」「missing '@end'」等一串错误。
+  TMPOBJ="$(mktemp -d)"
+  xcrun -sdk "${sdk}" clang -c \
+    -arch arm64 -miphoneos-version-min="${min_ios}" \
+    -fobjc-arc -I"${script_dir}" \
+    -Os -Wno-deprecated-declarations \
+    "${script_dir}/FuckDynamicInjector.m" \
+    -o "${TMPOBJ}/FuckDynamicInjector.o"
+  xcrun -sdk "${sdk}" clang -c \
+    -arch arm64 -miphoneos-version-min="${min_ios}" \
+    -fobjc-arc -I"${script_dir}" \
     -Os -Wno-deprecated-declarations \
     "${script_dir}/FuckInjectRunner.m" \
-    "${script_dir}/FuckDynamicInjector.m" \
+    -o "${TMPOBJ}/FuckInjectRunner.o"
+  xcrun -sdk "${sdk}" clang \
+    -arch arm64 -miphoneos-version-min="${min_ios}" \
+    -framework Foundation \
+    "${TMPOBJ}/FuckDynamicInjector.o" \
+    "${TMPOBJ}/FuckInjectRunner.o" \
     -o "${out_dir}/FuckInjectRunner"
+  rm -rf "${TMPOBJ}"
   chmod 0755 "${out_dir}/FuckInjectRunner"
   echo "[inject-build] FuckInjectRunner: $(wc -c < "${out_dir}/FuckInjectRunner") bytes"
 else
