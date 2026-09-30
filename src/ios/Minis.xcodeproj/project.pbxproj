@@ -3753,6 +3753,7 @@
 		TSBC00000000000001 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ENABLE_MODULE_VERIFIER = NO;
 				BUILD_LIBRARY_FOR_DISTRIBUTION = NO;
 				CODE_SIGN_STYLE = Manual;
 				CODE_SIGNING_ALLOWED = NO;
@@ -3787,6 +3788,7 @@
 		TSBC00000000000002 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ENABLE_MODULE_VERIFIER = NO;
 				BUILD_LIBRARY_FOR_DISTRIBUTION = NO;
 				CODE_SIGN_STYLE = Manual;
 				CODE_SIGNING_ALLOWED = NO;
@@ -3812,6 +3814,7 @@
 		PTBC00000000000001 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ENABLE_MODULE_VERIFIER = NO;
 				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
 				CODE_SIGN_STYLE = Manual;
 				CODE_SIGNING_ALLOWED = NO;
@@ -3838,6 +3841,7 @@
 		PTBC00000000000002 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ENABLE_MODULE_VERIFIER = NO;
 				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
 				CODE_SIGN_STYLE = Manual;
 				CODE_SIGNING_ALLOWED = NO;
@@ -3970,6 +3974,13 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = AC0000001 /* ProviderCustomization.xcconfig */;
 			buildSettings = {
+				// Xcode 26 的显式模块构建在解析 SwiftPM 的 C 目标
+				// （CNIOAtomics / CNIOBoringSSL / CNIOPosix 等）时会失败，
+				// 报 "Unable to resolve module dependency"。
+				// 关闭显式模块与模块验证器，回落到传统隐式模块解析。
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
+				CLANG_ENABLE_EXPLICIT_MODULES = NO;
+				ENABLE_MODULE_VERIFIER = NO;
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -4036,6 +4047,13 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = AC0000001 /* ProviderCustomization.xcconfig */;
 			buildSettings = {
+				// Xcode 26 的显式模块构建在解析 SwiftPM 的 C 目标
+				// （CNIOAtomics / CNIOBoringSSL / CNIOPosix 等）时会失败，
+				// 报 "Unable to resolve module dependency"。
+				// 关闭显式模块与模块验证器，回落到传统隐式模块解析。
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
+				CLANG_ENABLE_EXPLICIT_MODULES = NO;
+				ENABLE_MODULE_VERIFIER = NO;
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
