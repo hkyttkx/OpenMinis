@@ -101,7 +101,6 @@ struct MinisApp: App {
     @State private var pendingWebAppPresentation: WebAppPresentation?
     @State private var pendingURLWhileLocked: URL?
 
-    #if DEBUG
     /// 动态注入 root 子进程入口。
     /// 由 init() 第一行调用；仅当 argv 含 -FuckInject 时才执行并退出进程。
     ///
@@ -134,6 +133,7 @@ struct MinisApp: App {
         exit(ret)
     }
 
+    #if DEBUG
     let debugServer = DebugServer()
     #endif
 
