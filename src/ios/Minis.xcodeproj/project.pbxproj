@@ -482,6 +482,9 @@
 		INJ001S1B /* HookConfigBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ001S1R /* HookConfigBuilder.swift */; };
 		INJ002S1B /* HostAccessManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ002S1R /* HostAccessManager.swift */; };
 		GH000S1B /* GitHubService.swift in Sources */ = {isa = PBXBuildFile; fileRef = GH000S1R /* GitHubService.swift */; };
+		LS000S1B /* LocalSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = LS000S1R /* LocalSnapshotStore.swift */; };
+		LS000S2B /* LocalSnapshotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = LS000S2R /* LocalSnapshotView.swift */; };
+		CTX00S1B /* ContextLimitSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = CTX00S1R /* ContextLimitSettings.swift */; };
 		GH000S2B /* GitHubSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = GH000S2R /* GitHubSettingsView.swift */; };
 		GH000S3B /* AIChatViewModel+GitHubTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = GH000S3R /* AIChatViewModel+GitHubTools.swift */; };
 		INJ002S2B /* HostAccessSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = INJ002S2R /* HostAccessSettingsView.swift */; };
@@ -1238,6 +1241,9 @@
 		INJ001S1R /* HookConfigBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HookConfigBuilder.swift"; sourceTree = "<group>"; };
 		INJ002S1R /* HostAccessManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostAccessManager.swift"; sourceTree = "<group>"; };
 		GH000S1R /* GitHubService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GitHubService.swift"; sourceTree = "<group>"; };
+		LS000S1R /* LocalSnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LocalSnapshotStore.swift"; sourceTree = "<group>"; };
+		LS000S2R /* LocalSnapshotView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LocalSnapshotView.swift"; sourceTree = "<group>"; };
+		CTX00S1R /* ContextLimitSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContextLimitSettings.swift"; sourceTree = "<group>"; };
 		GH000S2R /* GitHubSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GitHubSettingsView.swift"; sourceTree = "<group>"; };
 		GH000S3R /* AIChatViewModel+GitHubTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AIChatViewModel+GitHubTools.swift"; sourceTree = "<group>"; };
 		INJ002S2R /* HostAccessSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostAccessSettingsView.swift"; sourceTree = "<group>"; };
@@ -2471,6 +2477,9 @@
 				INJ001S1R /* HookConfigBuilder.swift */,
 				INJ002S1R /* HostAccessManager.swift */,
 				GH000S1R /* GitHubService.swift */,
+				LS000S1R /* LocalSnapshotStore.swift */,
+				LS000S2R /* LocalSnapshotView.swift */,
+				CTX00S1R /* ContextLimitSettings.swift */,
 				GH000S2R /* GitHubSettingsView.swift */,
 				GH000S3R /* AIChatViewModel+GitHubTools.swift */,
 				INJ002S2R /* HostAccessSettingsView.swift */,
@@ -2997,6 +3006,9 @@
 				INJ001S1B /* HookConfigBuilder.swift in Sources */,
 				INJ002S1B /* HostAccessManager.swift in Sources */,
 				GH000S1B /* GitHubService.swift in Sources */,
+				LS000S1B /* LocalSnapshotStore.swift in Sources */,
+				LS000S2B /* LocalSnapshotView.swift in Sources */,
+				CTX00S1B /* ContextLimitSettings.swift in Sources */,
 				GH000S2B /* GitHubSettingsView.swift in Sources */,
 				GH000S3B /* AIChatViewModel+GitHubTools.swift in Sources */,
 				INJ002S2B /* HostAccessSettingsView.swift in Sources */,

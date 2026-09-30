@@ -279,6 +279,36 @@ extension AIChatViewModel {
     /// therefore true only when the cap actually binds.
     func resolvedContextWindow(for model: LLMModel) -> (window: Int, isUserCap: Bool) {
         let native = model.contextWindowTokens
+
+        // ── 第一层：会话级覆盖 ──
+        // 用户在聊天页为单个会话设的上下文设置，优先级最高。
+        if let sid = sessionId {
+            // 「不限制」：直接采用模型原生窗口，且不视为用户限制
+            //（isUserCap=false 让 ContextPolicy 走模型原生档位判定）
+            if SessionContextOverrides.isUnlimited(sid) {
+                return (native, false)
+            }
+            if let st = SessionContextOverrides.tokens(for: sid), st > 0 {
+                guard native > 0 else { return (st, true) }
+                return st < native ? (st, true) : (native, false)
+            }
+        }
+
+        // ── 第二层：全局默认 ──
+        switch GlobalContextDefaults.mode {
+        case .unlimited:
+            return (native, false)
+        case .custom:
+            let gt = GlobalContextDefaults.tokens
+            if gt > 0 {
+                guard native > 0 else { return (gt, true) }
+                return gt < native ? (gt, true) : (native, false)
+            }
+        case .inherit:
+            break
+        }
+
+        // ── 第三层：模型组设置（既有机制）──
         guard let override = activeGroupContextLimit(), override > 0, override < Int.max else {
             return (native, false)
         }

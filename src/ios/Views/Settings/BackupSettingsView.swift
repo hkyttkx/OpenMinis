@@ -132,6 +132,34 @@ struct BackupSettingsView: View {
         Form {
             deviceNameSection
 
+            // MARK: 本机快照（App Group 容器，卸载重装后可恢复）
+            Section {
+                NavigationLink {
+                    LocalSnapshotView()
+                } label: {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("本机快照")
+                            Text(LocalSnapshotStore.shared.hasSnapshot
+                                 ? "上次备份 \(LocalSnapshotStore.shared.snapshotTimeText())"
+                                 : "把聊天记录与配置存到共享容器")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "internaldrive.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 28, height: 28)
+                            .background(Color.indigo, in: Circle())
+                    }
+                }
+            } header: {
+                Text("本机持久化")
+            } footer: {
+                Text("快照保存在 App Group 共享容器中 —— 卸载 App 会清空其沙盒，但共享容器保留，因此重装后可一键恢复。也可导出为文件保存到任意位置，或从已挂载的路径读回。")
+            }
+
             // MARK: iCloud 云端备份
             // 独立的 iCloud 备份通道：把 minis.db / skills.db / media / skills /
             // memory 打包成 zip 写进 iCloud 容器，换机时直接拉回来。

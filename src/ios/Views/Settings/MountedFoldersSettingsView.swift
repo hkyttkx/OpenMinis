@@ -64,6 +64,31 @@ struct MountedFoldersSettingsView: View {
                 Text("允许 AI 在静态分析时直接读取手机上任意文件（已装 App 的二进制、数据容器、越狱目录等）。三档：关闭 / 询问后访问 / 全自动访问。")
             }
 
+            // 上下文窗口默认：全局可设自定义上限或完全不限制
+            Section {
+                NavigationLink {
+                    ContextLimitSettingsView()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "text.append")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 28, height: 28)
+                            .background(Color.teal, in: Circle())
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("上下文窗口默认")
+                            Text(GlobalContextDefaults.mode.title)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } header: {
+                Text("对话")
+            } footer: {
+                Text("控制每次对话可用的上下文上限。可跟随模型原生窗口、自定义大小，或完全不限制（同时关闭自动压缩）。单个会话可在聊天页单独覆盖。")
+            }
+
             // GitHub 连接：AI 可直接操作仓库、文件、Issue 与 PR
             Section {
                 NavigationLink {
