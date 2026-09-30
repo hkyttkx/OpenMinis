@@ -10,6 +10,11 @@
 		SPMNIO0000000000000003 /* NIO in Frameworks */ = {isa = PBXBuildFile; productRef = SPMNIO0000000000000002 /* NIO */; };
 		SPMSSL0000000000000003 /* NIOSSL in Frameworks */ = {isa = PBXBuildFile; productRef = SPMSSL0000000000000002 /* NIOSSL */; };
 		SPMSQL0000000000000003 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = SPMSQL0000000000000002 /* SQLite */; };
+		SPMB0000000000000001 /* NIOHTTP1 in Frameworks */ = {isa = PBXBuildFile; productRef = SPM0000000000000001 /* NIOHTTP1 */; };
+		SPMB0000000000000002 /* NIOFoundationCompat in Frameworks */ = {isa = PBXBuildFile; productRef = SPM0000000000000002 /* NIOFoundationCompat */; };
+		SPMB0000000000000003 /* NIOConcurrencyHelpers in Frameworks */ = {isa = PBXBuildFile; productRef = SPM0000000000000003 /* NIOConcurrencyHelpers */; };
+		SPMB0000000000000004 /* NIOWebSocket in Frameworks */ = {isa = PBXBuildFile; productRef = SPM0000000000000004 /* NIOWebSocket */; };
+		SPMB0000000000000005 /* NIOTLS in Frameworks */ = {isa = PBXBuildFile; productRef = SPM0000000000000005 /* NIOTLS */; };
 		TSB0000000000000001 /* TunnelServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = TSF0000000000000001 /* TunnelServices.framework */; };
 		TSB0000000000000002 /* TunnelServices.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = TSF0000000000000001 /* TunnelServices.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		TSB0000000000000003 /* TunnelServices.framework in Frameworks (appex) */ = {isa = PBXBuildFile; fileRef = TSF0000000000000001 /* TunnelServices.framework */; };
@@ -1437,7 +1442,12 @@
 			buildActionMask = 2147483647;
 			files = (
 				SPMNIO0000000000000003 /* NIO in Frameworks */,
+				SPMB0000000000000001 /* NIOHTTP1 in Frameworks */,
+				SPMB0000000000000002 /* NIOFoundationCompat in Frameworks */,
+				SPMB0000000000000003 /* NIOConcurrencyHelpers in Frameworks */,
+				SPMB0000000000000004 /* NIOWebSocket in Frameworks */,
 				SPMSSL0000000000000003 /* NIOSSL in Frameworks */,
+				SPMB0000000000000005 /* NIOTLS in Frameworks */,
 				SPMSQL0000000000000003 /* SQLite in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -2680,7 +2690,12 @@
 			name = TunnelServices;
 			packageProductDependencies = (
 				SPMNIO0000000000000002 /* NIO */,
+				SPM0000000000000001 /* NIOHTTP1 */,
+				SPM0000000000000002 /* NIOFoundationCompat */,
+				SPM0000000000000003 /* NIOConcurrencyHelpers */,
+				SPM0000000000000004 /* NIOWebSocket */,
 				SPMSSL0000000000000002 /* NIOSSL */,
+				SPM0000000000000005 /* NIOTLS */,
 				SPMSQL0000000000000002 /* SQLite */,
 			);
 			productName = TunnelServices;
@@ -4483,6 +4498,31 @@
 			isa = XCSwiftPackageProductDependency;
 			package = SPMSQL0000000000000001 /* XCRemoteSwiftPackageReference "SQLite" */;
 			productName = SQLite;
+		};
+		SPM0000000000000001 /* NIOHTTP1 */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = SPMNIO0000000000000001 /* XCRemoteSwiftPackageReference "swift-nio" */;
+			productName = NIOHTTP1;
+		};
+		SPM0000000000000002 /* NIOFoundationCompat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = SPMNIO0000000000000001 /* XCRemoteSwiftPackageReference "swift-nio" */;
+			productName = NIOFoundationCompat;
+		};
+		SPM0000000000000003 /* NIOConcurrencyHelpers */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = SPMNIO0000000000000001 /* XCRemoteSwiftPackageReference "swift-nio" */;
+			productName = NIOConcurrencyHelpers;
+		};
+		SPM0000000000000004 /* NIOWebSocket */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = SPMNIO0000000000000001 /* XCRemoteSwiftPackageReference "swift-nio" */;
+			productName = NIOWebSocket;
+		};
+		SPM0000000000000005 /* NIOTLS */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = SPMSSL0000000000000001 /* XCRemoteSwiftPackageReference "swift-nio-ssl" */;
+			productName = NIOTLS;
 		};
 		C42120806C66A2C804F89620 /* RealTimeCutVADLibrary */ = {
 			isa = XCSwiftPackageProductDependency;
