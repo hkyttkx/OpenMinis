@@ -27,6 +27,16 @@ struct WebLoadError: Equatable {
     /// benign "cancelled" cases (e.g. a load superseded by another, or a
     /// policy-cancelled non-http scheme handed off to the system) so the UI
     /// doesn't flash an error for a normal in-flight cancellation.
+    /// 直接构造（用于非 WebKit 错误，例如容器未就绪、URL 无 scheme 等）。
+    /// 自定义了 init?(error:) 之后 struct 的逐一成员初始化器不再可用，
+    /// 因此这里显式提供一个。
+    init(title: String, message: String, systemImage: String, failedURL: URL?) {
+        self.title = title
+        self.message = message
+        self.systemImage = systemImage
+        self.failedURL = failedURL
+    }
+
     init?(error: Error, failedURL: URL? = nil) {
         let ns = error as NSError
 
