@@ -33,10 +33,10 @@ extension AIChatViewModel {
     }
 
     static let availableSlashCommands: [SlashCommand] = [
-        SlashCommand(id: "clear", icon: "trash", title: "Clear", subtitle: "Clear all messages in this session"),
-        SlashCommand(id: "compact", icon: "arrow.down.right.and.arrow.up.left", title: "Compact", subtitle: "Compress conversation history into summary"),
-        SlashCommand(id: "memory", icon: "brain.head.profile", title: "Memory", subtitle: "Toggle memory writes on/off (reads unaffected)"),
-        SlashCommand(id: "thinking", icon: "lightbulb", title: "Thinking", subtitle: "Toggle deep thinking mode on/off"),
+        SlashCommand(id: "clear", icon: "trash", title: "清空", subtitle: "清除本会话中的全部消息"),
+        SlashCommand(id: "compact", icon: "arrow.down.right.and.arrow.up.left", title: "压缩", subtitle: "将对话历史压缩成摘要"),
+        SlashCommand(id: "memory", icon: "brain.head.profile", title: "记忆", subtitle: "切换记忆写入（读取不受影响）"),
+        SlashCommand(id: "thinking", icon: "lightbulb", title: "思考", subtitle: "切换深度思考模式"),
     ]
 
     /// Show slash menu without replacing existing input text.
