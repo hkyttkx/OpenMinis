@@ -153,7 +153,7 @@ enum RelayError: Error, LocalizedError {
         switch self {
         case .notConfigured:     return "尚未配置中转站地址。"
         case .notLoggedIn:       return "尚未登录该账号，请先登录。"
-        case .authFailed(let m): return "认证失败：\(m)"
+        case .authFailed(let m): return "登录被拒绝（账号或密码不对）。若确信无误，请检查站点地址是否填成了别的站。详情：\(m)"
         case .http(let c, let m):
             let s = m.count > 200 ? String(m.prefix(200)) : m
             return "中转站返回 \(c)：\(s)"
@@ -553,11 +553,56 @@ final class RelayQuotaService: ObservableObject {
 
     // MARK: 请求
 
+    /// 探测某个地址是否是本类网关。
+    ///
+    /// 背景：同一套网关可以挂多个域名，用户必须自己填对。
+    /// 但填错时服务端只会回一个含糊的认证失败，
+    /// 看起来像「账号加不了」。这里先打公开设置接口，
+    /// 能区分「地址不对」和「账号密码不对」两种情况。
+    func probeSite(_ raw: String) async -> Result<String, String> {
+        let base = apiBase(raw)
+        guard let url = URL(string: base + "/settings/public") else {
+            return .failure("地址格式不正确：\(raw)")
+        }
+        var r = URLRequest(url: url)
+        r.httpMethod = "GET"
+        r.timeoutInterval = 20
+        r.setValue("1", forHTTPHeaderField: "X-User-UI-Request")
+        r.setValue("KyTuT", forHTTPHeaderField: "User-Agent")
+
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: r)
+            guard let http = resp as? HTTPURLResponse else {
+                return .failure("无响应")
+            }
+            guard (200..<300).contains(http.statusCode) else {
+                return .failure("该地址返回 HTTP \(http.statusCode)，不是有效的中转站入口。")
+            }
+            guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return .failure("该地址返回的不是网关数据，请检查站点地址。")
+            }
+            // 本类网关的公开设置一定是 {code:0, data:{...}}
+            if obj["code"] as? Int == 0, obj["data"] is [String: Any] {
+                return .success(apiBase(raw).replacingOccurrences(of: "/api/v1", with: ""))
+            }
+            return .failure("该地址不像中转站网关（缺少 code/data 结构），请检查站点地址。")
+        } catch {
+            return .failure("无法连接：\(error.localizedDescription)")
+        }
+    }
+
+    /// 规范化站点地址：补协议、去尾斜杠。
+    static func normalizeSite(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.isEmpty { return s }
+        if !s.contains("://") { s = "https://" + s }
+        while s.hasSuffix("/") { s.removeLast() }
+        return s
+    }
+
     private func apiBase(_ site: String) -> String {
-        var s = site.trimmingCharacters(in: .whitespacesAndNewlines)
-        if s.isEmpty { s = "https://1for.cc" }
-        if s.hasSuffix("/") { s.removeLast() }
-        return s + "/api/v1"
+        // 不再回退到某个具体站点：填错就是填错，不能悄悄连到别处。
+        Self.normalizeSite(site) + "/api/v1"
     }
 
     private func makeRequest(base: String, path: String, method: String, token: String?) throws -> URLRequest {
