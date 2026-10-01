@@ -625,6 +625,10 @@ static int FuckSpawnArgumentsWithOutput(NSArray<NSString *> *arguments, BOOL asR
     return FuckWaitForPid(pid);
 }
 
+static int FuckSpawnArguments(NSArray<NSString *> *arguments, BOOL asRootPersona) {
+    return FuckSpawnArgumentsWithOutput(arguments, asRootPersona, NULL);
+}
+
 static NSString *FuckResourcePath(NSString *name) {
     if (!name.length) return nil;
     NSString *path = [[[NSBundle mainBundle] resourcePath] stringByAppendingPathComponent:name];
