@@ -193,6 +193,16 @@ struct RelayTrendPoint: Identifiable, Equatable {
     var actualCost: Double = 0
 }
 
+/// 站点探测失败的原因。
+///
+/// 之所以单独建一个类型：Swift 的 `Result` 的失败分支必须实现 `Error`，
+/// 而 `String` 不实现 —— 用 `Result<_, String>` 会直接编译失败。
+struct RelayProbeError: Error, LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
+    init(_ m: String) { message = m }
+}
+
 enum RelayError: Error, LocalizedError {
     case notConfigured
     case notLoggedIn
@@ -337,7 +347,8 @@ final class RelayQuotaService: ObservableObject {
     /// 登录。按账号记录的网关类型分流。
     func login(accountId: UUID, email: String, password: String) async -> Bool {
         guard let idx = accounts.firstIndex(where: { $0.id == accountId }) else { return false }
-        if accounts[idx].gateway == .newAPI {
+        let gw: RelayGateway = accounts[idx].gateway
+        if gw == .newAPI {
             return await loginNewAPI(accountId: accountId, username: email, password: password)
         }
         return await loginV1(accountId: accountId, email: email, password: password)
@@ -463,7 +474,8 @@ final class RelayQuotaService: ObservableObject {
     private func refreshOne(_ id: UUID) async {
         guard let idx = accounts.firstIndex(where: { $0.id == id }) else { return }
         // new-api 走独立拉取路径
-        if accounts[idx].gateway == .newAPI {
+        let gw: RelayGateway = accounts[idx].gateway
+        if gw == .newAPI {
             await refreshOneNewAPI(id)
             return
         }
@@ -805,10 +817,10 @@ final class RelayQuotaService: ObservableObject {
     ///     `quota_per_unit` / `HeaderNavModules` 之类字段；
     ///     而 `/api/v1/settings/public` 是 404。
     ///   - 自研 v1：`GET /api/v1/settings/public` 返回 `{code:0,data:{...}}`。
-    func detectGateway(_ raw: String) async -> Result<(site: String, gateway: RelayGateway), String> {
+    func detectGateway(_ raw: String) async -> Result<(site: String, gateway: RelayGateway), RelayProbeError> {
         let site = Self.normalizeSite(raw)
         guard let base = URL(string: site) else {
-            return .failure("地址格式不正确：\(raw)")
+            return .failure(RelayProbeError("地址格式不正确：\(raw)"))
         }
 
         // 先试 new-api 的 /api/status
@@ -821,7 +833,7 @@ final class RelayQuotaService: ObservableObject {
             return .success((normalized, .v1))
         case .failure(let why):
             // 两个都不是：把更可能的原因报出来
-            return .failure(why + "\n（既不是 New-API，也不是自研网关）")
+            return .failure(RelayProbeError(why.message + "\n（既不是 New-API，也不是自研网关）"))
         }
     }
 
@@ -844,10 +856,10 @@ final class RelayQuotaService: ObservableObject {
     /// 缓存 new-api 站点的 quota_per_unit / 货币符号
     private var newAPISettings: [String: (quotaPerUnit: Double, symbol: String)] = [:]
 
-    func probeSite(_ raw: String) async -> Result<String, String> {
+    func probeSite(_ raw: String) async -> Result<String, RelayProbeError> {
         let base = apiBase(raw)
         guard let url = URL(string: base + "/settings/public") else {
-            return .failure("地址格式不正确：\(raw)")
+            return .failure(RelayProbeError("地址格式不正确：\(raw)"))
         }
         var r = URLRequest(url: url)
         r.httpMethod = "GET"
@@ -858,21 +870,21 @@ final class RelayQuotaService: ObservableObject {
         do {
             let (data, resp) = try await URLSession.shared.data(for: r)
             guard let http = resp as? HTTPURLResponse else {
-                return .failure("无响应")
+                return .failure(RelayProbeError("无响应"))
             }
             guard (200..<300).contains(http.statusCode) else {
-                return .failure("该地址返回 HTTP \(http.statusCode)，不是有效的中转站入口。")
+                return .failure(RelayProbeError("该地址返回 HTTP \(http.statusCode)，不是有效的中转站入口。"))
             }
             guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                return .failure("该地址返回的不是网关数据，请检查站点地址。")
+                return .failure(RelayProbeError("该地址返回的不是网关数据，请检查站点地址。"))
             }
             // 本类网关的公开设置一定是 {code:0, data:{...}}
             if obj["code"] as? Int == 0, obj["data"] is [String: Any] {
                 return .success(apiBase(raw).replacingOccurrences(of: "/api/v1", with: ""))
             }
-            return .failure("该地址不像中转站网关（缺少 code/data 结构），请检查站点地址。")
+            return .failure(RelayProbeError("该地址不像中转站网关（缺少 code/data 结构），请检查站点地址。"))
         } catch {
-            return .failure("无法连接：\(error.localizedDescription)")
+            return .failure(RelayProbeError("无法连接：\(error.localizedDescription)"))
         }
     }
 
