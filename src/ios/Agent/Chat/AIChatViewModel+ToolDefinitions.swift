@@ -196,7 +196,7 @@ extension AIChatViewModel {
         if UserDefaults.standard.bool(forKey: "reverse.binutils") {
             tools.append(AgentToolDefinition(
                 name: "binutils_query",
-                description: "Query binary symbols and structure with bundled binutils (nm, objdump, readelf, strings). Useful for symbol tables, section layout, linked libraries and embedded strings before deeper r2 analysis. Prefer this over plain shell commands when you want structured output.",
+                description: "Query binary structure with binutils/LLVM tools. On Mach-O prefer the llvm-otool variants (llvm-otool -h/-l/-L/-o): they return headers, sections, dependencies and the Objective-C class list in about a second even on a 100MB+ binary, while readelf/objdump are ELF-only and return nothing there. Use llvm-nm for the full symbol table (large but complete). The complete output is always written to a file under /var/minis/workspace/binutils/ and its path is returned in the reply; nothing is truncated. If the reply shows only a leading window, pass offset/limit to page through the rest, or read that file directly. parameters: file (required), tool, offset (int), limit (int).",
                 parameters: [
                     "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user. Use the same language as the user."),
                     "file": AgentToolParam(type: .string, description: "Linux path to the binary to inspect."),
