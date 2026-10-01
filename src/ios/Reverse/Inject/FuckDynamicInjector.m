@@ -681,6 +681,75 @@ static BOOL FuckSandboxAllowsMapExec(pid_t pid, NSString *path) {
     return (rc == 0);
 }
 
+/// 用越狱环境自带的 cp，以 root persona 把一个文件拷到目标位置。
+///
+/// 为什么不能直接用 NSFileManager：
+///   我们主进程是 uid 501，受自身沙盒约束。实测往目标 App 的 Bundle container
+///   投递时被拒：「未能拷贝，因为你没有访问 <UUID> 的容器的许可」。
+///   而越狱环境的 /usr/bin/cp（Procursus bootstrap，真实 Mach-O 二进制）
+///   经 posix_spawn + persona(uid 0) 拉起后是真正的 root 进程，不受该限制。
+///   这是把 dylib 送进「App Store 正版 App 唯一允许 file-map-executable 的
+///   Bundle container」的关键一步。
+///
+/// 返回 0 表示拷贝成功。
+static int FuckRootCopyFile(NSString *src, NSString *dst, NSString *jbroot) {
+    if (!src.length || !dst.length) return -1;
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSArray<NSString *> *cpCandidates = @[
+        [jbroot stringByAppendingPathComponent:@"usr/bin/cp"],
+        [jbroot stringByAppendingPathComponent:@"bin/cp"],
+        @"/usr/bin/cp",
+        @"/bin/cp",
+    ];
+    NSString *cpPath = nil;
+    for (NSString *c in cpCandidates) {
+        if ([fm fileExistsAtPath:c]) { cpPath = c; break; }
+    }
+    if (!cpPath) {
+        FLog(@"[RootCopy] 未找到可用的 cp 工具");
+        return -1;
+    }
+
+    // 先清掉旧副本，避免 cp 因已存在而异常
+    [fm removeItemAtPath:dst error:nil];
+
+    int rc = FuckSpawnArguments(@[cpPath, @"-f", src, dst], YES);
+    if (rc != 0) {
+        FLog(@"[RootCopy] cp 返回 %d: %@ → %@", rc, src, dst);
+        return rc;
+    }
+    if (![fm fileExistsAtPath:dst]) {
+        FLog(@"[RootCopy] cp 返回 0 但目标不存在: %@", dst);
+        return -2;
+    }
+
+    // 权限对齐：目标进程以 mobile(501) 运行，需保证可读可执行
+    NSArray<NSString *> *chmodCandidates = @[
+        [jbroot stringByAppendingPathComponent:@"usr/bin/chmod"],
+        [jbroot stringByAppendingPathComponent:@"bin/chmod"],
+    ];
+    for (NSString *cm in chmodCandidates) {
+        if ([fm fileExistsAtPath:cm]) {
+            FuckSpawnArguments(@[cm, @"0755", dst], YES);
+            break;
+        }
+    }
+    NSArray<NSString *> *chownCandidates = @[
+        [jbroot stringByAppendingPathComponent:@"usr/bin/chown"],
+        [jbroot stringByAppendingPathComponent:@"bin/chown"],
+    ];
+    for (NSString *co in chownCandidates) {
+        if ([fm fileExistsAtPath:co]) {
+            FuckSpawnArguments(@[co, @"0:0", dst], YES);
+            break;
+        }
+    }
+
+    FLogSuccess(@"[RootCopy] 成功: %@", dst);
+    return 0;
+}
+
 static NSString *FuckResourcePath(NSString *name) {
     if (!name.length) return nil;
     NSString *path = [[[NSBundle mainBundle] resourcePath] stringByAppendingPathComponent:name];
@@ -2829,19 +2898,26 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
 
         for (NSString *dir in candidateDirs) {
             NSFileManager *fm = [NSFileManager defaultManager];
-            if (![fm fileExistsAtPath:dir]) continue;
-
-            NSString *dest = [dir stringByAppendingPathComponent:dylibName];
-            [fm removeItemAtPath:dest error:nil];
-
-            NSError *cpErr = nil;
-            if (![fm copyItemAtPath:signedDylib toPath:dest error:&cpErr]) {
-                FLog(@"[SandboxBypass] 投递失败 %@ → %@（%@）", dir, dylibName, cpErr.localizedDescription);
+            if (![fm fileExistsAtPath:dir]) {
+                FLog(@"[SandboxBypass] 跳过不存在的落点: %@", dir);
                 continue;
             }
-            // 权限对齐：目标进程以 mobile(501) 运行，必须让它读得到
-            chmod(dest.UTF8String, 0755);
-            chown(dest.UTF8String, 0, 0);
+
+            NSString *dest = [dir stringByAppendingPathComponent:dylibName];
+
+            // 关键改动：一律用「越狱 cp + root persona」投递，而不是 NSFileManager。
+            // 主进程 uid 501 往目标 Bundle container 拷贝会被沙盒拒绝，root cp 不会。
+            int cpRC = FuckRootCopyFile(signedDylib, dest, jbroot);
+            if (cpRC != 0) {
+                FLog(@"[SandboxBypass] 投递失败 %@ → %@（root cp 返回 %d，回退 NSFileManager）",
+                     dir, dylibName, cpRC);
+                NSError *cpErr = nil;
+                if (![fm copyItemAtPath:signedDylib toPath:dest error:&cpErr]) {
+                    FLog(@"[SandboxBypass]   NSFileManager 亦失败：%@", cpErr.localizedDescription);
+                    continue;
+                }
+                chmod(dest.UTF8String, 0755);
+            }
             [deliveredCopies addObject:dest];
 
             BOOL allows = FuckSandboxAllowsMapExec(targetPid, dest);
