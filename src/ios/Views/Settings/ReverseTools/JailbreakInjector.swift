@@ -360,13 +360,17 @@ enum JailbreakInjector {
             if pid <= 0 {
                 reportProgress("启动目标 App…")
                 appendLog("目标未运行，尝试拉起")
-                openApp(bundleID: bundleID)
-                pid = waitForPID(bundleURL: bundleURL, executableName: executableName, timeout: 12)
+                let launched = openApp(bundleID: bundleID)
+                appendLog(launched
+                          ? "已请求 SpringBoard 拉起 \(bundleID)，等待进程出现…"
+                          : "⚠️ LSApplicationWorkspace 调用失败（可能缺少 platform 权限）")
+                pid = waitForPID(bundleURL: bundleURL, executableName: executableName, timeout: 20)
             }
 
             guard pid > 0 else {
                 cleanup(dylib: effectiveDylib, original: dylibPath, mode: mode)
-                let msg = "无法获取目标进程（App 未启动或已退出）"
+                let msg = "无法获取目标进程：已请求拉起但 \(Int(20)) 秒内未见进程。"
+                    + "请手动打开目标 App 后再试一次（首次启动较慢时常见）。"
                 appendLog("❌ \(msg)")
                 finish(DynamicInjectOutcome(success: false, message: msg))
                 return
@@ -422,6 +426,7 @@ enum JailbreakInjector {
         }
         guard actual > 0 else { return -1 }
 
+        // PROC_PIDPATHINFO_MAXSIZE = 4096，正好等于这个缓冲长度
         var buf = [CChar](repeating: 0, count: 4096)
         for i in 0..<Int(actual) {
             let p = pids[i]
@@ -446,15 +451,29 @@ enum JailbreakInjector {
 
     // MARK: 拉起 App
 
-    private static func openApp(bundleID: String) {
-        guard let wsClass = NSClassFromString("LSApplicationWorkspace") as AnyObject? else { return }
-        let wsSel = NSSelectorFromString("defaultWorkspace")
-        guard wsClass.responds(to: wsSel) else { return }
-        guard let wsAny = wsClass.perform(wsSel)?.takeUnretainedValue() else { return }
+    /// 拉起目标 App。
+    ///
+    /// 必须在主线程调用：LSApplicationWorkspace 是 SpringBoard 侧的私有 API，
+    /// 从后台队列调用时它会静默失败（返回成功但不真的拉起），
+    /// 于是随后的 waitForPID 一直等不到进程，最终报「无法获取目标进程」。
+    /// 这里用 sync 回主线程，等调用真正完成再返回。
+    @discardableResult
+    private static func openApp(bundleID: String) -> Bool {
+        var ok = false
+        let work = {
+            guard let wsClass = NSClassFromString("LSApplicationWorkspace") as AnyObject? else { return }
+            let wsSel = NSSelectorFromString("defaultWorkspace")
+            guard wsClass.responds(to: wsSel) else { return }
+            guard let wsAny = wsClass.perform(wsSel)?.takeUnretainedValue() else { return }
 
-        let openSel = NSSelectorFromString("openApplicationWithBundleID:")
-        guard let ws = wsAny as? NSObject, ws.responds(to: openSel) else { return }
-        _ = ws.perform(openSel, with: bundleID as NSString)
+            let openSel = NSSelectorFromString("openApplicationWithBundleID:")
+            guard let ws = wsAny as? NSObject, ws.responds(to: openSel) else { return }
+            _ = ws.perform(openSel, with: bundleID as NSString)
+            ok = true
+        }
+        if Thread.isMainThread { work() }
+        else { DispatchQueue.main.sync(execute: work) }
+        return ok
     }
 
     // MARK: 崩溃报告
