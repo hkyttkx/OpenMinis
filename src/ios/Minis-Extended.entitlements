@@ -120,5 +120,16 @@
 	<true/>
 	<key>com.apple.private.set-exception-port</key>
 	<true/>
+	<!-- ══════════ Relaxin / Dopamine 官方内核与进程注入特权 ══════════ -->
+	<key>com.apple.system-task-ports</key>
+	<true/>
+	<key>com.apple.system-task-ports.control</key>
+	<true/>
+	<key>com.apple.private.thread-set-state</key>
+	<true/>
+	<key>com.apple.private.set-exception-port</key>
+	<true/>
+	<key>com.apple.private.security.container-required</key>
+	<false/>
 </dict>
 </plist>
