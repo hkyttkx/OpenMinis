@@ -49,9 +49,11 @@
 	<!-- 组合与 TrollStore 生态的 TrollApps 一致（已验证可列出全部 App / 读容器） -->
 	<key>platform-application</key>
 	<true/>
-	<!-- 逃逸沙盒：直读任意已装 App 的 Bundle 与数据容器 -->
-	<key>com.apple.private.security.no-sandbox</key>
-	<true/>
+	<!-- 不声明 no-sandbox：逃逸沙盒会让 WKWebView 的 WebContent 子进程
+	     拿不到本 App 容器的沙盒扩展，表现为「任何页面都打不开」——
+	     含本地文件（本地文件同样经 WebContent 渲染）。
+	     读其它 App 容器改用下面这几条沙盒例外，它们在保持沙盒的前提下
+	     同样能枚举容器并读取 Bundle / Data。 -->
 	<!-- LSApplicationWorkspace 枚举 App 所需 -->
 	<key>com.apple.private.MobileContainerManager.allowed</key>
 	<true/>
