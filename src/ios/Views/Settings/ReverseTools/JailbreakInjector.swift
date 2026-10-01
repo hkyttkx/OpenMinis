@@ -79,31 +79,26 @@ enum DynamicInjectChannel: Int, CaseIterable, Identifiable {
 }
 
 enum DynamicInjectMode: Int, CaseIterable, Identifiable {
-    case strict = 0
     case clean = 1
 
     var id: Int { rawValue }
 
     var title: String {
         switch self {
-        case .strict: return "严格复刻"
-        case .clean:  return "无痕模式"
+        case .clean:  return "无痕模式（稳定注入）"
         }
     }
 
     var subtitle: String {
         switch self {
-        case .strict:
-            return "dylib 先复制到目标 App 同级目录再注入，兼容性最好；完成后自动清理"
         case .clean:
-            return "dylib 只保存在本机临时目录，不向目标 App 写入任何文件，注入后立即清除"
+            return "通过 Relaxin 官方通道直接挂载执行，不篡改目标 App bundle，稳定防闪退"
         }
     }
 
     var systemImage: String {
         switch self {
-        case .strict: return "doc.on.doc"
-        case .clean:  return "eye.slash"
+        case .clean:  return "shield.lefthalf.filled"
         }
     }
 }
