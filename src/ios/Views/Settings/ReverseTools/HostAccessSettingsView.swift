@@ -51,6 +51,26 @@ struct HostAccessSettingsView: View {
                 Text("「全部关闭」会立即撤销所有已授权位置。切到该档后 AI 无法读取任何宿主文件。")
             }
 
+            // MARK: 全盘访问（一个开关管全部）
+            Section {
+                Toggle(isOn: Binding(
+                    get: { manager.isFullDiskEnabled },
+                    set: { manager.setFullDisk($0) }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("全盘访问（读写）").font(.body.weight(.medium))
+                        Text("开启后 AI 可读写手机上任意路径，包含越狱目录与其它 App 容器。每次修改是否弹窗确认，由下面的「写保护」决定。")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .disabled(manager.level == .off)
+            } header: {
+                Text("全盘访问")
+            } footer: {
+                Text("这是最省事的用法：开这一个就够。想精确控制时，关掉它改用下面的逐项授权。")
+            }
+
             // MARK: 一键授权
             Section {
                 Button {
