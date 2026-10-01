@@ -661,6 +661,26 @@ static int FuckSpawnArguments(NSArray<NSString *> *arguments, BOOL asRootPersona
     return FuckSpawnArgumentsWithOutput(arguments, asRootPersona, NULL);
 }
 
+/// 询问内核：目标进程能否对 path 做可执行映射（file-map-executable）。
+///
+/// 这是决定 dlopen 成败的唯一判据。iOS 沙盒对两种权限的尺度完全不同：
+///   - file-read-data        ：Data container 内的文件通常就给
+///   - file-map-executable   ：只对「App 自身代码区」（Bundle container）宽松
+/// 实测 opainject 自带的 sandboxFixup 会打印
+///   "read extension not needed, skipping..." +
+///   "sandbox_extension_consume returned 0 for executable extension"
+/// 即：读权限本就有，唯独 exec 被拒 —— 这正是 dlopen 报
+/// "file system sandbox blocked mmap()" 的直接原因。
+///
+/// 返回 YES 表示内核允许（sandbox_check 返回 0）。
+static BOOL FuckSandboxAllowsMapExec(pid_t pid, NSString *path) {
+    if (pid <= 0 || !path.length) return NO;
+    int rc = sandbox_check(pid, "file-map-executable",
+                           (enum fuck_sandbox_filter_type)(FUCK_SANDBOX_FILTER_PATH | SANDBOX_CHECK_NO_REPORT),
+                           (const char *)path.UTF8String);
+    return (rc == 0);
+}
+
 static NSString *FuckResourcePath(NSString *name) {
     if (!name.length) return nil;
     NSString *path = [[[NSBundle mainBundle] resourcePath] stringByAppendingPathComponent:name];
@@ -2764,28 +2784,85 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
         FLog(@"[Relaxin] 调用 jbclient_trust_file_by_path 注入 Trust Cache…");
         FuckRoothideTrustDylib(signedDylib);
 
-        // ── 阶段二：把成品投递进目标 App 自己的沙盒目录 ──
-        // 目的：让目标进程能从「它自己有权 mmap 的路径」加载，绕过
-        // file system sandbox blocked mmap()。签名工作已在阶段一完成，此处只做拷贝。
-        NSString *destDir = nil;
-        if (targetContainerTmp.length && [[NSFileManager defaultManager] fileExistsAtPath:targetContainerTmp]) {
-            destDir = targetContainerTmp;
-            FLogSuccess(@"[SandboxBypass] 成功定位目标 App 自身数据容器 tmp: %@", destDir);
-        } else {
-            destDir = jailStageDir;
-            FLog(@"[SandboxBypass] 目标无可用数据容器，沿用越狱公共目录");
-        }
-        chmod(destDir.UTF8String, 0777);
+        // ── 阶段二：把成品投递到「目标进程真的能 mmap-executable」的位置 ──
+        //
+        // 这一步是 dlopen 成败的关键。签名已在阶段一完成，此处纯拷贝 + 探测。
+        //
+        // 为什么不照搬旧实现：旧实现固定投 Data container 的 tmp/，那是目标 App
+        // 的「数据区」——读没问题，但 iOS 不把它当作可执行区，于是
+        // file-map-executable 被拒、dlopen 报 sandbox blocked mmap()。
+        // 旧代码注释里其实早就写明了正确落点：
+        //   「dlopen 会被沙盒拦截 mmap(PROT_EXEC)，文件必须在目标 App 的
+        //     bundle container 内」
+        // 这里改成把候选落点列出来、逐个投递、逐个向内核求证，选第一个真正
+        // 允许可执行映射的，而不是照抄旧实现的固定路径。
+        NSString *dylibName = [dylibPath lastPathComponent];
+        NSMutableArray<NSString *> *candidateDirs = [NSMutableArray array];
 
-        NSString *stagedDylib = [destDir stringByAppendingPathComponent:[dylibPath lastPathComponent]];
-        [[NSFileManager defaultManager] removeItemAtPath:stagedDylib error:nil];
-        NSError *cpErr2 = nil;
-        if ([[NSFileManager defaultManager] copyItemAtPath:signedDylib toPath:stagedDylib error:&cpErr2]) {
-            chmod(stagedDylib.UTF8String, 0755);
+        // 候选 1：Bundle container（.app 的同级目录）—— App 自身代码区，exec 最宽松
+        NSString *targetBundlePath = FuckProxyPathFromURL(targetProxy, @"bundleURL");
+        if (targetBundlePath.length) {
+            NSString *bundleContainer = [targetBundlePath stringByDeletingLastPathComponent];
+            if (bundleContainer.length) [candidateDirs addObject:bundleContainer];
+        }
+        // 候选 2：目标 App 自己的 Data container tmp/（读一定行，exec 视策略）
+        if (targetContainerTmp.length) [candidateDirs addObject:targetContainerTmp];
+        // 候选 3：越狱公共目录（兜底，仅在目标自身无沙盒限制时有效）
+        [candidateDirs addObject:jailStageDir];
+
+        FLog(@"[SandboxBypass] 目标 bundle: %@", targetBundlePath ?: @"(nil)");
+        FLog(@"[SandboxBypass] 候选落点 %lu 个，开始逐个投递并探测 file-map-executable",
+             (unsigned long)candidateDirs.count);
+
+        NSMutableArray<NSString *> *deliveredCopies = [NSMutableArray array];
+        NSString *stagedDylib = nil;
+        NSString *chosenDir = nil;
+        BOOL chosenAllowsExec = NO;
+
+        for (NSString *dir in candidateDirs) {
+            NSFileManager *fm = [NSFileManager defaultManager];
+            if (![fm fileExistsAtPath:dir]) continue;
+
+            NSString *dest = [dir stringByAppendingPathComponent:dylibName];
+            [fm removeItemAtPath:dest error:nil];
+
+            NSError *cpErr = nil;
+            if (![fm copyItemAtPath:signedDylib toPath:dest error:&cpErr]) {
+                FLog(@"[SandboxBypass] 投递失败 %@ → %@（%@）", dir, dylibName, cpErr.localizedDescription);
+                continue;
+            }
+            // 权限对齐：目标进程以 mobile(501) 运行，必须让它读得到
+            chmod(dest.UTF8String, 0755);
+            chown(dest.UTF8String, 0, 0);
+            [deliveredCopies addObject:dest];
+
+            BOOL allows = FuckSandboxAllowsMapExec(targetPid, dest);
+            FLog(@"[SandboxBypass] 投递成功: %@ → file-map-executable %@",
+                 dest, allows ? @"允许 ✅" : @"被拒 ❌");
+
+            if (allows && !chosenDir) {
+                chosenDir = dir;
+                stagedDylib = dest;
+                chosenAllowsExec = YES;
+                FLogSuccess(@"[SandboxBypass] 命中可用落点: %@", dest);
+                break;   // 已有可执行落点，无需继续尝试
+            }
+            if (!stagedDylib) {
+                // 记下第一个投递成功的，作为「都不允许」时的兜底
+                stagedDylib = dest;
+            }
+        }
+
+        if (stagedDylib) {
             finalDylibPath = stagedDylib;
-            FLogSuccess(@"[Relaxin] 已将已签名 dylib 投递到目标合法可读区: %@", finalDylibPath);
+            if (chosenAllowsExec) {
+                FLogSuccess(@"[Relaxin] 使用落点: %@", finalDylibPath);
+            } else {
+                FLog(@"[Relaxin] ⚠️ 所有候选落点均未获可执行权限，仍用 %@ 尝试（交由 opainject 补发扩展）",
+                     finalDylibPath);
+            }
         } else {
-            FLogError(@"[Relaxin] 投递到目标容器失败: %@，改用越狱目录路径", cpErr2.localizedDescription);
+            FLogError(@"[Relaxin] 全部候选落点投递失败，退回越狱暂存路径");
             finalDylibPath = signedDylib;
         }
 
@@ -2807,13 +2884,14 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
         int rc = FuckSpawnArgumentsWithOutput(args, YES, &injectOutput);
         FLog(@"[Relaxin] 官方 opainject 返回码: %d", rc);
 
-        // 注入完成后立即清理暂存件（目标容器 + 越狱暂存区），保持无痕
-        if (stagedDylib && ![stagedDylib isEqualToString:dylibPath]) {
-            [[NSFileManager defaultManager] removeItemAtPath:stagedDylib error:nil];
-            FLog(@"[Relaxin] 已清除目标容器内的临时 dylib");
+        // 注入完成后立即清理所有暂存件（各处投递副本 + 越狱暂存区），保持无痕
+        for (NSString *copyPath in deliveredCopies) {
+            if ([copyPath isEqualToString:dylibPath]) continue;
+            if ([[NSFileManager defaultManager] removeItemAtPath:copyPath error:nil]) {
+                FLog(@"[Relaxin] 已清除投递副本: %@", copyPath);
+            }
         }
-        if (signedDylib && ![signedDylib isEqualToString:dylibPath] &&
-            ![signedDylib isEqualToString:stagedDylib]) {
+        if (signedDylib && ![signedDylib isEqualToString:dylibPath]) {
             [[NSFileManager defaultManager] removeItemAtPath:signedDylib error:nil];
             FLog(@"[Relaxin] 已清除越狱暂存区的临时 dylib");
         }
