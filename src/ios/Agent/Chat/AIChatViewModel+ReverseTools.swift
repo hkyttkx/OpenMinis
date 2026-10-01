@@ -153,53 +153,87 @@ extension AIChatViewModel {
             return ("Error: invalid characters in 'file' path.", false)
         }
 
-        let tool = (args["tool"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "nm"
-        // 白名单：只有这些组合可执行。
+        // 工具白名单。
+        //
+        // 关键：Mach-O 上真正好用的不是 readelf/objdump —— 那是 ELF 的工具，
+        // 对 Mach-O 返回空。LLVM 那套才是（实测 127MB 二进制）：
+        //   llvm-otool -l   0s   段/节全貌
+        //   llvm-otool -o   1s   761 个 ObjC 类
+        //   llvm-otool -L   0s   依赖库
+        // 而 rabin2 -I 要 122s —— 所以别把 rabin2 当默认入口。
         let allowed: Set<String> = [
+            // ELF
             "nm", "nm -u", "objdump -h", "objdump -t",
-            "readelf -h", "readelf -d", "readelf -s", "strings -a",
+            "readelf -h", "readelf -d", "readelf -s",
+            // 通用
+            "strings -a", "xxd",
+            // Mach-O（LLVM 实现，大文件也是秒级）
+            "llvm-otool -h", "llvm-otool -l", "llvm-otool -L",
+            "llvm-otool -o", "llvm-otool -I", "llvm-otool -hv",
+            "llvm-nm", "llvm-objdump -h", "llvm-lipo -info",
+            // 兼容拼写
+            "otool -h", "otool -l", "otool -L",
         ]
+        let tool = (args["tool"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "llvm-otool -h"
         guard allowed.contains(tool) else {
-            return ("Error: 'tool' must be one of: \(allowed.sorted().joined(separator: ", "))", false)
+            return ("Error: 'tool' must be one of:\n" + allowed.sorted().joined(separator: "\n"), false)
         }
 
-        let cmd = "\(tool) '\(file)' 2>&1 | head -400"
-        return await runStreaming(cmd, label: "\(tool) \(file)", msgIdx: msgIdx, blockIdx: blockIdx)
+        // 分页参数：默认给摘要，需要细节时按行窗口拉。
+        // 旧实现写死 `| head -400`，等于永远只能看到前 400 行 —— 大文件的
+        // 符号表有 27 万行，段表/类表也远超 400，这就是「看不全」的来源。
+        let offset = max(0, (args["offset"] as? Int) ?? 0)
+        let limit  = max(0, (args["limit"] as? Int) ?? 0)      // 0 = 不限制
+
+        // 输出落盘路径：让模型随时能回头读全量，而不是被截断
+        let outDir = "/var/minis/workspace/binutils"
+        try? FileManager.default.createDirectory(atPath: outDir,
+                                                 withIntermediateDirectories: true)
+        let stamp = Int(Date().timeIntervalSince1970)
+        let base = (file as NSString).lastPathComponent
+            .replacingOccurrences(of: "/", with: "_")
+        let outFile = "\(outDir)/\(base).\(stamp).txt"
+
+        // 先跑完整命令，输出写文件（不做任何截断）
+        let safeTool = tool
+        let cmd = "\(safeTool) '\(file)' > '\(outFile)' 2>&1; echo \"__EXIT__$?\""
+        _ = await runStreaming(cmd, label: "\(safeTool) \(base)",
+                               msgIdx: msgIdx, blockIdx: blockIdx)
+
+        // 统计并回传摘要 + 请求的分页窗口
+        guard let raw = try? String(contentsOfFile: outFile, encoding: .utf8) else {
+            return ("Error: 无法读取输出文件 \(outFile)", false)
+        }
+        let lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
+        let total = lines.count
+
+        var header: [String] = []
+        header.append("\(safeTool) \(base)")
+        header.append("总行数 \(total)   全量输出：\(outFile)")
+
+        var body: [String] = []
+        if limit > 0 {
+            let lo = min(offset, total)
+            let hi = min(offset + limit, total)
+            header.append("显示第 \(lo + 1)–\(hi) 行（limit=\(limit) offset=\(offset)）")
+            if hi > lo { body = lines[lo..<hi].map(String.init) }
+        } else {
+            // 不限制：但避免把几十万行直接塞进上下文 —— 超过阈值时
+            // 只回传前 2000 行，并明确告诉模型用 offset/limit 继续读。
+            let inlineCap = 2000
+            if total <= inlineCap {
+                header.append("完整输出")
+                body = lines.map(String.init)
+            } else {
+                header.append("行数较多，先给前 \(inlineCap) 行；用 offset/limit 继续读，"
+                            + "或直接读文件 \(outFile)")
+                body = lines[0..<inlineCap].map(String.init)
+            }
+        }
+
+        return (header.joined(separator: "\n") + "\n\n" + body.joined(separator: "\n"), true)
     }
 
-    /// 用内置 `file` 确认真实类型，必要时用 sqlite3 查库。
-    func executeFileQueryTool(
-        from json: String, msgIdx: Int, blockIdx: Int
-    ) async -> (output: String, success: Bool) {
-        guard let data = json.data(using: .utf8),
-              let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return ("Error: invalid arguments for file_query", false)
-        }
-        guard var file = (args["file"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !file.isEmpty else {
-            return ("Error: 'file' is required.", false)
-        }
-        if file.hasPrefix("minis://") { file = file.replacingOccurrences(of: "minis://", with: "/var/minis/") }
-        guard !file.contains(where: { "\"';`|&$".contains($0) }) else {
-            return ("Error: invalid characters in 'file' path.", false)
-        }
-
-        let sql = (args["sql"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        var cmd = "file '\(file)' 2>&1"
-        if !sql.isEmpty {
-            // SQL 里只禁止会截断命令的字符；引号走 heredoc 传给 sqlite3。
-            guard !sql.contains(where: { ";".contains($0) }) || sql.lowercased().hasPrefix("select") || sql.hasPrefix(".") else {
-                return ("Error: only a single SQL statement or a dot-command is allowed.", false)
-            }
-            guard !sql.contains("'") else {
-                return ("Error: single quotes are not allowed in 'sql'.", false)
-            }
-            cmd += "; echo '--- sqlite3 ---'; sqlite3 '\(file)' '\(sql)' 2>&1 | head -200"
-        }
-        return await runStreaming(cmd, label: "file \(file)", msgIdx: msgIdx, blockIdx: blockIdx)
-    }
-
-    /// 共用：流式跑一条命令，把输出灌进工具卡片。
     private func runStreaming(
         _ cmd: String, label: String, msgIdx: Int, blockIdx: Int
     ) async -> (output: String, success: Bool) {
@@ -213,7 +247,9 @@ extension AIChatViewModel {
                 if msgIdx < self.messages.count, blockIdx < self.messages[msgIdx].blocks.count {
                     let cur = self.messages[msgIdx].blocks[blockIdx].content
                     var next = cur.hasPrefix("⏳") ? line : cur + "\n" + line
-                    if next.count > 30_000 { next = "…[output truncated]…\n" + String(next.suffix(30_000)) }
+                    // 这只是 UI 里的流式预览（完整输出由调用方写文件）。
+                    // 只保留尾部以免界面卡顿，不影响模型拿到的内容。
+                    if next.count > 30_000 { next = "…（预览省略前段，完整内容见输出文件）…\n" + String(next.suffix(30_000)) }
                     self.messages[msgIdx].blocks[blockIdx].content = next
                     self.scrollToBottomSignal.send()
                 }
