@@ -148,7 +148,7 @@ extension AIChatViewModel {
             return ("Error: dylib not found at \(dylibPath). Generate it first with hook_compile.", false)
         }
 
-        let mode: DynamicInjectMode = (modeRaw == "strict") ? .strict : .clean
+        let mode: DynamicInjectMode = .clean
 
         // 解析目标 App 信息（需要 bundleURL 与主二进制名）
         let apps = InstalledAppsService.listApps(includeSystem: true)
