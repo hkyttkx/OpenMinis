@@ -129,25 +129,78 @@ struct RelayQuotaView: View {
             dashboardRow(icon: "clock", tint: .red, title: "平均响应",
                          value: String(format: "%.2fs", u.avgResponseSeconds))
 
-            // 分组与趋势
+            // ── 模型分布（环形图 + 表格），对齐站点原版 dashboard ──
+            if !u.byModel.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("模型分布").font(.headline)
+
+                    RelayDonutChart(
+                        slices: donutSlices(u.byModel.map { ($0.name, $0.actualCost > 0 ? $0.actualCost : $0.cost) },
+                                            palette: Self.modelPalette),
+                        centerTitle: "实际消费",
+                        centerValue: String(format: "$%.2f", u.totalActualCost > 0 ? u.totalActualCost : u.totalCost)
+                    )
+
+                    // 表头
+                    HStack {
+                        Text("模型").frame(maxWidth: .infinity, alignment: .leading)
+                        Text("请求").frame(width: 52, alignment: .trailing)
+                        Text("Token").frame(width: 62, alignment: .trailing)
+                        Text("实际").frame(width: 66, alignment: .trailing)
+                    }
+                    .font(.caption2).foregroundStyle(.secondary)
+
+                    Divider()
+
+                    ForEach(u.byModel) { m in
+                        HStack {
+                            Text(m.name)
+                                .font(.caption.monospaced())
+                                .lineLimit(1).truncationMode(.middle)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text("\(m.requests)").font(.caption.monospacedDigit())
+                                .frame(width: 52, alignment: .trailing)
+                            Text(fmtCompact(m.tokens)).font(.caption.monospacedDigit())
+                                .frame(width: 62, alignment: .trailing)
+                            Text(String(format: "$%.4f", m.actualCost > 0 ? m.actualCost : m.cost))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.green)
+                                .frame(width: 66, alignment: .trailing)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+
+            // ── Token 使用趋势（折线图）──
+            if u.trend.count > 1 {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Token 使用趋势").font(.headline)
+                    RelayLineChart(
+                        points: u.trend.map { RelayLineChart.Point(label: shortDate($0.date), value: Double($0.tokens)) },
+                        tint: .blue,
+                        unit: "tok"
+                    )
+                    // 同一条趋势里再给一条消费线
+                    Text("消费趋势").font(.subheadline).foregroundStyle(.secondary)
+                    RelayLineChart(
+                        points: u.trend.map { RelayLineChart.Point(label: shortDate($0.date), value: $0.actualCost) },
+                        tint: .green,
+                        unit: "USD"
+                    )
+                }
+                .padding(.vertical, 4)
+            }
+
+            // ── 平台 / 端点：仍是列表，但用条形 ──
             if !u.byPlatform.isEmpty {
                 NavigationLink { RelayGroupListView(title: "按平台", rows: u.byPlatform) } label: {
                     Label("按平台（\(u.byPlatform.count)）", systemImage: "square.stack.3d.up")
                 }
             }
-            if !u.byModel.isEmpty {
-                NavigationLink { RelayGroupListView(title: "按模型", rows: u.byModel) } label: {
-                    Label("按模型（\(u.byModel.count)）", systemImage: "cpu")
-                }
-            }
             if !u.byEndpoint.isEmpty {
                 NavigationLink { RelayGroupListView(title: "按端点", rows: u.byEndpoint) } label: {
                     Label("按端点（\(u.byEndpoint.count)）", systemImage: "arrow.triangle.branch")
-                }
-            }
-            if !u.trend.isEmpty {
-                NavigationLink { RelayTrendView(points: u.trend) } label: {
-                    Label("每日趋势（\(u.trend.count) 天）", systemImage: "chart.xyaxis.line")
                 }
             }
 
@@ -166,6 +219,44 @@ struct RelayQuotaView: View {
     }
 
     @ViewBuilder
+    /// 模型 / 平台配色的固定调色板，保证同一模型每次颜色一致
+    static let modelPalette: [Color] = [
+        .blue, .green, .orange, .purple, .pink, .teal, .indigo, .yellow, .mint, .red
+    ]
+
+    /// 把 (名称, 数值) 列表转成环形图切片；数值为 0 的丢弃，超过 8 项合并为「其它」
+    private func donutSlices(_ items: [(String, Double)], palette: [Color]) -> [RelayDonutChart.Slice] {
+        let positive = items.filter { $0.1 > 0 }.sorted { $0.1 > $1.1 }
+        var out: [RelayDonutChart.Slice] = []
+        for (i, item) in positive.prefix(8).enumerated() {
+            out.append(RelayDonutChart.Slice(name: item.0,
+                                             value: item.1,
+                                             color: palette[i % palette.count]))
+        }
+        if positive.count > 8 {
+            let rest = positive.dropFirst(8).reduce(0.0) { $0 + $1.1 }
+            out.append(RelayDonutChart.Slice(name: "其它 \(positive.count - 8) 项",
+                                             value: rest,
+                                             color: .gray))
+        }
+        return out
+    }
+
+    /// "2026-09-30" → "09-30"
+    private func shortDate(_ s: String) -> String {
+        let parts = s.split(separator: "-")
+        guard parts.count == 3 else { return s }
+        return "\(parts[1])-\(parts[2])"
+    }
+
+    /// 1.72 亿 → "172.1M"
+    private func fmtCompact(_ n: Int) -> String {
+        if n >= 1_000_000_000 { return String(format: "%.2fB", Double(n) / 1_000_000_000) }
+        if n >= 1_000_000 { return String(format: "%.2fM", Double(n) / 1_000_000) }
+        if n >= 1_000 { return String(format: "%.1fK", Double(n) / 1_000) }
+        return "\(n)"
+    }
+
     /// 大数字缩写：676 → "676"，1.72 亿 → "172.1M"
     private func fmtInt(_ n: Int) -> String {
         if n >= 1_000_000_000 { return String(format: "%.2fB", Double(n) / 1_000_000_000) }
@@ -461,3 +552,137 @@ private struct RelayTrendView: View {
     }
 }
 
+
+// MARK: - 环形图（模型 / 平台分布）
+
+/// 用扇形拼出的环形图。不引入 Charts 框架保持依赖最小，
+/// 也避免把大块数据绑进 View 触发类型检查超时。
+struct RelayDonutChart: View {
+    struct Slice: Identifiable {
+        var id: String { name }
+        let name: String
+        let value: Double
+        let color: Color
+    }
+    let slices: [Slice]
+    let centerTitle: String
+    let centerValue: String
+
+    private var total: Double { max(slices.reduce(0) { $0 + $1.value }, 0.0000001) }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 16) {
+            ZStack {
+                ForEach(Array(slices.enumerated()), id: \.offset) { idx, _ in
+                    let a = segment(idx)
+                    Circle()
+                        .trim(from: a.start, to: a.end)
+                        .stroke(slices[idx].color,
+                                style: StrokeStyle(lineWidth: 26, lineCap: .butt))
+                        .rotationEffect(.degrees(-90))
+                }
+                VStack(spacing: 2) {
+                    Text(centerValue).font(.headline.monospacedDigit())
+                    Text(centerTitle).font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 148, height: 148)
+
+            VStack(alignment: .leading, spacing: 7) {
+                ForEach(Array(slices.enumerated()), id: \.offset) { _, sl in
+                    HStack(spacing: 7) {
+                        Circle().fill(sl.color).frame(width: 9, height: 9)
+                        Text(sl.name).font(.caption).lineLimit(1)
+                        Spacer(minLength: 6)
+                        Text(String(format: "%.1f%%", sl.value / total * 100))
+                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    private func segment(_ idx: Int) -> (start: CGFloat, end: CGFloat) {
+        var acc: Double = 0
+        for i in 0..<idx { acc += slices[i].value }
+        let start = acc / total
+        let end = (acc + slices[idx].value) / total
+        return (CGFloat(start), CGFloat(end))
+    }
+}
+
+// MARK: - 折线图（趋势）
+
+struct RelayLineChart: View {
+    struct Point: Identifiable {
+        var id: String { label }
+        let label: String
+        let value: Double
+    }
+    let points: [Point]
+    let tint: Color
+    let unit: String
+
+    private var maxValue: Double { max(points.map(\.value).max() ?? 1, 0.0000001) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GeometryReader { geo in
+                let w = geo.size.width
+                let h = geo.size.height
+                let n = max(points.count - 1, 1)
+                ZStack {
+                    ForEach(0..<4, id: \.self) { i in
+                        let y = h * CGFloat(i) / 3
+                        Path { p in
+                            p.move(to: CGPoint(x: 0, y: y))
+                            p.addLine(to: CGPoint(x: w, y: y))
+                        }
+                        .stroke(Color.secondary.opacity(0.15), lineWidth: 0.5)
+                    }
+                    Path { p in
+                        p.move(to: CGPoint(x: 0, y: h))
+                        for (i, pt) in points.enumerated() {
+                            p.addLine(to: CGPoint(x: w * CGFloat(i) / CGFloat(n),
+                                                  y: h - h * CGFloat(pt.value / maxValue)))
+                        }
+                        p.addLine(to: CGPoint(x: w, y: h))
+                        p.closeSubpath()
+                    }
+                    .fill(tint.opacity(0.15))
+                    Path { p in
+                        for (i, pt) in points.enumerated() {
+                            let c = CGPoint(x: w * CGFloat(i) / CGFloat(n),
+                                            y: h - h * CGFloat(pt.value / maxValue))
+                            if i == 0 { p.move(to: c) } else { p.addLine(to: c) }
+                        }
+                    }
+                    .stroke(tint, style: StrokeStyle(lineWidth: 2, lineJoin: .round))
+                    ForEach(Array(points.enumerated()), id: \.offset) { i, pt in
+                        Circle().fill(tint).frame(width: 5, height: 5)
+                            .position(x: w * CGFloat(i) / CGFloat(n),
+                                      y: h - h * CGFloat(pt.value / maxValue))
+                    }
+                }
+            }
+            .frame(height: 128)
+
+            HStack {
+                Text(points.first?.label ?? "").font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+                Text(points.last?.label ?? "").font(.caption2).foregroundStyle(.secondary)
+            }
+            if let peak = points.map(\.value).max() {
+                Text("峰值 " + fmtBig(peak) + (unit.isEmpty ? "" : " " + unit))
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private func fmtBig(_ v: Double) -> String {
+        if v >= 1_000_000_000 { return String(format: "%.2fB", v / 1_000_000_000) }
+        if v >= 1_000_000 { return String(format: "%.2fM", v / 1_000_000) }
+        if v >= 1_000 { return String(format: "%.1fK", v / 1_000) }
+        return String(format: "%.0f", v)
+    }
+}
