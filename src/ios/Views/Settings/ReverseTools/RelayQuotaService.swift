@@ -74,6 +74,8 @@ struct RelayAccount: Codable {
     var username: String?
     var subscription: String?
     var rawText: String?
+    /// 累计充值（/auth/me 的 total_recharged）
+    var totalRecharged: Double?
 
     enum CodingKeys: String, CodingKey {
         case balance, quota, username, email, rpm, tpm, subscription
@@ -89,19 +91,54 @@ struct RelayAccount: Codable {
 }
 
 struct RelayUsage {
+    // 汇总（来自 /usage/dashboard/stats + /usage/stats）
     var todayRequests = 0
     var totalRequests = 0
     var todayCost: Double = 0
-    var totalCost: Double = 0
+    var totalCost: Double = 0          // 计费口径（cost）
+    var totalActualCost: Double = 0    // 实付口径（actual_cost）
     var todayTokens = 0
     var totalTokens = 0
     var inputTokens = 0
     var outputTokens = 0
-    var cachedTokens = 0
+    var cachedTokens = 0               // cache_read
+    var cacheCreationTokens = 0
     var rpm = 0
     var tpm = 0
     var avgResponseSeconds: Double = 0
+    var totalAPIKeys = 0
+    var activeAPIKeys = 0
+
+    // 分组维度
+    var byPlatform: [RelayGroupRow] = []
+    var byModel: [RelayGroupRow] = []
+    var byEndpoint: [RelayGroupRow] = []
+    var trend: [RelayTrendPoint] = []
+
     var raw = ""
+}
+
+/// 按平台 / 模型 / 端点分组的一行
+struct RelayGroupRow: Identifiable, Equatable {
+    var id: String { name }
+    var name: String                 // platform 名 / model 名 / endpoint 名
+    var requests: Int = 0
+    var tokens: Int = 0
+    var cost: Double = 0
+    var actualCost: Double = 0
+    var todayRequests: Int = 0
+    var todayTokens: Int = 0
+    var todayCost: Double = 0
+}
+
+/// 趋势里的一个点
+struct RelayTrendPoint: Identifiable, Equatable {
+    var id: String { date }
+    var date: String
+    var requests: Int = 0
+    var tokens: Int = 0
+    var cost: Double = 0
+    var actualCost: Double = 0
 }
 
 enum RelayError: Error, LocalizedError {
@@ -319,29 +356,56 @@ final class RelayQuotaService: ObservableObject {
 
             // 统计接口：dashboard 用的是 /usage/dashboard/*，不是 /usage。
             // /usage 是账单记录列表（分页用），拿它当统计必然全 0。
+            // 统计来自三个互补接口（实测确认，2026-10）：
+            //   /usage/dashboard/stats   汇总 + by_platform + 平均耗时
+            //   /usage/dashboard/trend   每日趋势
+            //   /usage/dashboard/models  按模型
+            //   /usage/stats             按 endpoint 的汇总（额外补充）
+            // 注意：接口里 today_* 与 rpm/tpm 在当天尚无用量时恒为 0，
+            // 这是服务端行为，不是解析问题。
             var usage = RelayUsage()
-            var merged: [String: Any] = [:]
-
-            // 统计接口按「信息量从多到少」依次尝试，第一个拿到内容就停。
-            // 这些端点在不同版本里名字不一样，逐个试比赌一个更稳。
-            let statPaths = [
-                "/usage/dashboard/snapshot-v2",
-                "/usage/dashboard/stats",
-                "/usage/dashboard",
-                "/usage/statistics",
+            let df = DateFormatter()
+            df.dateFormat = "yyyy-MM-dd"
+            let today = df.string(from: Date())
+            let start30 = df.string(from: Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date())
+            let rangeQuery = [
+                URLQueryItem(name: "start_date", value: start30),
+                URLQueryItem(name: "end_date", value: today),
+                URLQueryItem(name: "granularity", value: "day"),
             ]
-            for path in statPaths {
-                guard let obj = try? await getJSON(base: base, path: path, token: token) as? [String: Any] else { continue }
-                // 空字典继续试下一个
-                let flattened = Self.flatten(obj)
-                if flattened.isEmpty { continue }
-                merged.merge(obj) { a, _ in a }
-                break
+
+            var rawParts: [String] = []
+
+            // 汇总
+            if let st = try? await getJSON(base: base, path: "/usage/dashboard/stats",
+                                           token: token, extraQuery: rangeQuery) as? [String: Any] {
+                rawParts.append("=== /usage/dashboard/stats ===\n" + Self.pretty(st))
+                usage = parseUsage(st)
+                usage.byPlatform = parseGroups(st["by_platform"], nameKey: "platform")
             }
-            if !merged.isEmpty {
-                usage = parseUsage(merged)
-                usage.raw = Self.pretty(merged)
+            // 趋势
+            if let tr = try? await getJSON(base: base, path: "/usage/dashboard/trend",
+                                           token: token, extraQuery: rangeQuery) as? [String: Any] {
+                rawParts.append("=== /usage/dashboard/trend ===\n" + Self.pretty(tr))
+                usage.trend = parseTrend(tr["trend"])
             }
+            // 按模型
+            if let md = try? await getJSON(base: base, path: "/usage/dashboard/models",
+                                           token: token, extraQuery: rangeQuery) as? [String: Any] {
+                rawParts.append("=== /usage/dashboard/models ===\n" + Self.pretty(md))
+                usage.byModel = parseGroups(md["models"], nameKey: "model")
+            }
+            // 按端点（/usage/stats 额外提供）
+            if let us = try? await getJSON(base: base, path: "/usage/stats",
+                                           token: token, extraQuery: rangeQuery) as? [String: Any] {
+                rawParts.append("=== /usage/stats ===\n" + Self.pretty(us))
+                usage.byEndpoint = parseGroups(us["endpoints"], nameKey: "endpoint")
+                // 汇总字段以 dashboard/stats 为准，这里只补空缺
+                if usage.totalRequests == 0 {
+                    usage.totalRequests = Self.intValue(us["total_requests"]) ?? 0
+                }
+            }
+            usage.raw = rawParts.joined(separator: "\n\n")
 
             let now = Date()
             data[id] = RelayData(account: acc, usage: usage, updatedAt: now)
@@ -377,80 +441,81 @@ final class RelayQuotaService: ObservableObject {
     // MARK: 解析
 
     private func parseUsage(_ d: [String: Any]) -> RelayUsage {
-        // 站点把统计放在子对象里（例如 snapshot 的 `stats`），前端是
-        // `d.stats && (n.value = d.stats)` 这么取的。所以先把嵌套字典摊平，
-        // 让 `today_requests` 这类键无论是顶层还是嵌一层都能命中。
         let flat = Self.flatten(d)
-
         var u = RelayUsage()
-        func num(_ keys: [String]) -> Double? {
-            for k in keys {
-                guard let v = flat[k] else { continue }
-                if let n = Self.asDouble(v) { return n }
-            }
-            return nil
-        }
-        func int(_ keys: [String]) -> Int? {
-            for k in keys {
-                guard let v = flat[k] else { continue }
-                if let n = Self.asDouble(v) { return Int(n) }
-            }
-            return nil
-        }
 
-        u.todayRequests = int(["today_requests", "todayRequests", "today_request_count"]) ?? 0
-        u.totalRequests = int(["total_requests", "totalRequests", "request_count", "requests"]) ?? 0
-        u.todayCost = num(["today_cost", "todayCost", "today_actual_cost", "today_used"]) ?? 0
-        u.totalCost = num(["total_cost", "totalCost", "total_actual_cost", "total_used"]) ?? 0
-        u.todayTokens = int(["today_tokens", "todayTokens"]) ?? 0
-        u.totalTokens = int(["total_tokens", "totalTokens", "tokens"]) ?? 0
-        u.inputTokens = int(["input_tokens", "prompt_tokens"]) ?? 0
-        u.outputTokens = int(["output_tokens", "completion_tokens"]) ?? 0
-        u.cachedTokens = int(["cached_tokens", "cache_tokens", "cached_input_tokens"]) ?? 0
-        u.rpm = int(["rpm", "rpm_limit"]) ?? 0
-        u.tpm = int(["tpm"]) ?? 0
-        u.avgResponseSeconds = num(["avg_response_time", "avgResponseTime", "average_response_time",
-                                    "avg_latency", "avg_latency_ms"]) ?? 0
-        // 有的站点把平均响应给成毫秒
-        if u.avgResponseSeconds > 100 { u.avgResponseSeconds /= 1000 }
-        u.raw = Self.pretty(d)
+        func iv(_ k: String) -> Int { Self.intValue(flat[k]) ?? 0 }
+        func dv(_ k: String) -> Double { Self.doubleValue(flat[k]) ?? 0 }
+
+        u.totalRequests   = iv("total_requests")
+        u.todayRequests   = iv("today_requests")
+        u.totalTokens     = iv("total_tokens")
+        u.todayTokens     = iv("today_tokens")
+        u.inputTokens     = iv("total_input_tokens") != 0 ? iv("total_input_tokens") : iv("input_tokens")
+        u.outputTokens    = iv("total_output_tokens") != 0 ? iv("total_output_tokens") : iv("output_tokens")
+        u.cachedTokens    = iv("total_cache_read_tokens") != 0 ? iv("total_cache_read_tokens") : iv("cache_read_tokens")
+        u.cacheCreationTokens = iv("total_cache_creation_tokens") != 0
+            ? iv("total_cache_creation_tokens") : iv("cache_creation_tokens")
+        u.totalCost       = dv("total_cost")
+        u.totalActualCost = dv("total_actual_cost")
+        u.todayCost       = dv("today_actual_cost") != 0 ? dv("today_actual_cost") : dv("today_cost")
+        u.totalAPIKeys    = iv("total_api_keys")
+        u.activeAPIKeys   = iv("active_api_keys")
+        u.rpm             = iv("rpm")
+        u.tpm             = iv("tpm")
+
+        // 服务端给的是毫秒
+        let avgMs = dv("average_duration_ms")
+        if avgMs > 0 { u.avgResponseSeconds = avgMs / 1000 }
         return u
     }
 
-    /// 把嵌套字典摊平：顶层键优先，子字典的键补进空缺。
-    /// 这样 `{"stats": {"today_requests": 3}}` 与 `{"today_requests": 3}` 等价。
-    private static func flatten(_ d: [String: Any]) -> [String: Any] {
-        var out: [String: Any] = [:]
-        var nested: [[String: Any]] = []
-        for (k, v) in d {
-            if let sub = v as? [String: Any] {
-                nested.append(sub)      // 子字典：稍后摊平，不覆盖同名的顶层键
-            } else {
-                out[k] = v
-            }
+    /// 解析 by_platform / models / endpoints 这类分组数组。
+    /// 三种来源的键名不同（platform/model/endpoint），但数值键一致。
+    private func parseGroups(_ raw: Any?, nameKey: String) -> [RelayGroupRow] {
+        guard let arr = raw as? [[String: Any]] else { return [] }
+        return arr.compactMap { item in
+            guard let name = item[nameKey] as? String, !name.isEmpty else { return nil }
+            var r = RelayGroupRow(name: name)
+            r.requests   = Self.intValue(item["total_requests"]) ?? Self.intValue(item["requests"]) ?? 0
+            r.tokens     = Self.intValue(item["total_tokens"]) ?? Self.intValue(item["tokens"]) ?? 0
+            r.cost       = Self.doubleValue(item["total_cost"]) ?? Self.doubleValue(item["cost"]) ?? 0
+            r.actualCost = Self.doubleValue(item["total_actual_cost"]) ?? Self.doubleValue(item["actual_cost"]) ?? 0
+            r.todayRequests = Self.intValue(item["today_requests"]) ?? 0
+            r.todayTokens   = Self.intValue(item["today_tokens"]) ?? 0
+            r.todayCost     = Self.doubleValue(item["today_actual_cost"]) ?? 0
+            return r
         }
-        // 已知的统计容器优先展开，其余子字典按序补充
-        let preferred = ["stats", "summary", "usage", "data", "totals", "total", "today"]
-        nested.sort { a, b in
-            let ai = preferred.firstIndex { a[$0] != nil } ?? Int.max
-            let bi = preferred.firstIndex { b[$0] != nil } ?? Int.max
-            return ai < bi
-        }
-        for sub in nested {
-            for (k, v) in flatten(sub) where out[k] == nil { out[k] = v }
-        }
-        return out
     }
 
-    /// 宽松数字转换：站点可能给 Int / Double / String / NSNumber。
-    private static func asDouble(_ v: Any) -> Double? {
+    private func parseTrend(_ raw: Any?) -> [RelayTrendPoint] {
+        guard let arr = raw as? [[String: Any]] else { return [] }
+        return arr.compactMap { item in
+            guard let d = item["date"] as? String else { return nil }
+            var t = RelayTrendPoint(date: d)
+            t.requests   = Self.intValue(item["requests"]) ?? 0
+            t.tokens     = Self.intValue(item["total_tokens"]) ?? 0
+            t.cost       = Self.doubleValue(item["cost"]) ?? 0
+            t.actualCost = Self.doubleValue(item["actual_cost"]) ?? 0
+            return t
+        }
+    }
+
+    private static func intValue(_ v: Any?) -> Int? {
+        guard let v else { return nil }
+        if let n = v as? Int { return n }
+        if let n = v as? Double { return Int(n) }
+        if let n = v as? NSNumber { return n.intValue }
+        if let s = v as? String { return Int(s) ?? Double(s).map { Int($0) } }
+        return nil
+    }
+
+    private static func doubleValue(_ v: Any?) -> Double? {
+        guard let v else { return nil }
         if let n = v as? Double { return n }
         if let n = v as? Int { return Double(n) }
         if let n = v as? NSNumber { return n.doubleValue }
-        if let s = v as? String {
-            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let n = Double(t) { return n }
-        }
+        if let s = v as? String { return Double(s) }
         return nil
     }
 
@@ -492,12 +557,14 @@ final class RelayQuotaService: ObservableObject {
         return try await send(r)
     }
 
-    private func getJSON(base: String, path: String, token: String) async throws -> Any {
+    private func getJSON(base: String, path: String, token: String,
+                         extraQuery: [URLQueryItem] = []) async throws -> Any {
         var r = try makeRequest(base: base, path: path, method: "GET", token: token)
         if var comps = URLComponents(url: r.url!, resolvingAgainstBaseURL: false) {
             var items = comps.queryItems ?? []
             items.append(URLQueryItem(name: "timezone",
                                       value: String(TimeZone.current.secondsFromGMT() / 60)))
+            items.append(contentsOf: extraQuery)
             comps.queryItems = items
             if let u = comps.url { r.url = u }
         }
@@ -569,6 +636,7 @@ extension RelayAccount {
         email = str(["email"])
         username = str(["username", "name", "display_name"])
         subscription = str(["subscription", "plan", "group"])
+        totalRecharged = num(["total_recharged"])
     }
 
     init(from decoder: Decoder) throws {
