@@ -2799,14 +2799,47 @@ static void FuckWriteInjectResult(BOOL ok, NSString *message) {
     //     → 才会升级到候选 2。
     // 把越狱目录放在最前，就是为了让无沙盒目标保持零侵入 —— 上一版把 Bundle
     // container 排第一，会对巨魔 App 无谓地写入其安装包目录，可能触发完整性自检。
-    [candidateDirs addObject:jailStageDir];                                      // 候选 1：越狱公共目录（零侵入）
+    // 候选 1：越狱公共目录 —— 对无沙盒的 TrollStore 目标零侵入即可命中。
+    [candidateDirs addObject:jailStageDir];
 
+    // 候选 2/3：目标 App 自身代码区（.app 同级、.app 内部）。
+    //
+    // 为什么沙盒目标必须落到它自己容器内 —— 实测根因：
+    //   越狱路径 `/var/containers/Bundle/Application/.jbroot-XXX/tmp/...`
+    //   会被 roothide 的 systemhook 重定向成
+    //   `/private/var/mobile/Containers/Shared/AppGroup/.jbroot-XXX/var/tmp/...`
+    //   也就是**别的 App 的 AppGroup 容器**。沙盒目标无权访问它，dlopen 便报
+    //   `file system sandbox blocked mmap()`。
+    //   而且 sandbox extension 是按「原路径」签发的，对重定向后的路径无效 ——
+    //   日志里 consume 明明返回成功（6/7），mmap 仍被拦，正是此因。
     NSString *targetBundlePath = FuckProxyPathFromURL(targetProxy, @"bundleURL");
     if (targetBundlePath.length) {
         NSString *bundleContainer = [targetBundlePath stringByDeletingLastPathComponent];
-        if (bundleContainer.length) [candidateDirs addObject:bundleContainer];   // 候选 2：目标 App 自身代码区
+        if (bundleContainer.length) [candidateDirs addObject:bundleContainer];
+        [candidateDirs addObject:targetBundlePath];   // .app 内部
     }
-    if (targetContainerTmp.length) [candidateDirs addObject:targetContainerTmp];  // 候选 3：目标数据容器 tmp
+
+    // 候选 4~6：目标数据容器的多个子目录（不止 tmp）
+    NSString *targetDataURL = FuckProxyPathFromURL(targetProxy, @"dataContainerURL");
+    if (targetDataURL.length) {
+        [candidateDirs addObject:[targetDataURL stringByAppendingPathComponent:@"Documents"]];
+        [candidateDirs addObject:[targetDataURL stringByAppendingPathComponent:@"Library/Caches"]];
+    }
+    if (targetContainerTmp.length) [candidateDirs addObject:targetContainerTmp];
+
+    // 候选 7：目标所属的 AppGroup 共享容器
+    @try {
+        id groupsObj = FuckPerformSelector(targetProxy, @"groupContainerURLs");
+        if ([groupsObj isKindOfClass:[NSDictionary class]]) {
+            for (NSString *gid in (NSDictionary *)groupsObj) {
+                id url = [(NSDictionary *)groupsObj objectForKey:gid];
+                if ([url respondsToSelector:@selector(path)]) {
+                    NSString *gp = [url path];
+                    if (gp.length) [candidateDirs addObject:gp];
+                }
+            }
+        }
+    } @catch (__unused NSException *e) { }
 
     FLog(@"[SandboxBypass] 目标 bundle: %@", targetBundlePath ?: @"(nil)");
     FLog(@"[SandboxBypass] 候选落点 %lu 个，开始逐个投递并探测 file-map-executable",
@@ -2862,13 +2895,24 @@ static void FuckWriteInjectResult(BOOL ok, NSString *message) {
         finalDylibPath = stagedDylib;
         if (chosenAllowsExec) {
             FLogSuccess(@"[Relaxin] 使用落点: %@", finalDylibPath);
-        } else {
-            FLog(@"[Relaxin] ⚠️ 所有候选落点均未获可执行权限，仍用 %@ 尝试（交由 opainject 补发扩展）",
-                 finalDylibPath);
         }
-    } else {
-        FLogError(@"[Relaxin] 全部候选落点投递失败，退回越狱暂存路径");
-        finalDylibPath = signedDylib;
+    }
+
+    if (!chosenAllowsExec) {
+        // 没有任何落点通过 file-map-executable 探测 —— 直接失败，不退回越狱路径硬试。
+        //
+        // 越狱路径会被 roothide 重定向进别的 App 的 AppGroup 容器，沙盒目标
+        // 必然 mmap 被拦（实测反复确认）。硬试只会白费一次注入窗口，还要让
+        // 目标进程承受无谓的远程调用（有崩溃风险），最后只留一个含糊的 dlopen 失败。
+        for (NSString *c in deliveredCopies) {
+            [[NSFileManager defaultManager] removeItemAtPath:c error:nil];
+        }
+        NSString *m = [NSString stringWithFormat:
+            @"目标无可执行落点（已试 %lu 处，均被沙盒拒绝 file-map-executable）。"
+            @"严格沙盒 App 需要目标容器内可写且可执行的位置，当前未找到。",
+            (unsigned long)candidateDirs.count];
+        FuckWriteInjectResult(NO, m);
+        return m;
     }
 
     // 6. 标记目标进程可调试
