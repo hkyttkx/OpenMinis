@@ -2799,16 +2799,24 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
         NSString *dylibName = [dylibPath lastPathComponent];
         NSMutableArray<NSString *> *candidateDirs = [NSMutableArray array];
 
-        // 候选 1：Bundle container（.app 的同级目录）—— App 自身代码区，exec 最宽松
+        // 落点顺序：侵入性由低到高，取第一个真正允许 file-map-executable 的。
+        //
+        // 实测规律（与用户观察一致）：
+        //   · TrollStore / 巨魔 安装的 App 带 platform-application，基本不受 App Sandbox
+        //     约束，越狱公共目录就能直接 mmap → 命中候选 1，完全不碰目标的任何目录；
+        //   · App Store 正版 App 受沙盒约束，Data container 只给读不给 exec，
+        //     唯有它自己的代码区（Bundle container）被允许 file-map-executable
+        //     → 才会升级到候选 2。
+        // 把越狱目录放在最前，就是为了让无沙盒目标保持零侵入 —— 上一版把 Bundle
+        // container 排第一，会对巨魔 App 无谓地写入其安装包目录，可能触发完整性自检。
+        [candidateDirs addObject:jailStageDir];                                      // 候选 1：越狱公共目录（零侵入）
+
         NSString *targetBundlePath = FuckProxyPathFromURL(targetProxy, @"bundleURL");
         if (targetBundlePath.length) {
             NSString *bundleContainer = [targetBundlePath stringByDeletingLastPathComponent];
-            if (bundleContainer.length) [candidateDirs addObject:bundleContainer];
+            if (bundleContainer.length) [candidateDirs addObject:bundleContainer];   // 候选 2：目标 App 自身代码区
         }
-        // 候选 2：目标 App 自己的 Data container tmp/（读一定行，exec 视策略）
-        if (targetContainerTmp.length) [candidateDirs addObject:targetContainerTmp];
-        // 候选 3：越狱公共目录（兜底，仅在目标自身无沙盒限制时有效）
-        [candidateDirs addObject:jailStageDir];
+        if (targetContainerTmp.length) [candidateDirs addObject:targetContainerTmp];  // 候选 3：目标数据容器 tmp
 
         FLog(@"[SandboxBypass] 目标 bundle: %@", targetBundlePath ?: @"(nil)");
         FLog(@"[SandboxBypass] 候选落点 %lu 个，开始逐个投递并探测 file-map-executable",
