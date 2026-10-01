@@ -519,6 +519,31 @@ final class RelayQuotaService: ObservableObject {
         return nil
     }
 
+    /// 把嵌套字典摊平：顶层键优先，子字典的键补进空缺。
+    /// 网关有的接口把统计包在子对象里，摊平后 `total_requests` 这类键
+    /// 无论嵌几层都能命中。
+    private static func flatten(_ d: [String: Any]) -> [String: Any] {
+        var out: [String: Any] = [:]
+        var nested: [[String: Any]] = []
+        for (k, v) in d {
+            if let sub = v as? [String: Any] {
+                nested.append(sub)
+            } else {
+                out[k] = v
+            }
+        }
+        let preferred = ["stats", "summary", "usage", "data", "totals", "total", "today"]
+        nested.sort { a, b in
+            let ai = preferred.firstIndex { a[$0] != nil } ?? Int.max
+            let bi = preferred.firstIndex { b[$0] != nil } ?? Int.max
+            return ai < bi
+        }
+        for sub in nested {
+            for (k, v) in flatten(sub) where out[k] == nil { out[k] = v }
+        }
+        return out
+    }
+
     private static func pretty(_ d: [String: Any]) -> String {
         guard let data = try? JSONSerialization.data(withJSONObject: d,
                                                      options: [.prettyPrinted, .sortedKeys]),
