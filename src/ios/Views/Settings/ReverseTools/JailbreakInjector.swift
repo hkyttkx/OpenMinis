@@ -417,7 +417,7 @@ enum JailbreakInjector {
                        executableName: String?,
                        dylibPath: String,
                        mode: DynamicInjectMode,
-                       channel: DynamicInjectChannel = .auto,
+                       
                        progress: @escaping (String) -> Void,
                        completion: @escaping (DynamicInjectOutcome) -> Void) {
 
@@ -436,7 +436,6 @@ enum JailbreakInjector {
           目标 App ：\(bundleID)
           dylib    ：\(dylibPath)
           注入模式 ：\(mode.title)
-          注入通道 ：\(channel.title)
         ------------------------------------------------------------
         """)
 
@@ -544,8 +543,6 @@ enum JailbreakInjector {
             // 避免为此改动 injectDylib 的既有签名（它会牵动整个调用链）。
             // Swift 的 String 没有 utf8String（那是 ObjC 的 NSString），
             // 要用 withCString 取出 C 字符串指针。
-            let channelValue = "\(channel.rawValue)"
-            channelValue.withCString { setenv("FUCK_INJECT_CHANNEL", $0, 1) }
 
             FuckDynamicInjector.injectDylib(
                 effectiveDylib,
