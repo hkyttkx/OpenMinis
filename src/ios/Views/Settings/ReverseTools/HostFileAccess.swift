@@ -64,32 +64,97 @@ enum HostFileAccess {
 
     // MARK: - 只读判定
 
+    // MARK: - 写入保护
+
+    /// 无论位于哪里都必须只读的系统目录。
+    ///
+    /// 写坏这些会直接让系统或越狱无法启动，且 iOS 上没有简单的回退手段，
+    /// 所以这里是硬性护栏 —— 不接受任何设置覆盖。
+    private static let protectedAbsolutePrefixes: [String] = [
+        "/System", "/usr", "/bin", "/sbin", "/etc", "/Library",
+        "/Applications", "/private", "/dev", "/cores", "/AppleInternal",
+        "/Developer", "/boot", "/mnt", "/proc", "/sys",
+        "/var/jb",          // roothide 的越狱根符号区
+        "/var/db",          // 系统数据库
+        "/var/root",        // root 家目录
+    ]
+
+    /// App 安装包目录：只读，但其中的 `.jbroot-*`（越狱根）单独放行，
+    /// 因此不能直接塞进上面的前缀表 —— 需要先判越狱根。
+    private static let appBundlePrefix = "/var/containers/Bundle/Application"
+
+    /// 越狱根内部同样受保护的系统子目录（相对于越狱根）。
+    ///
+    /// 实测这台机器的越狱根下有 `System/Library` 与 `usr/{bin,lib,sbin,...}`，
+    /// 它们是根文件系统的挂载覆盖层，等同真实的 /System 与 /usr。
+    /// 只放开用户数据区（var/mobile、tmp、User 等）。
+    private static let protectedInsideJailbreakRoot: [String] = [
+        "/System", "/usr", "/bin", "/sbin", "/etc", "/Library",
+        "/Applications", "/private", "/dev", "/cores", "/AppleInternal",
+        "/Developer", "/boot", "/var/db", "/var/root", "/var/jb",
+    ]
+
+    /// 归一化：去掉 /private 前缀，折叠重复斜杠，去掉末尾斜杠。
+    private static func normalizePath(_ path: String) -> String {
+        var p = path
+        if p.hasPrefix("/private/") { p = String(p.dropFirst("/private".count)) }
+        while p.contains("//") { p = p.replacingOccurrences(of: "//", with: "/") }
+        if p.count > 1, p.hasSuffix("/") { p = String(p.dropLast()) }
+        return p
+    }
+
+    private static func isUnder(_ path: String, _ prefix: String) -> Bool {
+        if prefix == "/" { return path.hasPrefix("/") }
+        return path == prefix || path.hasPrefix(prefix + "/")
+    }
+
+    /// 该路径是否位于越狱根内；是则返回相对路径（以 / 开头）。
+    private static func jailbreakRelativePath(_ p: String) -> String? {
+        if let jb = JailbreakInjector.resolveJailbreakRoot(), !jb.isEmpty {
+            let j = normalizePath(jb)
+            if isUnder(p, j) { return String(p.dropFirst(j.count)) }
+        }
+        // 解析失败时的兜底：直接识别 .jbroot-<hex> 段
+        guard let r = p.range(of: "/.jbroot-") else { return nil }
+        let after = p[r.upperBound...]
+        guard let slash = after.firstIndex(of: "/") else { return "/" }
+        return String(after[slash...])
+    }
+
     /// 系统关键路径：只读，禁止写入。
     ///
-    /// 例外：越狱根。roothide 把越狱环境放在
-    /// `/var/containers/Bundle/Application/.jbroot-<32位十六进制>`，
-    /// 虽然外层是 App 安装包目录，但这个 `.jbroot-*` 子树是越狱自己的
-    /// 文件系统，用户明确要求可读写，因此单独豁免。
-    /// 外层其它目录（真正的 App 安装包）依旧只读 —— 那是系统能正常启动的前提。
+    /// 分三层判断：
+    ///   1. 全局系统目录（/System、/usr、/bin、/etc、/var/db …）→ 只读
+    ///   2. 越狱根内部：其中的 /System、/usr 等系统子树 → 只读；
+    ///      用户数据区（var/mobile、tmp、User …）→ 允许读写
+    ///   3. 其余路径 → 允许（是否真的可写由权限与沙盒决定）
+    ///
+    /// 之所以要单独处理越狱根：roothide 的越狱环境位于
+    /// `/var/containers/Bundle/Application/.jbroot-<hex>`，外层是只读的
+    /// App 安装包目录，但内部混放了系统覆盖层与用户数据，
+    /// 不能一刀切（全放开会写坏系统，全锁死则用户无法用）。
     static func isSystemCritical(_ path: String) -> Bool {
-        let p = path.hasPrefix("/private/") ? String(path.dropFirst("/private".count)) : path
+        let p = normalizePath(path)
 
-        // 越狱根豁免（优先于下面的只读前缀判定）
-        if let jb = JailbreakInjector.resolveJailbreakRoot(), !jb.isEmpty {
-            let j = jb.hasPrefix("/private/") ? String(jb.dropFirst("/private".count)) : jb
-            if p == j || p.hasPrefix(j + "/") { return false }
-        }
-        // 兜底：任何 `.jbroot-*` 目录同样豁免（resolve 失败时也能命中）
-        if let r = p.range(of: "/.jbroot-") { return false }
-
-        let prefixes = [
-            "/System", "/usr", "/bin", "/sbin", "/etc",
-            "/AppleInternal", "/Developer",
-            "/var/jb",                                // 字面量 /var/jb 仍视为系统区
-            "/var/containers/Bundle/Application",     // App 安装包只读
-        ]
         if p == "/" { return true }
-        for pre in prefixes where p == pre || p.hasPrefix(pre + "/") { return true }
+
+        // 1. 越狱根优先判断。
+        //    它物理上位于 App 安装包目录之内，若让安装包前缀先匹配，
+        //    越狱根里的用户数据（var/mobile、tmp…）会被整体误判为只读。
+        if let rel = jailbreakRelativePath(p) {
+            let r = rel.isEmpty ? "/" : rel
+            if r == "/" { return true }
+            for pre in protectedInsideJailbreakRoot where isUnder(r, pre) { return true }
+            return false     // 越狱根内的用户数据区：放开
+        }
+
+        // 2. App 安装包（越狱根已在上面拦掉）
+        if isUnder(p, appBundlePrefix) { return true }
+
+        // 3. 全局系统目录
+        for pre in protectedAbsolutePrefixes where isUnder(p, pre) { return true }
+
+        // 4. 其余
         return false
     }
 
