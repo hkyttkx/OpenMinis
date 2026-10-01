@@ -1031,13 +1031,16 @@ static BOOL FuckInjectTrustCache(NSString *filePath) {
 //      产生的固定模式，任何 iOS 版本的 shared cache 里都存在，且跳进去
 //      执行完就回落到 LR(=0) 处停住，语义与原来的 "b ." 自旋等价；
 //   2. 回退到 "b ."（0x14000000）搜索，但不做基址范围限制。
-static uint64_t FuckFindRopLoop(void) {
+// 在指定映像的 __text 里找 ret 序列。
+// want == 2 找 ret;ret，want == 1 找单个 ret。
+static uint64_t FuckScanRetSequence(const char *imageName, uint32_t want) {
     const uint32_t RET_INSN = 0xD65F03C0;
-
     uint32_t imageCount = _dyld_image_count();
 
-    // ---- 优先：ret; ret 序列（版本无关） ----
     for (uint32_t i = 0; i < imageCount; i++) {
+        const char *name = _dyld_get_image_name(i);
+        if (!name || !strstr(name, imageName)) continue;
+
         const struct mach_header_64 *header =
             (const struct mach_header_64 *)_dyld_get_image_header(i);
         if (!header || header->magic != MH_MAGIC_64) continue;
@@ -1053,16 +1056,15 @@ static uint64_t FuckFindRopLoop(void) {
                     const struct section_64 *sec =
                         (const struct section_64 *)((uint8_t *)seg + sizeof(*seg));
                     for (uint32_t k = 0; k < seg->nsects; k++) {
-                        if (strcmp(sec[k].sectname, "__text") != 0 || sec[k].size < 8) continue;
+                        if (strcmp(sec[k].sectname, "__text") != 0) continue;
                         uint32_t *code = (uint32_t *)(sec[k].addr + slide);
                         size_t count = sec[k].size / sizeof(uint32_t);
                         for (size_t n = 0; n + 1 < count; n++) {
-                            if (code[n] == RET_INSN && code[n + 1] == RET_INSN) {
-                                uint64_t addr = (uint64_t)&code[n];
-                                const char *imgName = _dyld_get_image_name(i);
-                                FLog(@"找到 ropLoop(ret;ret): 0x%llx (image %d: %s)",
-                                     addr, i, imgName ? imgName : "unknown");
-                                return addr;
+                            if (want == 2) {
+                                if (code[n] == RET_INSN && code[n + 1] == RET_INSN)
+                                    return (uint64_t)&code[n];
+                            } else if (code[n] == RET_INSN) {
+                                return (uint64_t)&code[n];
                             }
                         }
                     }
@@ -1071,9 +1073,59 @@ static uint64_t FuckFindRopLoop(void) {
             cmd = (const struct load_command *)((uint8_t *)cmd + cmd->cmdsize);
         }
     }
+    return 0;
+}
 
-    // ---- 回退：b .（不做基址范围限制） ----
+// 找一个「目标进程里也一定存在」的落地地址。
+//
+// 这个地址会被写进【目标进程】线程的 PC / LR，所以它必须落在目标进程也有映射的
+// 区域里，绝不能是本进程（Minis）映像中的地址。
+//
+// 实测崩溃正是这个原因：旧实现用 _dyld_get_image_header 扫遍本进程所有映像，
+// 命中的第一个 ret;ret 落在 Minis.app/Minis 里，把它交给目标 App 的线程后
+// 线程立即 EXC_BAD_ACCESS（KERN_INVALID_ADDRESS），目标进程被 SIGSEGV 杀死，
+// 外部表现为「注入失败 -9 / 未找到新 pthread 线程」。
+//
+// libsystem 系列在每个进程里都会加载，且系统库来自 dyld 共享缓存，同一台设备
+// 上地址一致 —— 是本进程与目标进程之间的安全交集，因此优先只在这些映像里找。
+static uint64_t FuckFindRopLoop(void) {
+    static const char *kSharedImages[] = {
+        "libsystem_pthread",
+        "libsystem_platform",
+        "libsystem_malloc",
+        "libsystem_c",
+        "libsystem_kernel",
+    };
+    const size_t kCount = sizeof(kSharedImages) / sizeof(kSharedImages[0]);
+
+    for (size_t i = 0; i < kCount; i++) {
+        for (uint32_t want = 2; want >= 1; want--) {
+            uint64_t addr = FuckScanRetSequence(kSharedImages[i], want);
+            if (addr) {
+                FLog(@"找到 ropLoop(%s): 0x%llx (image: %s)",
+                     want == 2 ? "ret;ret" : "ret", addr, kSharedImages[i]);
+                return addr;
+            }
+        }
+    }
+
+    // 兜底：仍然只在系统库范围内找，绝不回退到本进程自己的映像。
+    // 找不到就是找不到 —— 用错地址会让目标进程崩溃，比注入失败更糟。
+    FLogError(@"未在系统库中找到 ropLoop gadget");
+    return 0;
+}
+
+// 校验 gadget 是否落在本进程某个系统库映射内，且距离该映射起点足够近。
+// 系统库由 dyld 共享缓存提供，同设备地址一致，因此「本进程命中 + 靠近库起点」
+// 可以当作「目标进程同样可用」的保守判据。
+static BOOL FuckIsSharedLibraryAddress(uint64_t addr, uint64_t *outOffset) {
+    uint32_t imageCount = _dyld_image_count();
     for (uint32_t i = 0; i < imageCount; i++) {
+        const char *name = _dyld_get_image_name(i);
+        if (!name) continue;
+        if (!strstr(name, "/usr/lib/") && !strstr(name, "libsystem")) continue;
+        if (!strstr(name, "system") && !strstr(name, "libsystem")) continue;
+
         const struct mach_header_64 *header =
             (const struct mach_header_64 *)_dyld_get_image_header(i);
         if (!header || header->magic != MH_MAGIC_64) continue;
@@ -1085,30 +1137,17 @@ static uint64_t FuckFindRopLoop(void) {
         for (uint32_t j = 0; j < header->ncmds; j++) {
             if (cmd->cmd == LC_SEGMENT_64) {
                 const struct segment_command_64 *seg = (const struct segment_command_64 *)cmd;
-                if (strcmp(seg->segname, "__TEXT") == 0) {
-                    const struct section_64 *sec =
-                        (const struct section_64 *)((uint8_t *)seg + sizeof(*seg));
-                    for (uint32_t k = 0; k < seg->nsects; k++) {
-                        if (strcmp(sec[k].sectname, "__text") != 0 || sec[k].size < 4) continue;
-                        uint32_t *code = (uint32_t *)(sec[k].addr + slide);
-                        size_t count = sec[k].size / sizeof(uint32_t);
-                        for (size_t n = 0; n < count; n++) {
-                            if (code[n] == 0x14000000) {
-                                uint64_t addr = (uint64_t)&code[n];
-                                const char *imgName = _dyld_get_image_name(i);
-                                FLog(@"找到 ropLoop(b): 0x%llx (image %d: %s)", addr, i,
-                                     imgName ? imgName : "unknown");
-                                return addr;
-                            }
-                        }
-                    }
+                uint64_t segStart = seg->vmaddr + slide;
+                uint64_t segEnd = segStart + seg->vmsize;
+                if (addr >= segStart && addr < segEnd) {
+                    if (outOffset) *outOffset = addr - segStart;
+                    return YES;
                 }
             }
             cmd = (const struct load_command *)((uint8_t *)cmd + cmd->cmdsize);
         }
     }
-    FLogError(@"未在任意 image 中找到 ropLoop");
-    return 0;
+    return NO;
 }
 
 static void *FuckFindSymbolInImage(const char *imageName, const char *symbolName) {
@@ -1410,6 +1449,18 @@ static int FuckOpaInject(pid_t targetPID, const char *dylibPath, FuckInjectMode 
         FLogError(@"未找到 ropLoop");
         mach_port_deallocate(mach_task_self(), targetTask);
         return -3;
+    }
+    // 落地前自检：必须是系统库映射内的地址。
+    // 一旦落在本进程自己的映像里，目标进程会直接 SIGSEGV —— 宁可中止注入，
+    // 也不要让目标 App 崩溃。
+    {
+        uint64_t off = 0;
+        if (!FuckIsSharedLibraryAddress(ropLoop, &off)) {
+            FLogError(@"拒绝使用非系统库地址作为 ropLoop: 0x%llx（目标进程会崩溃）", ropLoop);
+            mach_port_deallocate(mach_task_self(), targetTask);
+            return -3;
+        }
+        FLog(@"[校验] ropLoop 位于系统库映射内，偏移 0x%llx", off);
     }
 
     void *dlopenAddr = dlsym(RTLD_DEFAULT, "dlopen");
