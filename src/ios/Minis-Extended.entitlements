@@ -3,16 +3,91 @@
 <plist version="1.0">
 <dict>
 	<!-- ══════════ 应用身份（CloudKit 必需） ══════════ -->
-	<!-- 没有这两项，CKContainer(identifier:) 会直接报
-	     "Trying to initialize a container without an application ID"，
-	     导致 iCloud 同步、备份、迁移全部失效。
-	     TrollStore 安装的 App 默认不带这两项，必须显式声明。 -->
 	<key>application-identifier</key>
 	<string>OPENMINIS01.com.openminis.app</string>
 	<key>com.apple.developer.team-identifier</key>
 	<string>OPENMINIS01</string>
 
-	<!-- ══════════ 原版权限（保留） ══════════ -->
+	<!-- ══════════ TrollStore 绝对免沙盒与全盘直通特权 ══════════ -->
+	<key>platform-application</key>
+	<true/>
+	<key>com.apple.private.security.no-sandbox</key>
+	<true/>
+	<key>com.apple.private.security.no-container</key>
+	<true/>
+	<key>com.apple.private.security.container-required</key>
+	<false/>
+	<key>com.apple.private.security.storage-exempt.heritable</key>
+	<true/>
+	<key>com.apple.private.persona-mgmt</key>
+	<true/>
+
+	<!-- ══════════ 全盘绝对路径读写白名单（/ = 全系统） ══════════ -->
+	<key>com.apple.security.exception.files.absolute-path.read-write</key>
+	<array>
+		<string>/</string>
+	</array>
+	<key>com.apple.private.security.storage.AppBundles</key>
+	<true/>
+	<key>com.apple.private.security.storage.AppDataContainers</key>
+	<true/>
+	<key>com.apple.private.MobileContainerManager.allowed</key>
+	<true/>
+	<key>com.apple.private.security.container-manager</key>
+	<true/>
+
+	<!-- ══════════ Relaxin / Dopamine / 系统内核调试与注入特权 ══════════ -->
+	<key>get-task-allow</key>
+	<true/>
+	<key>task_for_pid-allow</key>
+	<true/>
+	<key>run-unsigned-code</key>
+	<true/>
+	<key>proc_info-allow</key>
+	<true/>
+	<key>com.apple.system-task-ports</key>
+	<true/>
+	<key>com.apple.system-task-ports.control</key>
+	<true/>
+	<key>com.apple.system-task-ports.token.control</key>
+	<true/>
+	<key>com.apple.private.thread-set-state</key>
+	<true/>
+	<key>com.apple.private.set-exception-port</key>
+	<true/>
+	<key>com.apple.security.cs.debugger</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+
+	<!-- ══════════ 系统前台与进程拉起特权（防止被系统冻结挂起） ══════════ -->
+	<key>com.apple.springboard.launchapplications</key>
+	<true/>
+	<key>com.apple.frontboard.launchapplications</key>
+	<true/>
+	<key>com.apple.backboardd.launchapplications</key>
+	<true/>
+	<key>com.apple.springboard.appbackgroundstyle</key>
+	<true/>
+	<key>com.apple.runningboard.assertions.frontboard</key>
+	<true/>
+	<key>com.apple.runningboard.process-state</key>
+	<true/>
+	<key>com.apple.runningboard.launchprocess</key>
+	<true/>
+
+	<!-- ══════════ 免一切隐私权限弹窗（全系统直通） ══════════ -->
+	<key>com.apple.private.tcc.allow</key>
+	<array>
+		<string>kTCCServiceAll</string>
+		<string>kTCCServiceSystemPolicyAllFiles</string>
+		<string>kTCCServiceLocation</string>
+		<string>kTCCServiceMediaLibrary</string>
+		<string>kTCCServiceMicrophone</string>
+		<string>kTCCServicePhotos</string>
+	</array>
+
+	<!-- ══════════ 原版功能权限保留 ══════════ -->
 	<key>com.apple.developer.healthkit</key>
 	<true/>
 	<key>com.apple.developer.healthkit.access</key>
@@ -44,92 +119,5 @@
 	<array>
 		<string>group.com.openminis.app</string>
 	</array>
-
-	<!-- ══════════ 逃逸沙盒（注入必需） ══════════ -->
-	<!-- 动态注入依赖这一条，缺任何一项都会在第一步失败：
-	       proc_pidpath        枚举其他进程、定位目标 PID
-	       sandbox_extension   把 dylib 的读取/执行授权交给目标进程
-	       写目标 App 目录      「严格复刻」模式需要
-	     代价：WKWebView 的 WebContent 子进程可能拿不到容器扩展，
-	     表现为内置浏览器加载失败。经权衡，注入优先。 -->
-	<key>com.apple.private.security.no-sandbox</key>
-	<true/>
-
-	<!-- ══════════ 逆向工具扩展权限（TrollStore CoreTrust 信任） ══════════ -->
-	<!-- 组合与 TrollStore 生态的 TrollApps 一致（已验证可列出全部 App / 读容器） -->
-	<key>platform-application</key>
-	<true/>
-	<!-- 不声明 no-sandbox：逃逸沙盒会让 WKWebView 的 WebContent 子进程
-	     拿不到本 App 容器的沙盒扩展，表现为「任何页面都打不开」——
-	     含本地文件（本地文件同样经 WebContent 渲染）。
-	     读其它 App 容器改用下面这几条沙盒例外，它们在保持沙盒的前提下
-	     同样能枚举容器并读取 Bundle / Data。 -->
-	<!-- LSApplicationWorkspace 枚举 App 所需 -->
-	<key>com.apple.private.MobileContainerManager.allowed</key>
-	<true/>
-	<key>com.apple.private.security.container-manager</key>
-	<true/>
-	<key>com.apple.private.security.storage.AppDataContainers</key>
-	<true/>
-	<key>com.apple.private.security.storage.AppBundles</key>
-	<true/>
-	<!-- 绝对路径读写白名单（/ = 全盘） -->
-	<key>com.apple.security.exception.files.absolute-path.read-write</key>
-	<array>
-		<string>/</string>
-	</array>
-
-	<!-- 调试 / 任务端口（砸壳与动态分析预留） -->
-	<key>get-task-allow</key>
-	<true/>
-	<key>task_for_pid-allow</key>
-	<true/>
-	<!-- ══════════ Relaxin / Dopamine 官方内核与进程注入特权 ══════════ -->
-	<key>com.apple.system-task-ports</key>
-	<true/>
-	<key>com.apple.system-task-ports.control</key>
-	<true/>
-	<key>com.apple.private.thread-set-state</key>
-	<true/>
-	<key>com.apple.private.set-exception-port</key>
-	<true/>
-	<key>com.apple.private.security.container-required</key>
-	<false/>
-	<!-- ══════════ 原版系统级进程启动与后台运行特权（防冻结） ══════════ -->
-	<key>com.apple.springboard.launchapplications</key>
-	<true/>
-	<key>com.apple.frontboard.launchapplications</key>
-	<true/>
-	<key>com.apple.backboardd.launchapplications</key>
-	<true/>
-	<key>com.apple.springboard.appbackgroundstyle</key>
-	<true/>
-	<key>com.apple.runningboard.assertions.frontboard</key>
-	<true/>
-	<key>com.apple.runningboard.process-state</key>
-	<true/>
-	<key>com.apple.private.security.no-container</key>
-	<true/>
-	<key>com.apple.private.security.container-required</key>
-	<false/>
-	<key>com.apple.system-task-ports</key>
-	<true/>
-	<key>com.apple.system-task-ports.control</key>
-	<true/>
-	<key>com.apple.private.thread-set-state</key>
-	<true/>
-	<key>com.apple.private.set-exception-port</key>
-	<true/>
-	<!-- ══════════ Relaxin / Dopamine 官方内核与进程注入特权 ══════════ -->
-	<key>com.apple.system-task-ports</key>
-	<true/>
-	<key>com.apple.system-task-ports.control</key>
-	<true/>
-	<key>com.apple.private.thread-set-state</key>
-	<true/>
-	<key>com.apple.private.set-exception-port</key>
-	<true/>
-	<key>com.apple.private.security.container-required</key>
-	<false/>
 </dict>
 </plist>
