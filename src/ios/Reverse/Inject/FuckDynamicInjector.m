@@ -526,7 +526,7 @@ static int FuckWaitForPid(pid_t pid) {
     return status;
 }
 
-static int FuckSpawnArguments(NSArray<NSString *> *arguments, BOOL asRootPersona) {
+static int FuckSpawnArgumentsWithOutput(NSArray<NSString *> *arguments, BOOL asRootPersona, NSString **outLog) {
     if (arguments.count == 0) return -1;
 
     posix_spawnattr_t attr;
@@ -566,8 +566,20 @@ static int FuckSpawnArguments(NSArray<NSString *> *arguments, BOOL asRootPersona
     // 会收到 SIGPIPE / SIGHUP。直接落到文件最稳。
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
+    int outPipe[2] = {-1, -1};
+    BOOL usePipe = (outLog != NULL);
+    if (usePipe) {
+        if (pipe(outPipe) == 0) {
+            posix_spawn_file_actions_adddup2(&actions, outPipe[1], STDOUT_FILENO);
+            posix_spawn_file_actions_adddup2(&actions, outPipe[1], STDERR_FILENO);
+            posix_spawn_file_actions_addclose(&actions, outPipe[0]);
+        } else {
+            usePipe = NO;
+        }
+    }
+
     int logFD = -1;
-    {
+    if (!usePipe) {
         const char *envPath = getenv("FUCK_INJECT_LOG_PATH");
         NSString *logPath = envPath && envPath[0]
             ? [NSString stringWithUTF8String:envPath]
@@ -581,12 +593,11 @@ static int FuckSpawnArguments(NSArray<NSString *> *arguments, BOOL asRootPersona
                 posix_spawn_file_actions_addclose(&actions, logFD);
             }
         }
-        // 兜底：标准输入接 /dev/null，避免子进程等待终端
-        int devNull = open("/dev/null", O_RDONLY);
-        if (devNull >= 0) {
-            posix_spawn_file_actions_adddup2(&actions, devNull, STDIN_FILENO);
-            posix_spawn_file_actions_addclose(&actions, devNull);
-        }
+    }
+    int devNull = open("/dev/null", O_RDONLY);
+    if (devNull >= 0) {
+        posix_spawn_file_actions_adddup2(&actions, devNull, STDIN_FILENO);
+        posix_spawn_file_actions_addclose(&actions, devNull);
     }
 
     char **argv = calloc(arguments.count + 1, sizeof(char *));
@@ -2634,18 +2645,15 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
             reportProgress(@"目标未启动，正在调起…");
             FLog(@"[SPAWN] 正在拉起目标 App: %@", bundleID);
             FuckOpenApp(bundleID);
-            usleep(1500000); // 等待 1.5 秒
-
-            NSString *selfBundleID = [[NSBundle mainBundle] bundleIdentifier];
-            if (selfBundleID.length) {
-                FuckOpenApp(selfBundleID);
+            // 给目标 App 充分的启动时间，特别是 Unity / 大型游戏，不要暴力拉回自己导致 watchdog 强杀
+            for (int i = 0; i < 20; i++) {
                 usleep(500000);
-            }
-
-            for (int i = 0; i < 15; i++) {
                 targetPid = FuckFindPIDForBundleID(bundleID);
-                if (targetPid > 0) break;
-                usleep(500000);
+                if (targetPid > 0) {
+                    FLog(@"[SPAWN] 目标 App 已启动，PID = %d，稍作等待使其主窗口就绪…", targetPid);
+                    usleep(1000000);
+                    break;
+                }
             }
         }
 
@@ -2665,20 +2673,36 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
             return;
         }
 
-        // 把 dylib 暂存到越狱公共目录，保证所有人可读（0755）
-        NSString *sharedStageDir = [jbroot stringByAppendingPathComponent:@"tmp/minis_stage"];
-        [[NSFileManager defaultManager] createDirectoryAtPath:sharedStageDir withIntermediateDirectories:YES attributes:nil error:nil];
-        chmod(sharedStageDir.UTF8String, 0755);
+        // 核心突破：解决严格沙盒 App（如 App Store 游戏、王牌战争）报 file system sandbox blocked mmap()
+        // 苹果沙盒机制：目标 App 唯一天然具有执行权限（mmap RX）的路径是它自己的容器目录（Data Container tmp 或 Bundle 目录）。
+        // 尝试定位目标 App 的 Data Container 路径
+        NSString *targetContainerTmp = nil;
+        id targetProxy = FuckProxyForBundleID(bundleID);
+        NSString *targetDataURL = FuckProxyPathFromURL(targetProxy, @"dataContainerURL");
+        if (targetDataURL.length) {
+            targetContainerTmp = [targetDataURL stringByAppendingPathComponent:@"tmp"];
+        }
 
-        NSString *stagedDylib = [sharedStageDir stringByAppendingPathComponent:[dylibPath lastPathComponent]];
+        NSString *destDir = nil;
+        if (targetContainerTmp.length && [[NSFileManager defaultManager] fileExistsAtPath:targetContainerTmp]) {
+            destDir = targetContainerTmp;
+            FLogSuccess(@"[SandboxBypass] 成功定位目标 App 自身数据容器 tmp: %@", destDir);
+        } else {
+            // 回退到越狱公共 tmp 目录
+            destDir = [jbroot stringByAppendingPathComponent:@"tmp/minis_stage"];
+            [[NSFileManager defaultManager] createDirectoryAtPath:destDir withIntermediateDirectories:YES attributes:nil error:nil];
+        }
+        chmod(destDir.UTF8String, 0777);
+
+        NSString *stagedDylib = [destDir stringByAppendingPathComponent:[dylibPath lastPathComponent]];
         [[NSFileManager defaultManager] removeItemAtPath:stagedDylib error:nil];
         NSError *cpErr = nil;
         if ([[NSFileManager defaultManager] copyItemAtPath:dylibPath toPath:stagedDylib error:&cpErr]) {
             chmod(stagedDylib.UTF8String, 0755);
             finalDylibPath = stagedDylib;
-            FLog(@"[Relaxin] 已暂存 dylib 到越狱公共目录: %@", finalDylibPath);
+            FLogSuccess(@"[Relaxin] 已将 dylib 投递到目标进程合法可读写区: %@", finalDylibPath);
         } else {
-            FLogError(@"[Relaxin] 暂存到公共目录失败: %@, 尝试沿用原路径", cpErr.localizedDescription);
+            FLogError(@"[Relaxin] 暂存失败: %@, 尝试沿用原路径", cpErr.localizedDescription);
         }
 
         // 4. 必须先对 dylib 进行 ad-hoc 签名，生成合法的 CodeDirectory 哈希
@@ -2717,15 +2741,37 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
             finalDylibPath
         ];
 
-        int rc = FuckSpawnArguments(args, YES);
+        NSString *injectOutput = nil;
+        int rc = FuckSpawnArgumentsWithOutput(args, YES, &injectOutput);
         FLog(@"[Relaxin] 官方 opainject 返回码: %d", rc);
 
-        if (rc == 0) {
-            FLogSuccess(@"[Relaxin] ✅ 官方引擎注入成功完成！");
+        // 注入完成后立即清理暂存的 dylib，保持无痕
+        if (finalDylibPath && ![finalDylibPath isEqualToString:dylibPath]) {
+            [[NSFileManager defaultManager] removeItemAtPath:finalDylibPath error:nil];
+            FLog(@"[Relaxin] 已清除目标容器内的临时 dylib");
+        }
+
+        // 深度检查输出：哪怕 opainject 返回 0，只要 dlopen 报错就绝不能报成功！
+        BOOL dlopenFailed = NO;
+        NSString *failReason = nil;
+        if ([injectOutput containsString:@"dlopen failed"]) {
+            dlopenFailed = YES;
+            if ([injectOutput containsString:@"sandbox blocked mmap"]) {
+                failReason = @"沙盒拦截：系统禁止目标 App 映射外部动态库";
+            } else if ([injectOutput containsString:@"code signature invalid"]) {
+                failReason = @"签名错误：目标 App 内核拒绝未经 PAC 签名的代码";
+            } else {
+                failReason = @"目标 App dlopen 载入失败，请检查架构与依赖";
+            }
+        }
+
+        if (rc == 0 && !dlopenFailed) {
+            FLogSuccess(@"[Relaxin] ✅ 官方引擎注入成功完成，目标进程已顺利载入动态库！");
             finish(YES, [NSString stringWithFormat:@"注入成功 (PID: %d)", targetPid]);
         } else {
-            FLogError(@"[Relaxin] ❌ 官方引擎返回错误码: %d，详细信息请查看日志", rc);
-            finish(NO, [NSString stringWithFormat:@"官方 opainject 返回码 %d", rc]);
+            NSString *err = failReason ? failReason : [NSString stringWithFormat:@"官方 opainject 退出码 %d", rc];
+            FLogError(@"[Relaxin] ❌ 注入失败: %@", err);
+            finish(NO, err);
         }
     });
 }
