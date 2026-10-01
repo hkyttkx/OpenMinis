@@ -102,7 +102,7 @@ jobs:
       - name: 品牌改名为 KyTuT
         run: |
           # 1. 桌面显示名
-          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string kyTuT" src/ios/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName kyTuT" src/ios/Info.plist || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string kyTuT" src/ios/Info.plist
           # 2. 权限弹窗文案 + About 页（仅显示文本，不动 bundle ID / App Group / URL scheme）
           sed -i '' 's/Minis/kyTuT/g' src/ios/Info.plist src/ios/Views/Settings/AboutView.swift
           for f in src/ios/*.lproj/InfoPlist.strings; do
