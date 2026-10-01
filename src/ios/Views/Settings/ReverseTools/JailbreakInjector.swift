@@ -24,6 +24,59 @@ import UniformTypeIdentifiers
 
 // MARK: - 注入模式
 
+/// 注入通道。不同越狱/系统组合下可用的通道不同，所以做成可选的：
+/// 用户可指定，也可以让系统按顺序挨个试。
+///
+///   auto      依次尝试下面全部（默认，最省事）
+///   elevate   先提权到 root 再注入（roothide 官方接口，最强）
+///   roothide  roothide jbserver 加 trust cache
+///   jailbreakd 走 jailbreakd XPC（Dopamine 系）
+///   kfd       kfd 内核利用（iOS 16.x 及以下）
+enum DynamicInjectChannel: Int, CaseIterable, Identifiable {
+    case auto = 0
+    case elevate = 1
+    case roothide = 2
+    case jailbreakd = 3
+    case kfd = 4
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .auto:       return "自动（挨个尝试）"
+        case .elevate:    return "提权到 root"
+        case .roothide:   return "roothide jbserver"
+        case .jailbreakd: return "jailbreakd XPC"
+        case .kfd:        return "kfd 内核利用"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .auto:
+            return "按 提权 → roothide → jailbreakd → kfd 的顺序依次尝试，任一成功即停止"
+        case .elevate:
+            return "用 libjailbreak 的官方接口取得 root 凭据，之后整条流程以 root 运行。成功则前面那些权限问题都不存在"
+        case .roothide:
+            return "调用 jbclient_trust_file_by_path 等接口加信任。Relaxin / roothide 越狱适用"
+        case .jailbreakd:
+            return "向 jailbreakd 发 XPC 请求写 trust cache。Dopamine 系越狱适用"
+        case .kfd:
+            return "走内核漏洞写 trust cache。仅 iOS 16.x 及以下有效，17 以上已被修补"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .auto:       return "wand.and.stars"
+        case .elevate:    return "lock.open.fill"
+        case .roothide:   return "shield.lefthalf.filled"
+        case .jailbreakd: return "arrow.triangle.branch"
+        case .kfd:        return "bolt.fill"
+        }
+    }
+}
+
 enum DynamicInjectMode: Int, CaseIterable, Identifiable {
     case strict = 0
     case clean = 1
@@ -363,6 +416,7 @@ enum JailbreakInjector {
                        executableName: String?,
                        dylibPath: String,
                        mode: DynamicInjectMode,
+                       channel: DynamicInjectChannel = .auto,
                        progress: @escaping (String) -> Void,
                        completion: @escaping (DynamicInjectOutcome) -> Void) {
 
@@ -381,6 +435,7 @@ enum JailbreakInjector {
           目标 App ：\(bundleID)
           dylib    ：\(dylibPath)
           注入模式 ：\(mode.title)
+          注入通道 ：\(channel.title)
         ------------------------------------------------------------
         """)
 
@@ -477,6 +532,10 @@ enum JailbreakInjector {
             reportProgress("执行注入…")
 
             setenv("FUCK_INJECT_LOG_PATH", logPath, 1)
+
+            // 通道通过环境变量传下去：OC 侧读 FUCK_INJECT_CHANNEL 决定策略，
+            // 避免为此改动 injectDylib 的既有签名（它会牵动整个调用链）。
+            setenv("FUCK_INJECT_CHANNEL", "\(channel.rawValue)".utf8String, 1)
 
             FuckDynamicInjector.injectDylib(
                 effectiveDylib,
