@@ -190,32 +190,97 @@ typedef int (*FuckTrustFileByPathFn)(const char *);
 typedef bool (*FuckRoothideJailbrokenFn)(void);
 typedef char *(*FuckGetJbrootFn)(void);
 
+// 扫描 roothide 的随机越狱根。
+//
+// 为什么必须扫：roothide 把越狱环境放在
+//   /var/containers/Bundle/Application/.jbroot-<32位十六进制>
+// 下面（也在 AppGroup 里放一份）。写死 /var/jb 在本机不存在 —— 实测
+// 那台设备上 /var/jb 完全没有，于是 libjailbreak 永远加载失败，
+// 拿不到 jbserver 通道，注入必然失败。
+static NSString *FuckScanJailbreakRoot(void) {
+    // 用户可通过环境变量指定，优先
+    const char *envRoot = getenv("MINIS_JBROOT");
+    if (envRoot && envRoot[0]) {
+        NSString *e = [NSString stringWithUTF8String:envRoot];
+        if ([[NSFileManager defaultManager] fileExistsAtPath:e]) return e;
+    }
+
+    NSArray<NSString *> *parents = @[
+        @"/var/containers/Bundle/Application",
+        @"/var/mobile/Containers/Bundle/Application",
+        @"/var/mobile/Containers/Shared/AppGroup",
+    ];
+    NSFileManager *fm = [NSFileManager defaultManager];
+
+    for (NSString *parent in parents) {
+        NSArray<NSString *> *items = [fm contentsOfDirectoryAtPath:parent error:nil];
+        if (!items) continue;
+
+        // 首选 .jbroot-* 命名
+        NSArray<NSString *> *sorted = [items sortedArrayUsingSelector:@selector(compare:)];
+        for (NSString *name in sorted) {
+            if (![name hasPrefix:@".jbroot-"]) continue;
+            NSString *p = [parent stringByAppendingPathComponent:name];
+            if ([fm fileExistsAtPath:[p stringByAppendingPathComponent:@"basebin/libjailbreak.dylib"]]
+                || [fm fileExistsAtPath:[p stringByAppendingPathComponent:@"usr/lib/libjailbreak.dylib"]]) {
+                return p;
+            }
+        }
+        // 兜底：任何含 libjailbreak 的隐藏目录
+        for (NSString *name in sorted) {
+            if (![name hasPrefix:@"."]) continue;
+            NSString *p = [parent stringByAppendingPathComponent:name];
+            if ([fm fileExistsAtPath:[p stringByAppendingPathComponent:@"basebin/libjailbreak.dylib"]]
+                || [fm fileExistsAtPath:[p stringByAppendingPathComponent:@"usr/lib/libjailbreak.dylib"]]) {
+                return p;
+            }
+        }
+    }
+    return nil;
+}
+
 // 加载 libjailbreak（roothide 版本），返回句柄；失败返回 NULL
 static void *FuckLoadLibJailbreak(void) {
-    // roothide 的 jbroot 是随机路径，先尝试从 jbserver 查询
     static void *cached = NULL;
     static BOOL tried = NO;
     if (tried) return cached;
     tried = YES;
 
-    const char *candidates[] = {
-        "/var/jb/usr/lib/libjailbreak.dylib",
-        "/usr/lib/libjailbreak.dylib",
-        "/var/jb/basebin/libjailbreak.dylib",
-        NULL
-    };
-    for (int i = 0; candidates[i]; i++) {
-        void *h = dlopen(candidates[i], RTLD_NOW);
+    NSMutableArray<NSString *> *candidates = [NSMutableArray array];
+
+    // 1) 扫出来的真实根（最可靠）
+    NSString *root = FuckScanJailbreakRoot();
+    if (root.length) {
+        FLog(@"[roothide] 扫描到越狱根: %@", root);
+        [candidates addObject:[root stringByAppendingPathComponent:@"basebin/libjailbreak.dylib"]];
+        [candidates addObject:[root stringByAppendingPathComponent:@"usr/lib/libjailbreak.dylib"]];
+    } else {
+        FLog(@"[roothide] 未扫描到 .jbroot-* 目录");
+    }
+
+    // 2) 常见固定位置兜底
+    [candidates addObjectsFromArray:@[
+        @"/var/jb/basebin/libjailbreak.dylib",
+        @"/var/jb/usr/lib/libjailbreak.dylib",
+        @"/usr/lib/libjailbreak.dylib",
+    ]];
+
+    for (NSString *path in candidates) {
+        void *h = dlopen(path.UTF8String, RTLD_NOW);
         if (h) {
             cached = h;
-            FLog(@"[roothide] libjailbreak 已加载: %s", candidates[i]);
+            FLog(@"[roothide] libjailbreak 已加载: %@", path);
             return cached;
         }
     }
-    // 最后尝试 dyld 全局（若 jailbreakd 注入过）
+
+    // 3) dyld 全局（若 jailbreakd 已经注入过）
     cached = dlopen("libjailbreak.dylib", RTLD_NOW);
-    if (cached) FLog(@"[roothide] libjailbreak 从 dyld 加载成功");
-    else FLog(@"[roothide] libjailbreak 未找到（非越狱环境或路径变化）");
+    if (cached) {
+        FLog(@"[roothide] libjailbreak 从 dyld 加载成功");
+    } else {
+        FLog(@"[roothide] libjailbreak 未找到（非越狱环境或路径变化）");
+    }
     return cached;
 }
 
