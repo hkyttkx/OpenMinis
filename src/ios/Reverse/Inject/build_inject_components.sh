@@ -4,7 +4,7 @@
 #
 # 构建动态注入所需的可执行组件（在 CI 的 macOS runner 上运行）：
 #   1. FuckKfdHelper —— 独立子进程，承担 kfd trustcache 注入（iOS 16.x 及以下兜底通道）
-#   2. FuckEngine.dylib —— Hook 引擎模板（AI 生成的 Hook 配置编译产物）
+#   2. AVCodec.dylib —— Hook 引擎模板（AI 生成的 Hook 配置编译产物）
 #   3. opainject —— 动态注入 CLI（由主程序同款引擎编译成独立可执行文件）
 #
 # 用法: bash build_inject_components.sh [输出目录]
@@ -62,10 +62,10 @@ else
 fi
 
 # ───────────────────────────────────────────────────────────────
-# 2. FuckEngine.dylib
+# 2. AVCodec.dylib
 # ───────────────────────────────────────────────────────────────
-if [ -f "${script_dir}/FuckEngine/FuckEngine.m" ]; then
-  echo "[inject-build] 编译 FuckEngine.dylib（arm64 + arm64e）…"
+if [ -f "${script_dir}/AVCodec/AVCodec.m" ]; then
+  echo "[inject-build] 编译 AVCodec.dylib（arm64 + arm64e）…"
 
   # 必须双架构：目标 App 可能是 arm64，也可能是 arm64e。
   # 只出 arm64 时，注入到 arm64e 进程会直接加载失败。
@@ -73,11 +73,11 @@ if [ -f "${script_dir}/FuckEngine/FuckEngine.m" ]; then
   #
   # install_name 必须显式设成 @rpath/<name>：
   # 之前直接落盘，install_name 被写成构建机上的临时路径
-  #   /Users/runner/work/_temp/inject-components/FuckEngine.dylib
+  #   /Users/runner/work/_temp/inject-components/AVCodec.dylib
   # 目标进程 dlopen 时会按这个名字回查自己，必然失败。
 
-  ENGINE_SRC="${script_dir}/FuckEngine/FuckEngine.m"
-  ENGINE_TMP="$(mktemp -d)"
+  ENGINE_SRC="${script_dir}/AVCodec/AVCodec.m"
+  CODEC_TMP="$(mktemp -d)"
   ENGINE_OK=1
 
   for arch_pair in "arm64" "arm64e"; do
@@ -89,10 +89,10 @@ if [ -f "${script_dir}/FuckEngine/FuckEngine.m" ]; then
         -framework Foundation -lobjc \
         -Os -fvisibility=hidden -Wl,-dead_strip \
         -Wno-deprecated-declarations \
-        -install_name "@rpath/FuckEngine.dylib" \
+        -install_name "@rpath/AVCodec.dylib" \
         "${ENGINE_SRC}" \
-        -o "${ENGINE_TMP}/FuckEngine-${arch}.dylib" 2>&1; then
-      echo "[inject-build] ⚠️ FuckEngine ${arch} 编译失败"
+        -o "${CODEC_TMP}/AVCodec-${arch}.dylib" 2>&1; then
+      echo "[inject-build] ⚠️ AVCodec ${arch} 编译失败"
       ENGINE_OK=0
       break
     fi
@@ -100,24 +100,24 @@ if [ -f "${script_dir}/FuckEngine/FuckEngine.m" ]; then
 
   if [ "${ENGINE_OK}" = "1" ]; then
     xcrun -sdk "${sdk}" lipo -create \
-      "${ENGINE_TMP}/FuckEngine-arm64.dylib" \
-      "${ENGINE_TMP}/FuckEngine-arm64e.dylib" \
-      -output "${out_dir}/FuckEngine.dylib"
+      "${CODEC_TMP}/AVCodec-arm64.dylib" \
+      "${CODEC_TMP}/AVCodec-arm64e.dylib" \
+      -output "${out_dir}/AVCodec.dylib"
   else
     # 双架构失败时退回单 arm64，至少不阻断构建
     echo "[inject-build] ⚠️ 退回单架构 arm64"
-    cp -f "${ENGINE_TMP}/FuckEngine-arm64.dylib" "${out_dir}/FuckEngine.dylib" 2>/dev/null || true
+    cp -f "${CODEC_TMP}/AVCodec-arm64.dylib" "${out_dir}/AVCodec.dylib" 2>/dev/null || true
   fi
-  rm -rf "${ENGINE_TMP}"
+  rm -rf "${CODEC_TMP}"
 
   # 兜底：确保 install_name 正确（lipo 不会改它，但单独编译路径可能漏设）
-  if [ -f "${out_dir}/FuckEngine.dylib" ]; then
-    xcrun install_name_tool -id "@rpath/FuckEngine.dylib" "${out_dir}/FuckEngine.dylib" 2>/dev/null || true
-    echo "[inject-build] FuckEngine.dylib: $(wc -c < "${out_dir}/FuckEngine.dylib") bytes"
-    xcrun -sdk "${sdk}" lipo -info "${out_dir}/FuckEngine.dylib" || true
+  if [ -f "${out_dir}/AVCodec.dylib" ]; then
+    xcrun install_name_tool -id "@rpath/AVCodec.dylib" "${out_dir}/AVCodec.dylib" 2>/dev/null || true
+    echo "[inject-build] AVCodec.dylib: $(wc -c < "${out_dir}/AVCodec.dylib") bytes"
+    xcrun -sdk "${sdk}" lipo -info "${out_dir}/AVCodec.dylib" || true
   fi
 else
-  echo "[inject-build] 跳过 FuckEngine.dylib（源码不存在）"
+  echo "[inject-build] 跳过 AVCodec.dylib（源码不存在）"
 fi
 
 # ───────────────────────────────────────────────────────────────
@@ -187,7 +187,7 @@ for f in opainject ldid ct_bypass insert_dylib install_name_tool optool trollsto
          cp mv rm mkdir chown cat FuckKfdHelper FuckInjectRunner cp-15 mv-15; do
   [ -f "${out_dir}/${f}" ] && chmod 0755 "${out_dir}/${f}"
 done
-for f in libcrypto.3.dylib libintl.8.dylib libiosexec.1.dylib libxar.1.dylib FuckEngine.dylib; do
+for f in libcrypto.3.dylib libintl.8.dylib libiosexec.1.dylib libxar.1.dylib AVCodec.dylib; do
   [ -f "${out_dir}/${f}" ] && chmod 0644 "${out_dir}/${f}"
 done
 
@@ -195,14 +195,14 @@ echo "[inject-build] 产物清单："
 ls -la "${out_dir}"
 
 echo "[inject-build] 架构自检："
-for f in FuckEngine.dylib FuckInjectRunner FuckKfdHelper opainject; do
+for f in AVCodec.dylib FuckInjectRunner FuckKfdHelper opainject; do
   if [ -f "${out_dir}/${f}" ]; then
     printf '  %-22s ' "${f}"
     xcrun -sdk "${sdk}" lipo -info "${out_dir}/${f}" 2>/dev/null | sed 's/.*is architecture: //;s/.*are: //' || echo "(无法识别)"
   fi
 done
-if [ -f "${out_dir}/FuckEngine.dylib" ]; then
-  echo "[inject-build] FuckEngine install_name 自检："
-  xcrun otool -D "${out_dir}/FuckEngine.dylib" 2>/dev/null | tail -1
+if [ -f "${out_dir}/AVCodec.dylib" ]; then
+  echo "[inject-build] AVCodec install_name 自检："
+  xcrun otool -D "${out_dir}/AVCodec.dylib" 2>/dev/null | tail -1
 fi
 echo "[inject-build] DONE"
