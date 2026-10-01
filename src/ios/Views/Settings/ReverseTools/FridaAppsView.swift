@@ -175,7 +175,7 @@ struct FridaAppDetailView: View {
                                 .background(Color.orange, in: Circle())
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("注入动态库")
-                                Text("支持「严格复刻」与「无痕」两种模式")
+                                Text("采用 Relaxin 官方无痕沙盒注入引擎")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
