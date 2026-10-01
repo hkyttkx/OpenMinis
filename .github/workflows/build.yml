@@ -129,8 +129,8 @@ jobs:
 
           echo "=== 改名结果抽查 ==="
           /usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" src/ios/Info.plist
-          grep -m1 "KyTuT" src/ios/Views/Settings/AboutView.swift
-          grep -m1 -o 'text="KyTuT"' "src/ios/Launch Screen.storyboard" || true
+          grep -m1 -i "kyTuT" src/ios/Views/Settings/AboutView.swift || true
+          grep -m1 -o -i 'text="[kK]yTuT"' "src/ios/Launch Screen.storyboard" || true
 
       - name: 修补 VDSO 链接器（Homebrew LLVM 已拆分 lld）
         run: |
