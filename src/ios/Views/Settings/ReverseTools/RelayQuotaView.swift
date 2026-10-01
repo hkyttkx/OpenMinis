@@ -109,6 +109,23 @@ struct RelayQuotaView: View {
 
             // 用量汇总：服务端 today_* 在当天无用量时恒为 0，因此累计值才是
             // 真正有信息量的那一组，放前面。
+            // 账号从未产生过请求时，所有统计天然是 0。
+            // 之前这种界面和「接口没接上」长得一模一样，用户无法分辨，
+            // 所以这里显式说明一次。
+            if u.totalRequests == 0 && u.trend.isEmpty {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundStyle(.blue)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("该账号暂无用量记录").font(.caption.weight(.medium))
+                        Text("登录正常，接口也已连通——只是这个站上还没有产生过请求。\n首次调用模型后，这里的请求数、Token、消费和图表会自动出现。")
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+
             dashboardRow(icon: "chart.bar", tint: .orange, title: "累计请求",
                          value: fmtInt(u.totalRequests),
                          sub: "今日 \(fmtInt(u.todayRequests))")
