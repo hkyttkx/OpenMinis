@@ -406,7 +406,7 @@ extension AIChatViewModel {
                 "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user. Use the same language as the user."),
                 "bundle_id": AgentToolParam(type: .string, description: "Target app bundle identifier, e.g. 'com.example.app'. Must be an installed app."),
                 "dylib_path": AgentToolParam(type: .string, description: "Absolute path to the dylib to inject. Usually the output path returned by hook_compile."),
-                "mode": AgentToolParam(type: .string, description: "'clean' (default) keeps the dylib only in the app's temp directory and never writes into the target app bundle — recommended. 'strict' copies the dylib next to the target app bundle first, which is more compatible with older setups; both clean up afterwards.", enumValues: ["clean", "strict"]),
+                "mode": AgentToolParam(type: .string, description: "'clean' 采用无痕注入通道，保持目标 App 干净防闪退。"),
             ],
             required: ["tool_title", "bundle_id", "dylib_path"],
             propertyOrdering: ["tool_title", "bundle_id", "dylib_path", "mode"]
