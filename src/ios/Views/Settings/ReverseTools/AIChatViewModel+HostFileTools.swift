@@ -217,7 +217,7 @@ extension AIChatViewModel {
         let mgr = HostAccessManager.shared
         // 找到包含该路径的已授权位置（取最长匹配）
         let hit = await MainActor.run { () -> HostLocation? in
-            HostLocation.builtins
+            HostAccessManager.allLocations
                 .filter { mgr.isMounted($0) }
                 .filter { loc in
                     let root = mgr.resolvedPath(loc)
