@@ -64,13 +64,29 @@ enum HostFileAccess {
 
     // MARK: - 只读判定
 
-    /// 系统关键路径：只读，禁止写入
+    /// 系统关键路径：只读，禁止写入。
+    ///
+    /// 例外：越狱根。roothide 把越狱环境放在
+    /// `/var/containers/Bundle/Application/.jbroot-<32位十六进制>`，
+    /// 虽然外层是 App 安装包目录，但这个 `.jbroot-*` 子树是越狱自己的
+    /// 文件系统，用户明确要求可读写，因此单独豁免。
+    /// 外层其它目录（真正的 App 安装包）依旧只读 —— 那是系统能正常启动的前提。
     static func isSystemCritical(_ path: String) -> Bool {
         let p = path.hasPrefix("/private/") ? String(path.dropFirst("/private".count)) : path
+
+        // 越狱根豁免（优先于下面的只读前缀判定）
+        if let jb = JailbreakInjector.resolveJailbreakRoot(), !jb.isEmpty {
+            let j = jb.hasPrefix("/private/") ? String(jb.dropFirst("/private".count)) : jb
+            if p == j || p.hasPrefix(j + "/") { return false }
+        }
+        // 兜底：任何 `.jbroot-*` 目录同样豁免（resolve 失败时也能命中）
+        if let r = p.range(of: "/.jbroot-") { return false }
+
         let prefixes = [
-            "/System", "/usr", "/bin", "/sbin", "/etc", "/var/jb",
+            "/System", "/usr", "/bin", "/sbin", "/etc",
             "/AppleInternal", "/Developer",
-            "/var/containers/Bundle/Application",   // App 安装包只读
+            "/var/jb",                                // 字面量 /var/jb 仍视为系统区
+            "/var/containers/Bundle/Application",     // App 安装包只读
         ]
         if p == "/" { return true }
         for pre in prefixes where p == pre || p.hasPrefix(pre + "/") { return true }
