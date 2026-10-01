@@ -2589,154 +2589,126 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
             progress:(void (^)(NSString *step))progress
           completion:(void (^)(BOOL success, NSString *message))completion {
 
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        void (^reportProgress)(NSString *) = ^(NSString *step) {
-            if (progress) dispatch_async(dispatch_get_main_queue(), ^{ progress(step); });
-        };
-        void (^finish)(BOOL, NSString *) = ^(BOOL ok, NSString *msg) {
-            if (completion) dispatch_async(dispatch_get_main_queue(), ^{ completion(ok, msg); });
-        };
+    void (^finish)(BOOL, NSString *) = ^(BOOL success, NSString *message) {
+        if (completion) {
+            completion(success, message);
+        }
+    };
+    void (^reportProgress)(NSString *) = ^(NSString *step) {
+        if (progress) {
+            progress(step);
+        }
+    };
 
-        FLog(@"========== FuckDynamicInjector start ==========");
-        FLog(@"dylib: %@, bundleID: %@", dylibPath, bundleID);
-        FLog(@"current UID: %d (will spawn root subprocess)", getuid());
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        FLog(@"========== Relaxin 官方唯一通道注入开始 ==========");
+        FLog(@"输入路径: %@", dylibPath);
+        FLog(@"目标 App: %@", bundleID);
 
         if (!dylibPath.length || !bundleID.length) {
-            finish(NO, @"invalid arguments");
-            return;
-        }
-        if (![[NSFileManager defaultManager] fileExistsAtPath:dylibPath]) {
-            finish(NO, [NSString stringWithFormat:@"dylib not found: %@", dylibPath]);
+            finish(NO, @"参数无效：dylib 路径或 BundleID 为空");
             return;
         }
 
-        // 每次都打开目标 App（后台挂起的进程无法执行注入线程）
-        // 打开后立即返回自己的 App
-        reportProgress(@"[1/3] 启动目标 App...");
-        FLog(@"[SPAWN] opening %@ (ensure foreground)...", bundleID);
-        FuckOpenApp(bundleID);
-        usleep(1500000); // 等 1.5 秒让目标 App 到前台
-
-        // 返回自己的 App
-        NSString *selfBundleID = [[NSBundle mainBundle] bundleIdentifier];
-        if (selfBundleID.length) {
-            FLog(@"[SPAWN] returning to self: %@", selfBundleID);
-            FuckOpenApp(selfBundleID);
-            usleep(500000); // 等 0.5 秒切回
-        }
-
-        // 等待目标进程就绪（轮询，不用固定时间）
-        reportProgress(@"[2/3] 等待目标进程就绪...");
-        pid_t targetPid = -1;
-        for (int i = 0; i < 10; i++) {
-            targetPid = FuckFindPIDForBundleID(bundleID);
-            if (targetPid > 0) break;
-            usleep(500000); // 每 0.5 秒检查一次
-        }
-        if (targetPid <= 0) {
-            FLogError(@"target app failed to launch");
-            finish(NO, @"无法启动目标 App");
-            return;
-        }
-        FLog(@"[SPAWN] target PID: %d", targetPid);
-
-        // ═══════════════════════════════════════════════════════════════
-        // 终极优先：优先使用 Relaxin 官方 BaseBin 中的 opainject
-        // 官方二进制原生支持 arm64e PAC (spawnPacChild) 和内存死循环扫描，
-        // 并且拥有系统内核完全信任链，绝不出现 EXC_BAD_ACCESS 崩溃。
-        // ═══════════════════════════════════════════════════════════════
+        // 1. 定位 Relaxin 越狱根与官方 opainject 二进制
         NSString *jbroot = FuckRoothideJbroot();
-        NSString *officialOpainject = nil;
-        if (jbroot.length) {
-            NSString *cand1 = [jbroot stringByAppendingPathComponent:@"basebin/opainject"];
-            NSString *cand2 = [jbroot stringByAppendingPathComponent:@"usr/bin/opainject"];
-            if ([[NSFileManager defaultManager] fileExistsAtPath:cand1]) officialOpainject = cand1;
-            else if ([[NSFileManager defaultManager] fileExistsAtPath:cand2]) officialOpainject = cand2;
+        if (!jbroot.length) {
+            finish(NO, @"未检测到 Relaxin 越狱根环境（.jbroot）");
+            return;
         }
 
-        if (officialOpainject.length) {
-            FLogSuccess(@"[Relaxin] 发现官方 BaseBin opainject: %@", officialOpainject);
-            reportProgress(@"[3/3] 调用 Relaxin 官方引擎执行注入...");
+        NSString *officialOpainject = [jbroot stringByAppendingPathComponent:@"basebin/opainject"];
+        if (![[NSFileManager defaultManager] fileExistsAtPath:officialOpainject]) {
+            officialOpainject = [jbroot stringByAppendingPathComponent:@"usr/bin/opainject"];
+        }
+        if (![[NSFileManager defaultManager] fileExistsAtPath:officialOpainject]) {
+            finish(NO, [NSString stringWithFormat:@"未在越狱根找到官方 opainject: %@", officialOpainject]);
+            return;
+        }
+        FLogSuccess(@"[Relaxin] 官方 opainject 就绪: %@", officialOpainject);
 
-            // 1. 先通过 jbserver 将 dylib 放入 Trust Cache
-            FuckRoothideTrustDylib(dylibPath);
-            // 2. 标记目标进程可调试
-            FuckRoothideSetProcessDebugged(targetPid, YES);
+        // 2. 查找目标进程 PID（如果没运行则启动它）
+        reportProgress(@"正在查找目标进程…");
+        pid_t targetPid = FuckFindPIDForBundleID(bundleID);
+        if (targetPid <= 0) {
+            reportProgress(@"目标未启动，正在调起…");
+            FLog(@"[SPAWN] 正在拉起目标 App: %@", bundleID);
+            FuckOpenApp(bundleID);
+            usleep(1500000); // 等待 1.5 秒
 
-            // 3. 执行官方 opainject: <pid> <dylibPath>
-            NSArray<NSString *> *args = @[
-                officialOpainject,
-                [NSString stringWithFormat:@"%d", targetPid],
-                dylibPath
-            ];
-            FLog(@"[Relaxin] 启动官方注入: %@ %d %@", officialOpainject, targetPid, dylibPath);
-            int oparet = FuckSpawnArguments(args, YES);
-            FLog(@"[Relaxin] 官方 opainject 执行返回码: %d", oparet);
-            if (oparet == 0) {
-                FLogSuccess(@"[Relaxin] ✅ 官方 opainject 注入成功！");
-                finish(YES, @"Relaxin 官方引擎注入成功");
-                return;
-            } else {
-                FLogError(@"[Relaxin] ⚠️ 官方 opainject 返回异常(%d)，尝试回退内置引擎", oparet);
+            NSString *selfBundleID = [[NSBundle mainBundle] bundleIdentifier];
+            if (selfBundleID.length) {
+                FuckOpenApp(selfBundleID);
+                usleep(500000);
+            }
+
+            for (int i = 0; i < 15; i++) {
+                targetPid = FuckFindPIDForBundleID(bundleID);
+                if (targetPid > 0) break;
+                usleep(500000);
             }
         }
 
+        if (targetPid <= 0) {
+            finish(NO, [NSString stringWithFormat:@"无法获取目标 %@ 的运行 PID，请先在桌面打开它", bundleID]);
+            return;
+        }
+        FLogSuccess(@"[Relaxin] 目标 PID: %d", targetPid);
 
-        // ── 在当前进程内直接执行注入，不再 spawn 子进程 ──
-        //
-        // 原因（实测）：
-        //   posix_spawn 本 bundle 内的可执行文件（无论主程序还是独立 runner），
-        //   在 iOS 17.x + 巨魔/越狱环境下会被内核/AMFI 直接掐掉 ——
-        //   rawStatus=1（WIFSIGNALED）、1ms 内死亡、子进程未执行任何代码。
-        //   这条路径已确认不可用。
-        //
-        // 为什么可以不要 root：
-        //   注入的每一步所需权限，本进程都已具备 ——
-        //     task_for_pid              ← task_for_pid-allow（entitlements）
-        //     mach_vm_* / thread_*      ← 拿到 task port 即可
-        //     sandbox_extension_issue   ← no-sandbox
-        //     写目标 App 目录            ← no-sandbox + storage.AppBundles
-        //     trust cache               ← roothide jbserver（走 launchd，不需 root）
-        //
-        // 因此改为直接调用 CLI 实现（它与子进程版本逻辑完全一致）。
-        reportProgress(@"[3/3] 执行注入...");
+        // 3. 准备可被目标进程与 opainject 共同访问的有效 dylib
+        reportProgress(@"准备插件文件与越狱信任…");
+        NSString *finalDylibPath = dylibPath;
 
-        // 把日志路径通过环境变量交给注入实现（与本进程内共用同一日志文件）
-        NSString *logPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject
-                             stringByAppendingPathComponent:@"inject_debug.log"];
-        setenv("FUCK_INJECT_LOG_PATH", logPath.UTF8String, 1);
-        setenv("FUCK_INJECT_MODE", [[NSString stringWithFormat:@"%d", mode] UTF8String], 1);
+        // 如果用户传入的是 .deb，由 Swift 层已自动提取，这里做兜底检查
+        if ([dylibPath hasSuffix:@".deb"]) {
+            finish(NO, @"请选择解包后的 .dylib 动态库，不要直接选择 .deb 压缩包");
+            return;
+        }
 
-        FLog(@"[INLINE] 当前进程内注入：uid=%d euid=%d", getuid(), geteuid());
-        FLog(@"[INLINE] dylib=%@ bundleID=%@ mode=%d", dylibPath, bundleID, mode);
+        // 把 dylib 暂存到越狱公共目录，保证所有人可读（0755）
+        NSString *sharedStageDir = [jbroot stringByAppendingPathComponent:@"tmp/minis_stage"];
+        [[NSFileManager defaultManager] createDirectoryAtPath:sharedStageDir withIntermediateDirectories:YES attributes:nil error:nil];
+        chmod(sharedStageDir.UTF8String, 0755);
 
-        unsigned long long logSizeBefore = [[[NSFileManager defaultManager]
-            attributesOfItemAtPath:logPath error:NULL][NSFileSize] unsignedLongLongValue];
-
-        int ret = [FuckDynamicInjector cliInjectWithDylibPath:dylibPath
-                                                     bundleID:bundleID
-                                                         mode:mode];
-
-        unsigned long long logSizeAfter = [[[NSFileManager defaultManager]
-            attributesOfItemAtPath:logPath error:NULL][NSFileSize] unsignedLongLongValue];
-        FLog(@"[INLINE] 注入返回 %d（本次写入日志 %llu 字节）",
-             ret, logSizeAfter - logSizeBefore);
-
-        if (ret == 0) {
-            FLogSuccess(@"动态注入成功");
-            finish(YES, @"动态注入成功");
+        NSString *stagedDylib = [sharedStageDir stringByAppendingPathComponent:[dylibPath lastPathComponent]];
+        [[NSFileManager defaultManager] removeItemAtPath:stagedDylib error:nil];
+        NSError *cpErr = nil;
+        if ([[NSFileManager defaultManager] copyItemAtPath:dylibPath toPath:stagedDylib error:&cpErr]) {
+            chmod(stagedDylib.UTF8String, 0755);
+            finalDylibPath = stagedDylib;
+            FLog(@"[Relaxin] 已暂存 dylib 到越狱公共目录: %@", finalDylibPath);
         } else {
-            NSString *errMsg = [NSString stringWithFormat:@"注入失败（错误码: %d）", ret];
-            FLogError(@"%@", errMsg);
+            FLogError(@"[Relaxin] 暂存到公共目录失败: %@, 尝试沿用原路径", cpErr.localizedDescription);
+        }
 
-            // 目标 App 可能因注入而闪退 —— 抓它的崩溃报告一起归档
-            NSString *execPath = FuckCanonicalExecutablePath(bundleID);
-            NSString *execName = execPath.length ? [execPath lastPathComponent] : nil;
-            FuckCaptureTargetCrashLog(bundleID, execName);
+        // 4. 将 dylib 加入系统 Trust Cache
+        FLog(@"[Relaxin] 调用 jbclient_trust_file_by_path 加入 Trust Cache…");
+        FuckRoothideTrustDylib(finalDylibPath);
 
-            finish(NO, errMsg);
+        // 5. 标记目标进程可调试
+        FLog(@"[Relaxin] 标记目标 PID %d 为可调试…", targetPid);
+        FuckRoothideSetProcessDebugged(targetPid, YES);
+
+        // 6. 调用官方原生 opainject
+        reportProgress(@"正在调用 Relaxin 官方引擎执行注入…");
+        FLog(@"[Relaxin] 正在执行: %@ %d %@", officialOpainject, targetPid, finalDylibPath);
+
+        NSArray<NSString *> *args = @[
+            officialOpainject,
+            [NSString stringWithFormat:@"%d", targetPid],
+            finalDylibPath
+        ];
+
+        int rc = FuckSpawnArguments(args, YES);
+        FLog(@"[Relaxin] 官方 opainject 返回码: %d", rc);
+
+        if (rc == 0) {
+            FLogSuccess(@"[Relaxin] ✅ 官方引擎注入成功完成！");
+            finish(YES, [NSString stringWithFormat:@"注入成功 (PID: %d)", targetPid]);
+        } else {
+            FLogError(@"[Relaxin] ❌ 官方引擎返回错误码: %d，详细信息请查看日志", rc);
+            finish(NO, [NSString stringWithFormat:@"官方 opainject 返回码 %d", rc]);
         }
     });
 }
-
 @end
