@@ -125,10 +125,16 @@ enum JailbreakInjector {
     /// 扫描 roothide 的随机越狱根。
     /// roothide 把根目录放在 App 安装包目录下，名字形如 `.jbroot-A1B99E8FE8B71244`
     /// （该目录本身就在 /var/containers/Bundle/Application 里，本进程可读）。
+    /// 最近一次扫描到的根，供 dlopen 构造候选路径复用。
+    private(set) static var lastScannedRoot: String?
+
     static func scanRoothideRoot() -> String? {
+        // 实测（Relaxin/roothide, iOS 17.1.2）：越狱根会同时出现在
+        // App 安装包目录 与 AppGroup 共享目录，两处都要扫。
         let parents = [
             "/var/containers/Bundle/Application",
             "/var/mobile/Containers/Bundle/Application",
+            "/var/mobile/Containers/Shared/AppGroup",
         ]
         for parent in parents {
             guard let items = try? FileManager.default.contentsOfDirectory(atPath: parent) else { continue }
@@ -136,11 +142,14 @@ enum JailbreakInjector {
             let named = items.filter { $0.hasPrefix(".jbroot-") }.sorted()
             for name in named {
                 let p = parent + "/" + name
+                lastScannedRoot = p
                 return p
             }
             for name in items where name.hasPrefix(".") {
                 let p = parent + "/" + name
-                if FileManager.default.fileExists(atPath: p + "/usr/lib/libjailbreak.dylib") {
+                if FileManager.default.fileExists(atPath: p + "/basebin/libjailbreak.dylib")
+                    || FileManager.default.fileExists(atPath: p + "/usr/lib/libjailbreak.dylib") {
+                    lastScannedRoot = p
                     return p
                 }
             }
@@ -159,7 +168,17 @@ enum JailbreakInjector {
             return custom
         }
 
-        let candidates = [
+        // libjailbreak 的真实位置（实测）：
+        //   <root>/basebin/libjailbreak.dylib  ← roothide 主要放这里
+        //   <root>/usr/lib/libjailbreak.dylib
+        // 而不是字面量 /var/jb/usr/lib。先把已知根拼进去再试。
+        var candidates: [String] = []
+        for base in [custom, lastScannedRoot].compactMap({ $0 }) where !base.isEmpty {
+            candidates.append(base + "/basebin/libjailbreak.dylib")
+            candidates.append(base + "/usr/lib/libjailbreak.dylib")
+        }
+        candidates += [
+            "/var/jb/basebin/libjailbreak.dylib",
             "/var/jb/usr/lib/libjailbreak.dylib",
             "/usr/lib/libjailbreak.dylib",
         ]
