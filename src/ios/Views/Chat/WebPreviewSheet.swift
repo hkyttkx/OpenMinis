@@ -43,8 +43,8 @@ final class WebViewHolder: NSObject, ObservableObject {
         // data store, JS on, fullscreen enabled. This keeps the in-chat
         // preview in the same session (cookies, localStorage, HSTS state)
         // as the right-toolbar Open Browser and every agent tab.
-        // 兼容免沙盒模式，保持轻量默认存储
-        config.defaultWebpagePreferences.allowsContentJavaScript = true
+        config.processPool = BrowserUseManager.sharedProcessPool
+        config.websiteDataStore = .default()
         config.defaultWebpagePreferences.allowsContentJavaScript = true
         config.preferences.isElementFullscreenEnabled = true
         config.setURLSchemeHandler(BrowserUseManager.sharedMinisSchemeHandler, forURLScheme: "minis")
