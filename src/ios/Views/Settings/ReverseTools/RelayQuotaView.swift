@@ -319,6 +319,7 @@ private struct AddRelayAccountView: View {
     @ObservedObject private var svc = RelayQuotaService.shared
     @State private var site = ""
     @State private var siteChecked = false
+    @State private var detectedGateway: RelayGateway?
     @State private var email = ""
     @State private var password = ""
     @State private var label = ""
@@ -340,6 +341,8 @@ private struct AddRelayAccountView: View {
                             Text("检测站点")
                             Spacer()
                             if siteChecked {
+                                Text(detectedGateway?.displayName ?? "")
+                                    .font(.caption2).foregroundStyle(.secondary)
                                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                             }
                         }
@@ -378,12 +381,14 @@ private struct AddRelayAccountView: View {
 
     private func checkSite() async {
         busy = true; error = nil
-        switch await svc.probeSite(site) {
-        case .success(let normalized):
-            site = normalized
+        switch await svc.detectGateway(site) {
+        case .success(let r):
+            site = r.site
+            detectedGateway = r.gateway
             siteChecked = true
         case .failure(let why):
             siteChecked = false
+            detectedGateway = nil
             error = why
         }
         busy = false
@@ -396,16 +401,19 @@ private struct AddRelayAccountView: View {
         // 旧实现直接把账号写进列表就去登录，登录失败时那条坏记录会留在
         // 账号列表里，看起来像「加不了账号」——其实是一个永远刷不出数据的
         // 空账号。
-        switch await svc.probeSite(site) {
+        var gw: RelayGateway = detectedGateway ?? .v1
+        switch await svc.detectGateway(site) {
         case .failure(let why):
             busy = false
             error = why + "\n（未添加任何账号）"
             return
-        case .success(let normalized):
-            site = normalized
+        case .success(let r):
+            site = r.site
+            gw = r.gateway
+            detectedGateway = gw
         }
 
-        svc.addAccount(siteURL: site, email: email, label: label)
+        svc.addAccount(siteURL: site, email: email, label: label, gateway: gw)
         guard let id = svc.selectedId else { busy = false; return }
         let ok = await svc.login(accountId: id, email: email, password: password)
         busy = false
