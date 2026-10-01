@@ -300,7 +300,8 @@ struct RelayQuotaView: View {
 private struct AddRelayAccountView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var svc = RelayQuotaService.shared
-    @State private var site = "https://1for.cc"
+    @State private var site = ""
+    @State private var siteChecked = false
     @State private var email = ""
     @State private var password = ""
     @State private var label = ""
@@ -310,9 +311,27 @@ private struct AddRelayAccountView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("站点") {
-                    TextField("https://1for.cc", text: $site)
+                Section {
+                    TextField("请输入站点地址，如 https://api.example.com", text: $site)
                         .autocorrectionDisabled().textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
+                        .onChange(of: site) { _, _ in siteChecked = false }
+                    Button {
+                        Task { await checkSite() }
+                    } label: {
+                        HStack {
+                            Text("检测站点")
+                            Spacer()
+                            if siteChecked {
+                                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                            }
+                        }
+                    }
+                    .disabled(site.trimmingCharacters(in: .whitespaces).isEmpty || busy)
+                } header: {
+                    Text("站点")
+                } footer: {
+                    Text("每个中转站有自己的地址（同一套网关也会挂不同域名）。这里填的是你要登录的那个站，不是通用的默认值。")
                 }
                 Section("账户") {
                     TextField("邮箱", text: $email)
@@ -340,14 +359,48 @@ private struct AddRelayAccountView: View {
         }
     }
 
+    private func checkSite() async {
+        busy = true; error = nil
+        switch await svc.probeSite(site) {
+        case .success(let normalized):
+            site = normalized
+            siteChecked = true
+        case .failure(let why):
+            siteChecked = false
+            error = why
+        }
+        busy = false
+    }
+
     private func add() async {
         busy = true; error = nil
+
+        // 先确认站点是有效网关，再落库。
+        // 旧实现直接把账号写进列表就去登录，登录失败时那条坏记录会留在
+        // 账号列表里，看起来像「加不了账号」——其实是一个永远刷不出数据的
+        // 空账号。
+        switch await svc.probeSite(site) {
+        case .failure(let why):
+            busy = false
+            error = why + "\n（未添加任何账号）"
+            return
+        case .success(let normalized):
+            site = normalized
+        }
+
         svc.addAccount(siteURL: site, email: email, label: label)
         guard let id = svc.selectedId else { busy = false; return }
         let ok = await svc.login(accountId: id, email: email, password: password)
         busy = false
-        if ok { password = ""; dismiss() }
-        else { error = svc.lastError ?? "登录失败" }
+        if ok {
+            password = ""
+            dismiss()
+        } else {
+            // 登录失败 → 回滚这条记录，别留下空壳
+            let reason = svc.lastError ?? "登录失败"
+            svc.removeAccount(id)
+            error = reason + "\n（已回滚，账号未添加）"
+        }
     }
 }
 
