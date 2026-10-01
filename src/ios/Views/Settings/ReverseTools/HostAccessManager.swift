@@ -305,11 +305,24 @@ final class HostAccessManager: ObservableObject {
         return false
     }
 
-    /// 供 HostFileAccess 判定真实路径（越狱根动态解析）
+    /// 供 HostFileAccess 判定真实路径（越狱根动态解析）。
+    /// 顺序：用户手填 > 自动探测（libjailbreak / roothide 扫描） > 字面量 /var/jb。
     func resolvedPath(_ loc: HostLocation) -> String {
-        if loc.key == "jb", let real = JailbreakInjector.resolveJailbreakRoot(), !real.isEmpty {
+        guard loc.key == "jb" else { return loc.hostPath }
+        if let real = JailbreakInjector.resolveJailbreakRoot(), !real.isEmpty {
             return real
         }
         return loc.hostPath
+    }
+
+    /// 越狱根：用户自定义路径（设置里可填，留空则自动探测）。
+    var customJailbreakRoot: String {
+        get { JailbreakInjector.customJailbreakRoot }
+        set { JailbreakInjector.customJailbreakRoot = newValue; objectWillChange.send() }
+    }
+
+    /// 自动探测到的越狱根（供设置页展示/一键填入）
+    var detectedJailbreakRoot: String? {
+        JailbreakInjector.scanRoothideRoot()
     }
 }
