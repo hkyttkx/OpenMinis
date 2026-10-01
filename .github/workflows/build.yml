@@ -102,18 +102,18 @@ jobs:
       - name: 品牌改名为 KyTuT
         run: |
           # 1. 桌面显示名
-          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string KyTuT" src/ios/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string kyTuT" src/ios/Info.plist
           # 2. 权限弹窗文案 + About 页（仅显示文本，不动 bundle ID / App Group / URL scheme）
-          sed -i '' 's/Minis/KyTuT/g' src/ios/Info.plist src/ios/Views/Settings/AboutView.swift
+          sed -i '' 's/Minis/kyTuT/g' src/ios/Info.plist src/ios/Views/Settings/AboutView.swift
           for f in src/ios/*.lproj/InfoPlist.strings; do
-            sed -i '' 's/Minis/KyTuT/g' "$f"
+            sed -i '' 's/Minis/kyTuT/g' "$f"
           done
           # 3. 三个扩展的显示名（若存在则改）
           for p in src/ios/ShareExtension/Info.plist src/ios/AgentWidget/Info.plist src/ios/FileProvider/Info.plist; do
             if /usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$p" >/dev/null 2>&1; then
-              /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName KyTuT" "$p"
+              /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName kyTuT" "$p"
             fi
-            sed -i '' 's/Minis/KyTuT/g' "$p"
+            sed -i '' 's/Minis/kyTuT/g' "$p"
           done
           # 4. 本地化文案（界面里所有 "Minis" 显示文本）
           #    只改 value 里的显示文本，不动键名与 bundle ID / App Group /
