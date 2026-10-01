@@ -26,6 +26,7 @@
 #import <CommonCrypto/CommonDigest.h>
 #import <sys/sysctl.h>
 #import <sys/utsname.h>
+#import <stdlib.h>
 #import <os/log.h>
 #import <xpc/xpc.h>
 
@@ -565,31 +566,42 @@ static int FuckSpawnArgumentsWithOutput(NSArray<NSString *> *arguments, BOOL asR
         posix_spawnattr_set_persona_gid_np(&attr, 0);
     }
 
-    // 子进程输出重定向到注入日志：父进程不读管道，若子进程继续写 stdout
-    // 会收到 SIGPIPE / SIGHUP。直接落到文件最稳。
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
-    int outPipe[2] = {-1, -1};
-    BOOL usePipe = (outLog != NULL);
-    if (usePipe) {
-        if (pipe(outPipe) == 0) {
-            posix_spawn_file_actions_adddup2(&actions, outPipe[1], STDOUT_FILENO);
-            posix_spawn_file_actions_adddup2(&actions, outPipe[1], STDERR_FILENO);
-            posix_spawn_file_actions_addclose(&actions, outPipe[0]);
+
+    // 用「唯一临时文件」捕获子进程输出，而不是管道。
+    //
+    // 为什么必须改回文件（实测证据）：
+    //   opainject 带 root persona 运行，自身还会 fork 出 spawnPacChild 子进程。
+    //   走 pipe 时这些后代进程会继承管道写端，父进程一直读不到 EOF，最终读到 0 字节，
+    //   于是 dlopen 的真实结果（含 dlopen failed / sandbox blocked）全部丢失，
+    //   外层只能拿退出码判定 → 误报「注入成功」。
+    //   文件重定向没有继承阻塞问题，且是本项目早期版本已验证可用的路径。
+    NSString *capturePath = nil;
+    if (outLog != NULL) {
+        capturePath = [NSTemporaryDirectory() stringByAppendingPathComponent:
+                       [NSString stringWithFormat:@"fuck_cap_%d_%u.log", getpid(), arc4random()]];
+        [[NSFileManager defaultManager] removeItemAtPath:capturePath error:nil];
+        int capFD = open(capturePath.UTF8String, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (capFD >= 0) {
+            posix_spawn_file_actions_adddup2(&actions, capFD, STDOUT_FILENO);
+            posix_spawn_file_actions_adddup2(&actions, capFD, STDERR_FILENO);
+            posix_spawn_file_actions_addclose(&actions, capFD);
         } else {
-            usePipe = NO;
+            FLog(@"[SPAWN] 无法创建输出捕获文件，退化到直接写日志");
+            capturePath = nil;
         }
     }
 
-    int logFD = -1;
-    if (!usePipe) {
+    if (capturePath == nil) {
+        // 无捕获需求：沿用「直接落到注入日志」的路径
         const char *envPath = getenv("FUCK_INJECT_LOG_PATH");
         NSString *logPath = envPath && envPath[0]
             ? [NSString stringWithUTF8String:envPath]
             : [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject
                stringByAppendingPathComponent:@"inject_debug.log"];
         if (logPath.length) {
-            logFD = open(logPath.UTF8String, O_WRONLY | O_CREAT | O_APPEND, 0644);
+            int logFD = open(logPath.UTF8String, O_WRONLY | O_CREAT | O_APPEND, 0644);
             if (logFD >= 0) {
                 posix_spawn_file_actions_adddup2(&actions, logFD, STDOUT_FILENO);
                 posix_spawn_file_actions_adddup2(&actions, logFD, STDERR_FILENO);
@@ -597,6 +609,8 @@ static int FuckSpawnArgumentsWithOutput(NSArray<NSString *> *arguments, BOOL asR
             }
         }
     }
+
+    // 兜底：标准输入接 /dev/null，避免子进程等待终端
     int devNull = open("/dev/null", O_RDONLY);
     if (devNull >= 0) {
         posix_spawn_file_actions_adddup2(&actions, devNull, STDIN_FILENO);
@@ -620,9 +634,27 @@ static int FuckSpawnArgumentsWithOutput(NSArray<NSString *> *arguments, BOOL asR
     free(argv);
     posix_spawn_file_actions_destroy(&actions);
     posix_spawnattr_destroy(&attr);
-    if (ret != 0) return ret;
 
-    return FuckWaitForPid(pid);
+    if (ret != 0) {
+        if (capturePath) [[NSFileManager defaultManager] removeItemAtPath:capturePath error:nil];
+        return ret;
+    }
+
+    int status = FuckWaitForPid(pid);
+
+    if (capturePath) {
+        NSString *captured = [NSString stringWithContentsOfFile:capturePath
+                                                      encoding:NSUTF8StringEncoding
+                                                         error:NULL];
+        [[NSFileManager defaultManager] removeItemAtPath:capturePath error:nil];
+        if (captured.length) {
+            // 原样落到注入日志，保留 opainject 的完整输出用于诊断
+            FLog(@"%@", captured);
+        }
+        if (outLog) *outLog = captured ?: @"";
+    }
+
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
 static int FuckSpawnArguments(NSArray<NSString *> *arguments, BOOL asRootPersona) {
@@ -2690,49 +2722,72 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
             targetContainerTmp = [targetDataURL stringByAppendingPathComponent:@"tmp"];
         }
 
-        NSString *destDir = nil;
-        if (targetContainerTmp.length && [[NSFileManager defaultManager] fileExistsAtPath:targetContainerTmp]) {
-            destDir = targetContainerTmp;
-            FLogSuccess(@"[SandboxBypass] 成功定位目标 App 自身数据容器 tmp: %@", destDir);
-        } else {
-            // 回退到越狱公共 tmp 目录
-            destDir = [jbroot stringByAppendingPathComponent:@"tmp/minis_stage"];
-            [[NSFileManager defaultManager] createDirectoryAtPath:destDir withIntermediateDirectories:YES attributes:nil error:nil];
-        }
-        chmod(destDir.UTF8String, 0777);
+        // ── 阶段一：先在「越狱公共目录」完成签名与信任缓存 ──
+        //
+        // 顺序很关键。实测把 ldid / jbctl 指向目标 App 容器内的路径时，
+        // 这一步会从正常 <0.1 秒膨胀到 8 秒（App 容器对越狱 root 工具的写入/重校验
+        // 代价极高，且可能被容器 ACL 半拒绝）。因此签名与信任缓存一律在越狱目录完成，
+        // 完成后再把「已签名、已进信任缓存」的成品投递进目标沙盒。
+        NSString *jailStageDir = [jbroot stringByAppendingPathComponent:@"tmp/minis_stage"];
+        [[NSFileManager defaultManager] createDirectoryAtPath:jailStageDir
+                                  withIntermediateDirectories:YES attributes:nil error:nil];
+        chmod(jailStageDir.UTF8String, 0777);
 
-        NSString *stagedDylib = [destDir stringByAppendingPathComponent:[dylibPath lastPathComponent]];
-        [[NSFileManager defaultManager] removeItemAtPath:stagedDylib error:nil];
+        NSString *signedDylib = [jailStageDir stringByAppendingPathComponent:[dylibPath lastPathComponent]];
+        [[NSFileManager defaultManager] removeItemAtPath:signedDylib error:nil];
         NSError *cpErr = nil;
-        if ([[NSFileManager defaultManager] copyItemAtPath:dylibPath toPath:stagedDylib error:&cpErr]) {
-            chmod(stagedDylib.UTF8String, 0755);
-            finalDylibPath = stagedDylib;
-            FLogSuccess(@"[Relaxin] 已将 dylib 投递到目标进程合法可读写区: %@", finalDylibPath);
-        } else {
-            FLogError(@"[Relaxin] 暂存失败: %@, 尝试沿用原路径", cpErr.localizedDescription);
+        if (![[NSFileManager defaultManager] copyItemAtPath:dylibPath toPath:signedDylib error:&cpErr]) {
+            FLogError(@"[Relaxin] 暂存到越狱目录失败: %@，退回直接用原路径", cpErr.localizedDescription);
+            signedDylib = dylibPath;
         }
+        chmod(signedDylib.UTF8String, 0755);
 
-        // 4. 必须先对 dylib 进行 ad-hoc 签名，生成合法的 CodeDirectory 哈希
-        // 否则即使提交给 Trust Cache，内核加载器 dyld 校验时也会报 (code signature invalid, errno=1)
+        // 4. ad-hoc 签名：生成合法 CodeDirectory 哈希
+        // 否则即使进了 Trust Cache，dyld 校验仍会报 (code signature invalid, errno=1)
         NSString *ldidPath = FuckResourcePath(@"ldid");
         if (!ldidPath.length) {
             ldidPath = [jbroot stringByAppendingPathComponent:@"usr/bin/ldid"];
         }
         if ([[NSFileManager defaultManager] fileExistsAtPath:ldidPath]) {
             chmod(ldidPath.UTF8String, 0755);
-            FLog(@"[Relaxin] 正在执行 ldid -S 签名: %@", finalDylibPath);
-            int lr = FuckSpawnArguments(@[ldidPath, @"-S", finalDylibPath], YES);
+            FLog(@"[Relaxin] 正在执行 ldid -S 签名: %@", signedDylib);
+            int lr = FuckSpawnArguments(@[ldidPath, @"-S", signedDylib], YES);
             FLog(@"[Relaxin] ldid 签名返回码: %d", lr);
         }
 
-        // 5. 将 dylib 加入系统 Trust Cache（双重保障：jbctl + jbclient 接口）
+        // 5. 写入系统 Trust Cache（jbctl + jbclient 双通道）
         NSString *jbctlPath = [jbroot stringByAppendingPathComponent:@"usr/bin/jbctl"];
         if ([[NSFileManager defaultManager] fileExistsAtPath:jbctlPath]) {
-            FLog(@"[Relaxin] 调用 jbctl trustcache add: %@", finalDylibPath);
-            FuckSpawnArguments(@[jbctlPath, @"trustcache", @"add", finalDylibPath], YES);
+            FLog(@"[Relaxin] 调用 jbctl trustcache add: %@", signedDylib);
+            FuckSpawnArguments(@[jbctlPath, @"trustcache", @"add", signedDylib], YES);
         }
         FLog(@"[Relaxin] 调用 jbclient_trust_file_by_path 注入 Trust Cache…");
-        FuckRoothideTrustDylib(finalDylibPath);
+        FuckRoothideTrustDylib(signedDylib);
+
+        // ── 阶段二：把成品投递进目标 App 自己的沙盒目录 ──
+        // 目的：让目标进程能从「它自己有权 mmap 的路径」加载，绕过
+        // file system sandbox blocked mmap()。签名工作已在阶段一完成，此处只做拷贝。
+        NSString *destDir = nil;
+        if (targetContainerTmp.length && [[NSFileManager defaultManager] fileExistsAtPath:targetContainerTmp]) {
+            destDir = targetContainerTmp;
+            FLogSuccess(@"[SandboxBypass] 成功定位目标 App 自身数据容器 tmp: %@", destDir);
+        } else {
+            destDir = jailStageDir;
+            FLog(@"[SandboxBypass] 目标无可用数据容器，沿用越狱公共目录");
+        }
+        chmod(destDir.UTF8String, 0777);
+
+        NSString *stagedDylib = [destDir stringByAppendingPathComponent:[dylibPath lastPathComponent]];
+        [[NSFileManager defaultManager] removeItemAtPath:stagedDylib error:nil];
+        NSError *cpErr2 = nil;
+        if ([[NSFileManager defaultManager] copyItemAtPath:signedDylib toPath:stagedDylib error:&cpErr2]) {
+            chmod(stagedDylib.UTF8String, 0755);
+            finalDylibPath = stagedDylib;
+            FLogSuccess(@"[Relaxin] 已将已签名 dylib 投递到目标合法可读区: %@", finalDylibPath);
+        } else {
+            FLogError(@"[Relaxin] 投递到目标容器失败: %@，改用越狱目录路径", cpErr2.localizedDescription);
+            finalDylibPath = signedDylib;
+        }
 
         // 6. 标记目标进程可调试
         FLog(@"[Relaxin] 标记目标 PID %d 为可调试…", targetPid);
@@ -2752,10 +2807,15 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
         int rc = FuckSpawnArgumentsWithOutput(args, YES, &injectOutput);
         FLog(@"[Relaxin] 官方 opainject 返回码: %d", rc);
 
-        // 注入完成后立即清理暂存的 dylib，保持无痕
-        if (finalDylibPath && ![finalDylibPath isEqualToString:dylibPath]) {
-            [[NSFileManager defaultManager] removeItemAtPath:finalDylibPath error:nil];
+        // 注入完成后立即清理暂存件（目标容器 + 越狱暂存区），保持无痕
+        if (stagedDylib && ![stagedDylib isEqualToString:dylibPath]) {
+            [[NSFileManager defaultManager] removeItemAtPath:stagedDylib error:nil];
             FLog(@"[Relaxin] 已清除目标容器内的临时 dylib");
+        }
+        if (signedDylib && ![signedDylib isEqualToString:dylibPath] &&
+            ![signedDylib isEqualToString:stagedDylib]) {
+            [[NSFileManager defaultManager] removeItemAtPath:signedDylib error:nil];
+            FLog(@"[Relaxin] 已清除越狱暂存区的临时 dylib");
         }
 
         // 深度检查输出：哪怕 opainject 返回 0，只要 dlopen 报错就绝不能报成功！
