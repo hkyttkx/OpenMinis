@@ -333,7 +333,7 @@ private struct AddRelayAccountView: View {
                     TextField("请输入站点地址，如 https://api.example.com", text: $site)
                         .autocorrectionDisabled().textInputAutocapitalization(.never)
                         .keyboardType(.URL)
-                        .onChange(of: site) { _, _ in siteChecked = false }
+                        .onChange(of: site) { _ in siteChecked = false }
                     Button {
                         Task { await checkSite() }
                     } label: {
@@ -389,7 +389,7 @@ private struct AddRelayAccountView: View {
         case .failure(let why):
             siteChecked = false
             detectedGateway = nil
-            error = why
+            error = why.message
         }
         busy = false
     }
@@ -401,11 +401,11 @@ private struct AddRelayAccountView: View {
         // 旧实现直接把账号写进列表就去登录，登录失败时那条坏记录会留在
         // 账号列表里，看起来像「加不了账号」——其实是一个永远刷不出数据的
         // 空账号。
-        var gw: RelayGateway = detectedGateway ?? .v1
+        var gw: RelayGateway = detectedGateway ?? RelayGateway.v1
         switch await svc.detectGateway(site) {
         case .failure(let why):
             busy = false
-            error = why + "\n（未添加任何账号）"
+            error = why.message + "\n（未添加任何账号）"
             return
         case .success(let r):
             site = r.site
