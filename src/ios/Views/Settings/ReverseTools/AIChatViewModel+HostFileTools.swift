@@ -221,7 +221,11 @@ extension AIChatViewModel {
                 .filter { mgr.isMounted($0) }
                 .filter { loc in
                     let root = mgr.resolvedPath(loc)
-                    return path == root || path.hasPrefix(root + "/")
+                    // 归一化：根位置（"/"）不能再拼一个斜杠，
+                    // 否则 "/var/mobile/..." 会去匹配前缀 "//"，永远失败
+                    // —— 这正是「全盘访问」开关打开后写入仍被拒的原因。
+                    if root == "/" { return path.hasPrefix("/") }
+                    return path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
                 }
                 .max { $0.hostPath.count < $1.hostPath.count }
         }
