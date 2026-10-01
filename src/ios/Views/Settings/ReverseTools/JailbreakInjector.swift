@@ -128,33 +128,59 @@ enum JailbreakInjector {
     /// 最近一次扫描到的根，供 dlopen 构造候选路径复用。
     private(set) static var lastScannedRoot: String?
 
+    /// 判断候选目录是否是「完整」的越狱根。
+    ///
+    /// 必须校验：Relaxin/roothide 会在多个位置各放一份同名的
+    /// `.jbroot-<hex>`，内容却不同（实测本机）：
+    ///   /var/containers/Bundle/Application/.jbroot-XXX/     完整
+    ///   /var/mobile/Containers/Shared/AppGroup/.jbroot-XXX/ 只有 var/ 与 .jbroot
+    /// 只按名字取第一个，会拿到那份不完整的镜像，随后
+    /// basebin/libjailbreak.dylib 找不到，libjailbreak 加载失败。
+    private static func isCompleteJailbreakRoot(_ path: String) -> Bool {
+        let fm = FileManager.default
+        let marks = [
+            "/basebin/libjailbreak.dylib",
+            "/usr/lib/libjailbreak.dylib",
+            "/basebin/jailbreakd",
+            "/usr/bin/jbctl",
+        ]
+        return marks.contains { fm.fileExists(atPath: path + $0) }
+    }
+
     static func scanRoothideRoot() -> String? {
-        // 实测（Relaxin/roothide, iOS 17.1.2）：越狱根会同时出现在
-        // App 安装包目录 与 AppGroup 共享目录，两处都要扫。
+        // 顺序有意为之：App 安装目录下那份是完整的，优先；
+        // AppGroup 那份常是部分镜像，放最后。
         let parents = [
             "/var/containers/Bundle/Application",
             "/var/mobile/Containers/Bundle/Application",
             "/var/mobile/Containers/Shared/AppGroup",
         ]
+        var firstIncomplete: String?
+
         for parent in parents {
             guard let items = try? FileManager.default.contentsOfDirectory(atPath: parent) else { continue }
-            // 优先 .jbroot-*，其次任何包含 usr/lib/libjailbreak.dylib 的隐藏目录
-            let named = items.filter { $0.hasPrefix(".jbroot-") }.sorted()
-            for name in named {
+
+            // 1) roothide 标准命名
+            for name in items.filter({ $0.hasPrefix(".jbroot-") }).sorted() {
                 let p = parent + "/" + name
-                lastScannedRoot = p
-                return p
+                if isCompleteJailbreakRoot(p) {
+                    lastScannedRoot = p
+                    return p
+                }
+                if firstIncomplete == nil { firstIncomplete = p }
             }
-            for name in items where name.hasPrefix(".") {
+            // 2) 兜底：其它隐藏目录
+            for name in items where name.hasPrefix(".") && !name.hasPrefix(".jbroot-") {
                 let p = parent + "/" + name
-                if FileManager.default.fileExists(atPath: p + "/basebin/libjailbreak.dylib")
-                    || FileManager.default.fileExists(atPath: p + "/usr/lib/libjailbreak.dylib") {
+                if isCompleteJailbreakRoot(p) {
                     lastScannedRoot = p
                     return p
                 }
             }
         }
-        return nil
+        // 3) 只有不完整的镜像时也返回，交给上层多候选去试
+        lastScannedRoot = firstIncomplete
+        return firstIncomplete
     }
 
     /// 解析真实越狱根。顺序：
