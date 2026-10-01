@@ -2749,6 +2749,29 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
             return;
         }
 
+        // 0. 先去掉本进程自身的沙盒限制（原版 CLI 入口做的第一件事）。
+        //
+        // 原版所谓「通过容器授权」并不是申请某个容器的许可，而是把自己整个
+        // 去沙盒化 —— FuckTryElevateToRoot 内部走 roothide 官方的三步：
+        //   ① jbclient_root_steal_ucred(0, &token)      偷 root 凭据
+        //   ② jbclient_root_sign_thread(token)          让凭据在本线程生效
+        //   ③ jbclient_root_set_mac_label("sandbox", t) 换掉沙盒标签 → 摆脱沙盒
+        // 摘掉沙盒后，才能以 root 身份往目标 App 的 Bundle container 写文件，
+        // 而 Bundle container 是 App Store 正版 App 唯一被允许
+        // file-map-executable 的位置（Data container 已实测：即便拿到扩展授权
+        // 仍然 blocked mmap，那条路走不通）。
+        //
+        // 新版改用 Relaxin 官方 opainject 通道时漏掉了这一步，导致投递仍以
+        // uid 501 受沙盒约束的身份执行，被拒「没有访问该容器的许可」。
+        reportProgress(@"正在提权并解除沙盒限制…");
+        {
+            int er = FuckTryElevateToRoot();
+            FLog(@"[Elevate] 预提权结果: %d (UID=%d, EUID=%d)", er, getuid(), geteuid());
+            if (er != 0) {
+                FLog(@"[Elevate] ⚠️ 提权未完全成功（%d），后续仍尝试 root cp 兜底投递", er);
+            }
+        }
+
         // 1. 定位 Relaxin 越狱根与官方 opainject 二进制
         NSString *jbroot = FuckRoothideJbroot();
         if (!jbroot.length) {
