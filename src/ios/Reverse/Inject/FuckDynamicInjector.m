@@ -521,14 +521,41 @@ static NSString *FuckProxyPathFromURL(id proxy, NSString *selName) {
     return [url respondsToSelector:@selector(path)] ? [url path] : nil;
 }
 
+// LSApplicationProxy 查询必须在主线程做。
+//
+// 实测：从后台队列调用 applicationProxyForIdentifier: 会**静默返回 nil**
+// —— 它内部的 XPC/服务连接依赖主线程 runloop。返回 nil 的直接后果是
+// 「无法获取 xxx 的可执行文件路径」，注入在查 PID 这一步就断了。
+//
+// 但整个注入流程又不能放回主线程（那会冻住 UI，之前修过一次）。
+// 所以这里单独把这一次查询 sync 回主线程，其余流程仍在后台。
 static NSString *FuckCanonicalExecutablePath(NSString *bundleID) {
-    id proxy = FuckProxyForBundleID(bundleID);
-    NSString *execPath = FuckProxyString(proxy, @"canonicalExecutablePath");
-    if (execPath.length) return execPath;
-    NSString *bundlePath = FuckProxyPathFromURL(proxy, @"bundleURL");
-    NSString *exeName = FuckProxyString(proxy, @"bundleExecutable");
-    if (!bundlePath.length || !exeName.length) return nil;
-    return [bundlePath stringByAppendingPathComponent:exeName];
+    __block NSString *result = nil;
+
+    void (^work)(void) = ^{
+        id proxy = FuckProxyForBundleID(bundleID);
+        if (!proxy) return;
+
+        NSString *execPath = FuckProxyString(proxy, @"canonicalExecutablePath");
+        if (execPath.length) { result = execPath; return; }
+
+        NSString *bundlePath = FuckProxyPathFromURL(proxy, @"bundleURL");
+        NSString *exeName = FuckProxyString(proxy, @"bundleExecutable");
+        if (bundlePath.length && exeName.length) {
+            result = [bundlePath stringByAppendingPathComponent:exeName];
+        }
+    };
+
+    if ([NSThread isMainThread]) {
+        work();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), work);
+    }
+
+    if (!result.length) {
+        FLogError(@"[Path] 主线程查询也拿不到 %@ 的路径（LSApplicationProxy 返回 nil）", bundleID);
+    }
+    return result;
 }
 
 static BOOL FuckOpenApp(NSString *bundleID) {
@@ -1356,15 +1383,103 @@ static pid_t FuckFindPIDByExecPath(const char *targetPath) {
     return found;
 }
 
+// 直接从 App 安装目录解析可执行文件路径。
+//
+// 这是最可靠的一条路，不依赖任何私有 API：
+//   扫 /var/containers/Bundle/Application/<UUID>/<Name>.app/
+//   读它的 Info.plist 拿 CFBundleIdentifier 与 CFBundleExecutable
+//   命中 bundleID 就返回 <app>/<exec>
+//
+// 为什么需要它：LSApplicationProxy 在后台线程会静默返回 nil（实测），
+// 而注入流程必须在后台跑（否则冻 UI）。原先只有 Proxy 一条路，
+// Proxy 一失败就报「无法获取可执行文件路径」，注入在查 PID 这一步就断了。
+static NSString *FuckExecPathByScanningBundles(NSString *bundleID) {
+    if (!bundleID.length) return nil;
+
+    NSArray<NSString *> *roots = @[
+        @"/var/containers/Bundle/Application",
+        @"/var/mobile/Containers/Bundle/Application",
+    ];
+    NSFileManager *fm = [NSFileManager defaultManager];
+
+    for (NSString *root in roots) {
+        NSArray<NSString *> *uuids = [fm contentsOfDirectoryAtPath:root error:nil];
+        if (!uuids) continue;
+
+        for (NSString *uuid in uuids) {
+            if ([uuid hasPrefix:@"."]) continue;      // .jbroot-* 之类
+            NSString *container = [root stringByAppendingPathComponent:uuid];
+            NSArray<NSString *> *apps = [fm contentsOfDirectoryAtPath:container error:nil];
+            if (!apps) continue;
+
+            for (NSString *appName in apps) {
+                if (![appName hasSuffix:@".app"]) continue;
+                NSString *appPath = [container stringByAppendingPathComponent:appName];
+                NSString *plistPath = [appPath stringByAppendingPathComponent:@"Info.plist"];
+
+                NSDictionary *plist = [NSDictionary dictionaryWithContentsOfFile:plistPath];
+                if (!plist) continue;
+
+                NSString *bid = plist[@"CFBundleIdentifier"];
+                if (![bid isEqualToString:bundleID]) continue;
+
+                // 优先用 plist 里的可执行名；缺失时退回到去掉 .app 的名字
+                NSString *exe = plist[@"CFBundleExecutable"];
+                if (!exe.length) exe = [appName stringByDeletingPathExtension];
+
+                NSString *full = [appPath stringByAppendingPathComponent:exe];
+                if ([fm fileExistsAtPath:full]) {
+                    FLog(@"[Path] 扫描定位到 %@ -> %@", bundleID, full);
+                    return full;
+                }
+            }
+        }
+    }
+    return nil;
+}
+
 static pid_t FuckFindPIDForBundleID(NSString *bundleID) {
-    NSString *execPath = FuckCanonicalExecutablePath(bundleID);
+    // 1) 扫安装目录（最可靠，不依赖私有 API）
+    NSString *execPath = FuckExecPathByScanningBundles(bundleID);
+
+    // 2) 退回 LSApplicationProxy（仅当扫描没命中）
     if (!execPath.length) {
-        FLogError(@"无法获取 %@ 的可执行文件路径", bundleID);
+        FLog(@"[Path] 扫描未命中，回退 LSApplicationProxy");
+        execPath = FuckCanonicalExecutablePath(bundleID);
+    }
+
+    // 3) 还是拿不到：按进程名模糊匹配（App 主进程名通常等于可执行名）
+    if (!execPath.length) {
+        FLogError(@"两条路径都没拿到 %@ 的可执行路径，改用进程名匹配", bundleID);
+        NSString *shortName = [bundleID componentsSeparatedByString:@"."].lastObject;
+        int count = proc_listallpids(NULL, 0);
+        if (count > 0) {
+            pid_t *pids = (pid_t *)calloc(count, sizeof(pid_t));
+            if (pids) {
+                int actual = proc_listallpids(pids, count * sizeof(pid_t));
+                char buf[PROC_PIDPATHINFO_MAXSIZE];
+                for (int i = 0; i < actual; i++) {
+                    if (pids[i] <= 0) continue;
+                    memset(buf, 0, sizeof(buf));
+                    if (proc_pidpath(pids[i], buf, sizeof(buf)) > 0) {
+                        NSString *p = [NSString stringWithUTF8String:buf];
+                        if (shortName.length &&
+                            [[p lastPathComponent] caseInsensitiveCompare:shortName] == NSOrderedSame) {
+                            FLog(@"[Path] 进程名匹配到 %@ -> PID %d", bundleID, pids[i]);
+                            free(pids);
+                            return pids[i];
+                        }
+                    }
+                }
+                free(pids);
+            }
+        }
         return -1;
     }
+
     pid_t pid = FuckFindPIDByExecPath(execPath.UTF8String);
     if (pid > 0) FLog(@"找到目标进程 PID: %d", pid);
-    else FLogError(@"未找到 %@ 的运行进程", bundleID);
+    else FLogError(@"未找到 %@ 的运行进程（可执行路径已解析: %@）", bundleID, execPath);
     return pid;
 }
 
