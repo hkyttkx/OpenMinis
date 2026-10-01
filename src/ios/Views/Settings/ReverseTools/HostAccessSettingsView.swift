@@ -14,6 +14,10 @@ struct HostAccessSettingsView: View {
     @ObservedObject private var manager = HostAccessManager.shared
     /// 越狱根手填输入框（留空则自动探测）
     @State private var jbrootDraft: String = ""
+    /// 自定义路径输入
+    @State private var customPathDraft: String = ""
+    /// 一键授权的结果提示
+    @State private var grantAllMessage: String?
 
     var body: some View {
         List {
@@ -47,9 +51,89 @@ struct HostAccessSettingsView: View {
                 Text("「全部关闭」会立即撤销所有已授权位置。切到该档后 AI 无法读取任何宿主文件。")
             }
 
+            // MARK: 一键授权
+            Section {
+                Button {
+                    let r = manager.grantAll(permission: .readWrite)
+                    if r.skipped.isEmpty {
+                        grantAllMessage = "已授权 \(r.granted) 项（读写）"
+                    } else {
+                        grantAllMessage = "已授权 \(r.granted) 项，跳过 \(r.skipped.count) 项：\n"
+                            + r.skipped.joined(separator: "\n")
+                    }
+                } label: {
+                    Label("一键授权全部位置（读写）", systemImage: "checkmark.shield.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(manager.level == .off)
+
+                Button(role: .destructive) {
+                    manager.revokeAll()
+                    grantAllMessage = nil
+                } label: {
+                    Label("撤销全部", systemImage: "xmark.shield")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+
+                if let msg = grantAllMessage {
+                    Text(msg)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } header: {
+                Text("一键授权")
+            } footer: {
+                Text("一次性把下面所有位置（含自定义）设为读写。不存在的路径会自动跳过，不影响其它项。总开关为「全部关闭」时不可用。")
+            }
+
+            // MARK: 自定义路径
+            Section {
+                HStack(spacing: 8) {
+                    TextField("/var/mobile/... 任意宿主路径", text: $customPathDraft)
+                        .font(.caption.monospaced())
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    Button {
+                        let p = customPathDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !p.isEmpty else { return }
+                        _ = HostAccessManager.addCustomLocation(path: p)
+                        customPathDraft = ""
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                    }
+                    .disabled(customPathDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+
+                ForEach(HostAccessManager.customLocations()) { loc in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(loc.title).font(.body)
+                            Text(loc.hostPath)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1).truncationMode(.middle)
+                        }
+                        Spacer()
+                        Button(role: .destructive) {
+                            manager.revoke(loc)
+                            HostAccessManager.removeCustomLocation(key: loc.key)
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            } header: {
+                Text("自定义路径")
+            } footer: {
+                Text("填任意宿主绝对路径并添加，它会和内置位置一样出现在下面的列表里，可单独设只读或读写。适合 Theos、SDK、特定 App 容器这类固定位置。")
+            }
+
             // MARK: 逐项开关
             Section {
-                ForEach(HostLocation.builtins) { loc in
+                ForEach(HostAccessManager.allLocations) { loc in
                     HostLocationRow(location: loc, manager: manager)
                 }
             } header: {
@@ -131,7 +215,7 @@ struct HostAccessSettingsView: View {
                     Text("当前没有已授权的位置")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
-                    ForEach(HostLocation.builtins.filter { manager.mounted[$0.key] != nil }) { loc in
+                    ForEach(HostAccessManager.allLocations.filter { manager.mounted[$0.key] != nil }) { loc in
                         HStack {
                             Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                             VStack(alignment: .leading, spacing: 2) {
@@ -148,11 +232,6 @@ struct HostAccessSettingsView: View {
                                     .lineLimit(1).truncationMode(.middle)
                             }
                         }
-                    }
-                    Button(role: .destructive) {
-                        manager.revokeAll()
-                    } label: {
-                        Label("撤销全部授权", systemImage: "eject")
                     }
                 }
 
