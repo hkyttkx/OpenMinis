@@ -735,6 +735,16 @@ static int FuckRootCopyFile(NSString *src, NSString *dst, NSString *jbroot) {
         return -1;
     }
 
+    // 致命陷阱：源与目标相同时绝不能走下面的 removeItemAtPath ——
+    // 那会先把源文件删掉，再去拷贝一个已不存在的源，结果是「投递失败 + 文件丢失」。
+    // 实测就是这么发生的：候选落点 1 就是暂存目录本身，dest 恰好等于 signedDylib，
+    // 于是每次注入都把刚签好名的文件删掉，后续所有候选落点连带失败。
+    if ([src isEqualToString:dst]) {
+        FLog(@"[RootCopy] 源与目标相同，跳过拷贝: %@", dst);
+        chmod(dst.UTF8String, 0755);
+        return 0;
+    }
+
     // 先清掉旧副本，避免 cp 因已存在而异常
     [fm removeItemAtPath:dst error:nil];
 
