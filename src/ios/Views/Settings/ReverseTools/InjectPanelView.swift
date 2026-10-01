@@ -14,6 +14,8 @@ struct InjectPanelView: View {
 
     @State private var selectedDylibPath: String = ""
     @State private var mode: DynamicInjectMode = .clean
+    /// 注入通道：默认自动，用户也可指定单个通道逐个排查
+    @State private var channel: DynamicInjectChannel = .auto
     @State private var running = false
     @State private var progressText = ""
 
@@ -136,6 +138,37 @@ struct InjectPanelView: View {
                 Text("注入模式")
             } footer: {
                 Text("两种模式的注入流程与内核交互完全一致，区别只在 dylib 的临时落点。")
+            }
+
+            // MARK: 注入通道
+            Section {
+                ForEach(DynamicInjectChannel.allCases) { c in
+                    Button {
+                        channel = c
+                    } label: {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: c == channel ? "largecircle.fill.circle" : "circle")
+                                .foregroundStyle(c == channel ? Color.accentColor : Color.secondary)
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: c.systemImage)
+                                        .font(.system(size: 11, weight: .semibold))
+                                    Text(c.title).font(.body.weight(.medium))
+                                }
+                                Text(c.subtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(running)
+                }
+            } header: {
+                Text("注入通道")
+            } footer: {
+                Text("不同越狱与系统版本下可用的通道不一样。不确定就保持「自动」；注入失败时可指定单个通道逐个试，日志会写明每条通道的结果。")
             }
 
             // MARK: 执行
@@ -293,6 +326,7 @@ struct InjectPanelView: View {
             executableName: app.mainExecutableURL?.lastPathComponent,
             dylibPath: selectedDylibPath,
             mode: mode,
+            channel: channel,
             progress: { step in progressText = step },
             completion: { outcome in
                 running = false
