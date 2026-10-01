@@ -325,6 +325,99 @@ static void *FuckLoadLibJailbreak(void) {
 }
 
 // 返回 YES 表示走通了 roothide 通道
+// ═══════════════════════════════════════════════════════════════
+// 提权通道：以 root 身份运行后续流程
+// ═══════════════════════════════════════════════════════════════
+//
+// 这是「和越狱自带工具同级」的关键。越狱自带的 opainject 能注入成功，
+// 唯一原因是它以 root 运行；我们以 501 运行，于是 proc_pidpath 看不见
+// 别的进程、sandbox extension 发不出、task_for_pid 受限。
+//
+// roothide 通过 libjailbreak 提供官方提权接口（不是漏洞利用）：
+//   jbclient_root_steal_ucred(uid, &out)  向 jailbreakd 请求该 uid 的凭据
+//   jbclient_root_sign_thread(...)        让凭据在当前线程生效
+//   jbclient_root_set_mac_label(...)      设置沙盒标签，去掉沙盒限制
+//
+// 三者任一成功即可让后续流程畅通；全失败则退回原有逐项修补的路径。
+
+typedef int (*FuckStealUcredFn)(uint64_t uid, uint64_t *outToken);
+typedef int (*FuckSignThreadFn)(uint64_t token);
+typedef int (*FuckSetMacLabelFn)(const char *label, uint64_t token);
+
+/// 当前进程是否已经提权（EUID 变为 0）
+static BOOL FuckIsElevated(void) {
+    return geteuid() == 0;
+}
+
+/// 已缓存的提权结果，避免重复请求
+static int gElevationResult = -999;
+
+/// 尝试提权到 root。返回 0 表示成功（或本来就已是 root）。
+static int FuckTryElevateToRoot(void) {
+    if (gElevationResult != -999) return gElevationResult;
+
+    if (FuckIsElevated()) {
+        FLog(@"[Elevate] 本进程已是 root，无需提权");
+        gElevationResult = 0;
+        return 0;
+    }
+
+    void *h = FuckLoadLibJailbreak();
+    if (!h) {
+        FLog(@"[Elevate] libjailbreak 未加载，跳过提权");
+        gElevationResult = -1;
+        return -1;
+    }
+
+    // 1) 偷 root 凭据
+    FuckStealUcredFn steal = (FuckStealUcredFn)dlsym(h, "jbclient_root_steal_ucred");
+    if (!steal) {
+        FLog(@"[Elevate] 无 jbclient_root_steal_ucred 符号");
+        gElevationResult = -2;
+        return -2;
+    }
+
+    uint64_t token = 0;
+    int r = steal(0, &token);      // uid 0 = root
+    FLog(@"[Elevate] jbclient_root_steal_ucred(0) => %d, token=%llu", r, token);
+
+    if (r != 0 || token == 0) {
+        // 提权被拒：多半是调用方缺少 platform 域需要的标志。
+        // 不影响后续：原有逐项修补的路径仍然可用。
+        FLog(@"[Elevate] 提权被拒（该接口通常要求调用方带 CS_PLATFORM_BINARY）");
+        gElevationResult = -3;
+        return -3;
+    }
+
+    // 2) 让凭据在当前线程生效
+    FuckSignThreadFn signThread = (FuckSignThreadFn)dlsym(h, "jbclient_root_sign_thread");
+    if (signThread) {
+        int sr = signThread(token);
+        FLog(@"[Elevate] jbclient_root_sign_thread => %d", sr);
+    } else {
+        FLog(@"[Elevate] 无 jbclient_root_sign_thread 符号");
+    }
+
+    // 3) 设置沙盒标签，去掉沙盒限制
+    FuckSetMacLabelFn setLabel = (FuckSetMacLabelFn)dlsym(h, "jbclient_root_set_mac_label");
+    if (setLabel) {
+        int lr = setLabel("sandbox", token);
+        FLog(@"[Elevate] jbclient_root_set_mac_label => %d", lr);
+    }
+
+    // 验证是否真的提上去了
+    if (FuckIsElevated()) {
+        FLogSuccess(@"[Elevate] ✅ 已提权到 root（后续流程按 root 身份执行）");
+        gElevationResult = 0;
+        return 0;
+    }
+
+    FLog(@"[Elevate] 凭据已拿到但 EUID 仍为 %d —— 线程签名可能未生效，"
+          @"继续走逐项修补路径", geteuid());
+    gElevationResult = -4;
+    return -4;
+}
+
 static BOOL FuckRoothideTrustDylib(NSString *dylibPath) {
     void *h = FuckLoadLibJailbreak();
     if (!h) return NO;
@@ -1103,8 +1196,39 @@ static BOOL FuckKfdTrustCacheInject(NSData *cdhash) {
 
     return NO;
 }
+// ── 注入通道（rawValue 与 Swift 侧 DynamicInjectChannel 一一对应）──
+typedef NS_ENUM(int, FuckInjectChannel) {
+    FuckInjectChannelAuto       = 0,
+    FuckInjectChannelElevate    = 1,
+    FuckInjectChannelRoothide   = 2,
+    FuckInjectChannelJailbreakd = 3,
+    FuckInjectChannelKfd        = 4,
+};
+
+static FuckInjectChannel FuckSelectedChannel(void) {
+    const char *env = getenv("FUCK_INJECT_CHANNEL");
+    if (!env || !env[0]) return FuckInjectChannelAuto;
+    int v = atoi(env);
+    if (v < 0 || v > 4) return FuckInjectChannelAuto;
+    return (FuckInjectChannel)v;
+}
+
+static const char *FuckChannelName(FuckInjectChannel c) {
+    switch (c) {
+        case FuckInjectChannelAuto:       return "自动";
+        case FuckInjectChannelElevate:    return "提权到 root";
+        case FuckInjectChannelRoothide:   return "roothide jbserver";
+        case FuckInjectChannelJailbreakd: return "jailbreakd XPC";
+        case FuckInjectChannelKfd:        return "kfd";
+    }
+    return "?";
+}
+
 static BOOL FuckInjectTrustCache(NSString *filePath) {
     FLog(@"[TrustCache] 开始 Trust Cache 注入: %@", filePath);
+
+    FuckInjectChannel ch = FuckSelectedChannel();
+    FLog(@"[TrustCache] 用户选择的通道: %s", FuckChannelName(ch));
 
     NSData *cdhash = FuckComputeCDHash(filePath);
     if (!cdhash || cdhash.length != FUCK_CS_CDHASH_LEN) {
@@ -1120,32 +1244,73 @@ static BOOL FuckInjectTrustCache(NSString *filePath) {
     NSString *jbroot = FuckRoothideJbroot();
     if (jbroot) FLog(@"[TrustCache] roothide jbroot: %@", jbroot);
 
-    // ---- Phase 1: Relaxin / roothide jbserver（iOS 17.x 上的正路）----
-    FLog(@"[TrustCache] Phase 1: roothide jbserver (Relaxin)...");
-    if (FuckRoothideTrustDylib(filePath)) {
-        FLogSuccess(@"[TrustCache] roothide trust cache 注入成功!");
-        return YES;
-    }
-    FLog(@"[TrustCache] roothide 通道未走通，继续尝试其他路径");
+    // 各通道封装成块，便于「指定单个」与「自动依次尝试」共用同一份实现。
+    BOOL (^runElevate)(void) = ^BOOL{
+        int er = FuckTryElevateToRoot();
+        return er == 0;
+    };
+    BOOL (^runRoothide)(void) = ^BOOL{
+        return FuckRoothideTrustDylib(filePath);
+    };
+    BOOL (^runJailbreakd)(void) = ^BOOL{
+        return FuckJailbreakdTrustCacheAdd(cdhash) == 0;
+    };
+    BOOL (^runKfd)(void) = ^BOOL{
+        return FuckKfdTrustCacheInject(cdhash);
+    };
 
-    // ---- Phase 2: Dopamine jailbreakd IPC（多端口名候选）----
-    FLog(@"[TrustCache] Phase 2: jailbreakd IPC...");
-    int ret = FuckJailbreakdTrustCacheAdd(cdhash);
-    if (ret == 0) {
-        FLogSuccess(@"[TrustCache] jailbreakd trust cache 注入成功!");
-        return YES;
+    if (ch == FuckInjectChannelAuto) {
+        // 自动：按强弱顺序依次尝试，任一成功即停止。
+        // 提权放第一——成功则后续全部畅通，是最省事的一条。
+        struct { const char *name; BOOL (^fn)(void); } steps[] = {
+            { "提权到 root",        runElevate },
+            { "roothide jbserver", runRoothide },
+            { "jailbreakd XPC",    runJailbreakd },
+            { "kfd",               runKfd },
+        };
+        int n = (int)(sizeof(steps) / sizeof(steps[0]));
+        for (int i = 0; i < n; i++) {
+            FLog(@"[TrustCache] 自动模式 %d/%d：尝试 %s", i + 1, n, steps[i].name);
+            BOOL ok = steps[i].fn();
+            if (ok) {
+                FLogSuccess(@"[TrustCache] 通道「%s」成功", steps[i].name);
+                return YES;
+            }
+            FLog(@"[TrustCache] 通道「%s」未成功，继续下一个", steps[i].name);
+        }
+        FLogError(@"[TrustCache] 所有通道均失败");
+        return NO;
     }
-    FLog(@"[TrustCache] jailbreakd IPC 返回: %d", ret);
 
-    // ---- Phase 3: kfd exploit（兜底，iOS 16.x 及以下可用）----
-    FLog(@"[TrustCache] Phase 3: kfd exploit...");
-    BOOL kfdResult = FuckKfdTrustCacheInject(cdhash);
-    if (kfdResult) {
-        FLogSuccess(@"[TrustCache] kfd trust cache 注入成功!");
-        return YES;
+    // 指定单个通道：只跑它，失败也不自动切换，方便逐个排查。
+    // （提权成功后仍继续跑 roothide：提权解决的是权限，trust cache 仍要写。）
+    switch (ch) {
+        case FuckInjectChannelElevate: {
+            BOOL ok = runElevate();
+            if (!ok) {
+                FLogError(@"[TrustCache] 指定的「提权到 root」通道失败");
+                return NO;
+            }
+            FLog(@"[TrustCache] 已提权，继续写 trust cache（走 roothide）");
+            BOOL tr = runRoothide() || runJailbreakd();
+            if (!tr) FLogError(@"[TrustCache] 提权成功但 trust cache 仍未写入");
+            return tr;
+        }
+        case FuckInjectChannelRoothide:
+            if (runRoothide()) { FLogSuccess(@"[TrustCache] roothide 成功"); return YES; }
+            FLogError(@"[TrustCache] 指定的「roothide jbserver」通道失败");
+            return NO;
+        case FuckInjectChannelJailbreakd:
+            if (runJailbreakd()) { FLogSuccess(@"[TrustCache] jailbreakd 成功"); return YES; }
+            FLogError(@"[TrustCache] 指定的「jailbreakd XPC」通道失败");
+            return NO;
+        case FuckInjectChannelKfd:
+            if (runKfd()) { FLogSuccess(@"[TrustCache] kfd 成功"); return YES; }
+            FLogError(@"[TrustCache] 指定的「kfd」通道失败（iOS 17 上该通道已被修补，属正常）");
+            return NO;
+        case FuckInjectChannelAuto:
+            break;
     }
-
-    FLogError(@"[TrustCache] 所有 trust cache 注入方式均失败");
     return NO;
 }
 
@@ -2213,6 +2378,13 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
 + (int)cliInjectWithDylibPath:(NSString *)dylibPath bundleID:(NSString *)bundleID mode:(int)modeInt {
     FuckInjectMode mode = (modeInt == 1) ? FuckInjectModeB : FuckInjectModeA;
     FLog(@"========== FuckInject CLI mode (root subprocess) ==========");
+
+    // 先尝试提权：即便用户选了别的通道，拿到 root 也会让后续每一步更顺。
+    // 失败不阻断——原有逐项修补的路径依然保留。
+    {
+        int er = FuckTryElevateToRoot();
+        FLog(@"[Elevate] 预提权结果: %d (EUID=%d)", er, geteuid());
+    }
     FLog(@"dylib: %@, bundleID: %@", dylibPath, bundleID);
     FLog(@"注入模式: %s", mode == FuckInjectModeA ? "A/严格复刻（拷入目标 bundle 同级目录）" : "B/无痕（仅在 tmp，注入后清除）");
     FLog(@"UID: %d, EUID: %d", getuid(), geteuid());
