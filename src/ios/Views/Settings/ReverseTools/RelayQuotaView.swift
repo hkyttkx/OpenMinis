@@ -121,7 +121,7 @@ struct RelayQuotaView: View {
                          value: String(format: "%.2fs", u.avgResponseSeconds))
 
             NavigationLink {
-                RelayRawDataView(title: entry.displayLabel, text: a.rawText ?? u.raw)
+                RelayRawDataView(title: entry.displayLabel, text: rawDataText(account: a, usage: u))
             } label: {
                 Label("查看原始数据", systemImage: "curlybraces")
             }
@@ -146,6 +146,17 @@ struct RelayQuotaView: View {
                 if let sub { Text(sub).font(.caption2).foregroundStyle(.tertiary) }
             }
         }
+    }
+
+    /// 「查看原始数据」正文。
+    /// 优先展示统计接口的原始响应（这才是请求数/消费/Token 的来源），
+    /// 后面附上 /auth/me —— 之前只显示 me，所以看到的 JSON 里根本没有统计字段，
+    /// 容易被误判成「接口没返回」。
+    private func rawDataText(account a: RelayAccount, usage u: RelayUsage) -> String {
+        var parts: [String] = []
+        if !u.raw.isEmpty { parts.append("=== 统计接口 ===\n" + u.raw) }
+        if let me = a.rawText, !me.isEmpty { parts.append("=== /auth/me ===\n" + me) }
+        return parts.isEmpty ? "（尚无数据，请先刷新）" : parts.joined(separator: "\n\n")
     }
 
     private func tok(_ n: Int) -> String {
