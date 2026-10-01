@@ -21,6 +21,7 @@
 import Foundation
 import UIKit
 import UniformTypeIdentifiers
+import CoreLocation
 
 // MARK: - 注入模式
 
@@ -457,16 +458,22 @@ enum JailbreakInjector {
         //
         // 注入恰好天生要跨前后台：拉起目标必然把自己挤到后台。
         // 所以这里必须拿一个 assertion，否则用户必须一直盯着本 App。
+        // 注入开始前，先让本 App 变成「可后台运行」。
+        //
+        // 为什么不能用 beginBackgroundTask：
+        //   它的语义是「我有事要收尾，给我几十秒」，到期必须 endBackgroundTask，
+        //   否则系统直接杀进程。而注入要拉起目标 App 并把我们挤到后台，
+        //   整个流程动辄十几秒到几十秒 —— 用它会正好撞上超时被杀。
+        //
+        // 改用持续型后台能力：注入期间打开「后台位置更新」。
+        //   UIBackgroundModes 已声明 location，allowsBackgroundLocationUpdates
+        //   一旦置位，系统就允许 App 在后台持续运行（配合定时的 requestLocation）。
+        //   用完在 completion 里关掉，不让它长期开着耗电。
+        let bgKeeper = InjectBackgroundKeeper()
+        bgKeeper.start()
+
         DispatchQueue.global(qos: .userInitiated).async {
-            let bgTask = UIApplication.shared.beginBackgroundTask(withName: "DylibInject")
-            defer {
-                if bgTask != .invalid {
-                    UIApplication.shared.endBackgroundTask(bgTask)
-                }
-            }
-            if bgTask == .invalid {
-                appendLog("⚠️ 未取得后台执行时间（系统拒绝）；若切走可能中断，请保持本 App 在前台")
-            }
+            defer { bgKeeper.stop() }
 
             var effectiveDylib = dylibPath
             if mode == .clean {
@@ -535,7 +542,10 @@ enum JailbreakInjector {
 
             // 通道通过环境变量传下去：OC 侧读 FUCK_INJECT_CHANNEL 决定策略，
             // 避免为此改动 injectDylib 的既有签名（它会牵动整个调用链）。
-            setenv("FUCK_INJECT_CHANNEL", "\(channel.rawValue)".utf8String, 1)
+            // Swift 的 String 没有 utf8String（那是 ObjC 的 NSString），
+            // 要用 withCString 取出 C 字符串指针。
+            let channelValue = "\(channel.rawValue)"
+            channelValue.withCString { setenv("FUCK_INJECT_CHANNEL", $0, 1) }
 
             FuckDynamicInjector.injectDylib(
                 effectiveDylib,
@@ -687,3 +697,60 @@ private func proc_listallpids(_ buffer: UnsafeMutableRawPointer?, _ buffersize: 
 
 @_silgen_name("proc_pidpath")
 private func proc_pidpath(_ pid: Int32, _ buffer: UnsafeMutableRawPointer?, _ buffersize: UInt32) -> Int32
+
+// MARK: - 注入期间的持续后台保活
+
+/// 注入流程需要跨前后台（拉起目标 App 会把自己挤到后台），
+/// 期间必须让本 App 保持可运行，否则代码被冻结在中途、
+/// 表现为「必须切回前台才继续执行」。
+///
+/// 这里用持续型后台能力（location），而不是 beginBackgroundTask：
+/// 后者是「几十秒的收尾窗口」，超期不释放会被系统杀进程，
+/// 正好与注入的时长特征冲突。
+///
+/// 用完必须 stop()，避免长期占用位置后台。
+final class InjectBackgroundKeeper: @unchecked Sendable {
+
+    private var manager: CLLocationManager?
+    private var timer: Timer?
+
+    func start() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let m = CLLocationManager()
+            // 不改变用户授权状态，只在已有授权的前提下临时启用后台更新
+            m.desiredAccuracy = kCLLocationAccuracyThreeKilometers
+            m.distanceFilter = 3000
+            m.allowsBackgroundLocationUpdates = true
+            m.showsBackgroundLocationIndicator = false
+            m.pausesLocationUpdatesAutomatically = false
+            self.manager = m
+            m.startUpdatingLocation()
+
+            // 定期 ping 一次，维持后台运行资格
+            self.timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+                self?.manager?.requestLocation()
+            }
+            if let t = self.timer {
+                RunLoop.main.add(t, forMode: .common)
+            }
+        }
+    }
+
+    func stop() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.timer?.invalidate()
+            self.timer = nil
+            self.manager?.stopUpdatingLocation()
+            self.manager?.allowsBackgroundLocationUpdates = false
+            self.manager = nil
+        }
+    }
+
+    deinit {
+        timer?.invalidate()
+        manager?.stopUpdatingLocation()
+        manager?.allowsBackgroundLocationUpdates = false
+    }
+}
