@@ -45,6 +45,16 @@
 		<string>group.com.openminis.app</string>
 	</array>
 
+	<!-- ══════════ 逃逸沙盒（注入必需） ══════════ -->
+	<!-- 动态注入依赖这一条，缺任何一项都会在第一步失败：
+	       proc_pidpath        枚举其他进程、定位目标 PID
+	       sandbox_extension   把 dylib 的读取/执行授权交给目标进程
+	       写目标 App 目录      「严格复刻」模式需要
+	     代价：WKWebView 的 WebContent 子进程可能拿不到容器扩展，
+	     表现为内置浏览器加载失败。经权衡，注入优先。 -->
+	<key>com.apple.private.security.no-sandbox</key>
+	<true/>
+
 	<!-- ══════════ 逆向工具扩展权限（TrollStore CoreTrust 信任） ══════════ -->
 	<!-- 组合与 TrollStore 生态的 TrollApps 一致（已验证可列出全部 App / 读容器） -->
 	<key>platform-application</key>
