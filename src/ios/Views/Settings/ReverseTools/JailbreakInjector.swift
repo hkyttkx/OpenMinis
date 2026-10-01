@@ -108,7 +108,57 @@ enum JailbreakInjector {
     /// roothide 使用随机路径，字面量 /var/jb 在多环境下并不存在，必须走接口查询。
     /// 注意：第三方 App 进程通常拿不到 launchd 的 xpc_bootstrap_pipe，
     /// 因此这里查不到属正常现象 —— 注入由 root 子进程完成，环境判定也以子进程为准。
+    /// 用户自定义的越狱根（设置里手填），存 UserDefaults。
+    /// roothide 的根是随机名（`.jbroot-<32位十六进制>`），自动探测不一定命中，
+    /// 因此允许手动指定，优先级最高。
+    static let customRootDefaultsKey = "reverse.hostAccess.jbroot"
+
+    static var customJailbreakRoot: String {
+        get { UserDefaults.standard.string(forKey: customRootDefaultsKey) ?? "" }
+        set {
+            let t = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if t.isEmpty { UserDefaults.standard.removeObject(forKey: customRootDefaultsKey) }
+            else { UserDefaults.standard.set(t, forKey: customRootDefaultsKey) }
+        }
+    }
+
+    /// 扫描 roothide 的随机越狱根。
+    /// roothide 把根目录放在 App 安装包目录下，名字形如 `.jbroot-A1B99E8FE8B71244`
+    /// （该目录本身就在 /var/containers/Bundle/Application 里，本进程可读）。
+    static func scanRoothideRoot() -> String? {
+        let parents = [
+            "/var/containers/Bundle/Application",
+            "/var/mobile/Containers/Bundle/Application",
+        ]
+        for parent in parents {
+            guard let items = try? FileManager.default.contentsOfDirectory(atPath: parent) else { continue }
+            // 优先 .jbroot-*，其次任何包含 usr/lib/libjailbreak.dylib 的隐藏目录
+            let named = items.filter { $0.hasPrefix(".jbroot-") }.sorted()
+            for name in named {
+                let p = parent + "/" + name
+                return p
+            }
+            for name in items where name.hasPrefix(".") {
+                let p = parent + "/" + name
+                if FileManager.default.fileExists(atPath: p + "/usr/lib/libjailbreak.dylib") {
+                    return p
+                }
+            }
+        }
+        return nil
+    }
+
+    /// 解析真实越狱根。顺序：
+    ///   1. 用户在设置里手填的路径（最高优先级，文件存在才用）
+    ///   2. libjailbreak 的 jbclient 接口（子进程里通常可用）
+    ///   3. 扫描 roothide 随机根
+    ///   4. 字面量 /var/jb —— 兜底
     static func resolveJailbreakRoot() -> String? {
+        let custom = customJailbreakRoot
+        if !custom.isEmpty, FileManager.default.fileExists(atPath: custom) {
+            return custom
+        }
+
         let candidates = [
             "/var/jb/usr/lib/libjailbreak.dylib",
             "/usr/lib/libjailbreak.dylib",
@@ -120,18 +170,24 @@ enum JailbreakInjector {
             typealias GetRootFn = @convention(c) () -> UnsafeMutablePointer<CChar>?
             if let sym = dlsym(h, "jbclient_get_jbroot") {
                 let fn = unsafeBitCast(sym, to: GetRootFn.self)
-                if let p = fn(), let s = String(validatingUTF8: p), !s.isEmpty {
+                if let p = fn(), let s = String(validatingUTF8: p), !s.isEmpty,
+                   FileManager.default.fileExists(atPath: s) {
                     return s
                 }
             }
             typealias JbrootFn = @convention(c) (UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>?
             if let sym = dlsym(h, "jbroot") {
                 let fn = unsafeBitCast(sym, to: JbrootFn.self)
-                if let p = "/".withCString({ fn($0) }), let s = String(validatingUTF8: p) {
+                if let p = "/".withCString({ fn($0) }), let s = String(validatingUTF8: p),
+                   !s.isEmpty, FileManager.default.fileExists(atPath: s) {
                     return s
                 }
             }
         }
+
+        if let scanned = scanRoothideRoot() { return scanned }
+
+        if FileManager.default.fileExists(atPath: "/var/jb") { return "/var/jb" }
         return nil
     }
 
