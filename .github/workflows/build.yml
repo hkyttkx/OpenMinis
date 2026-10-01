@@ -159,7 +159,7 @@ jobs:
             deps/ish/build-native
             deps/ffmpeg/build-ios
             deps/lame-3.100
-          key: deps-ios-${{ runner.os }}-${{ hashFiles('deps/build_*.sh', 'deps/*.patch', 'deps/ish', 'deps/proot') }}
+          key: deps-ios-v3-${{ runner.os }}-${{ hashFiles('deps/build_*.sh', 'deps/*.patch', 'deps/ish', 'deps/proot') }}
           restore-keys: |
             deps-ios-${{ runner.os }}-
 
@@ -217,8 +217,21 @@ jobs:
           cp -f "$RUNNER_TEMP/inject-components"/* src/ios/Resources/Reverse/ 2>/dev/null || true
           ls -la src/ios/Resources/Reverse/
 
+          # IOSDecryptHub 面板 dylib（MIT，第三方开源项目）。
+          # 它自带 HTTP 面板监听 127.0.0.1，App 用内置浏览器直接看实时事件。
+          # 下载失败不阻断构建：该功能是可选增强，缺了只是面板不可用。
+          IDH_URL="https://github.com/decrypthub/IOSDecryptHub/releases/download/v1.27.5/decrypt_helper-1.27.5.dylib"
+          if curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 30 --max-time 300 \
+               -o src/ios/Resources/Reverse/decrypt_helper.dylib "$IDH_URL"; then
+            echo "已下载 decrypt_helper.dylib: $(ls -la src/ios/Resources/Reverse/decrypt_helper.dylib)"
+          else
+            echo "警告: IOSDecryptHub dylib 下载失败，运行时分析面板将不可用"
+          fi
+
       - name: 编译 Minis 主程序
         run: |
+          echo "[clean-build] 强制清理全部旧 DerivedData 缓存..."
+          rm -rf build
           xcodebuild -project src/ios/Minis.xcodeproj \
             -scheme Minis \
             -configuration Release \
