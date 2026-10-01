@@ -29,6 +29,27 @@ import Security
 
 // MARK: - 账号条目
 
+/// 中转站网关类型。
+///
+/// 同一个"中转站"界面背后其实是两套完全不同的 API：
+///   - .v1     ：自研网关（1for.cc / dshapi.icu 那类），前缀 /api/v1，
+///               登录 {email,password}，成功判据 code == 0。
+///   - .newAPI ：new-api / one-api 系（cdn.sta1n.cn 那类），前缀 /api，
+///               登录 {username,password}，成功判据 success == true，
+///               额度是整数（quota_per_unit 换算），且需要 New-API-User 头。
+/// 不区分就会"加不了账号"——拿一套的端点去打另一套，必然 404/401。
+enum RelayGateway: String, Codable {
+    case v1
+    case newAPI
+
+    var displayName: String {
+        switch self {
+        case .v1:     return "自研网关"
+        case .newAPI: return "New-API"
+        }
+    }
+}
+
 struct RelayAccountEntry: Codable, Identifiable, Equatable {
     var id: UUID = UUID()
     var label: String = ""
@@ -36,6 +57,29 @@ struct RelayAccountEntry: Codable, Identifiable, Equatable {
     var email: String = ""
     var cachedBalance: Double?
     var lastUpdated: Date?
+    /// 网关类型。老账号没有这个字段，解码时按 .v1 兜底（见 init(from:)）。
+    var gateway: RelayGateway = .v1
+    /// new-api 需要的用户 id（New-API-User 头），登录后写入
+    var remoteUserId: Int?
+
+    // 老数据兼容：缺失字段按默认值补
+    enum CodingKeys: String, CodingKey {
+        case id, label, siteURL, email, cachedBalance, lastUpdated, gateway, remoteUserId
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decode(UUID.self, forKey: .id)) ?? UUID()
+        label = (try? c.decode(String.self, forKey: .label)) ?? ""
+        siteURL = (try? c.decode(String.self, forKey: .siteURL)) ?? ""
+        email = (try? c.decode(String.self, forKey: .email)) ?? ""
+        cachedBalance = try? c.decodeIfPresent(Double.self, forKey: .cachedBalance)
+        lastUpdated = try? c.decodeIfPresent(Date.self, forKey: .lastUpdated)
+        gateway = (try? c.decode(RelayGateway.self, forKey: .gateway)) ?? .v1
+        remoteUserId = try? c.decodeIfPresent(Int.self, forKey: .remoteUserId)
+    }
+
+    init() {}
 
     var displayLabel: String {
         if !label.isEmpty { return label }
@@ -108,6 +152,14 @@ struct RelayUsage {
     var avgResponseSeconds: Double = 0
     var totalAPIKeys = 0
     var activeAPIKeys = 0
+
+    // new-api 专有：额度以整数表示，按 quotaPerUnit 换算成货币
+    var remainingQuota: Double = 0
+    var usedQuotaRaw: Double = 0
+    /// 500000 额度 = 1 美元（站点 /api/status 的 quota_per_unit，缺省用此值）
+    var quotaPerUnit: Double = 500000
+    /// 货币符号（自研网关是 $，new-api 可能是 🍪 之类）
+    var currencySymbol: String = "$"
 
     // 分组维度
     var byPlatform: [RelayGroupRow] = []
@@ -220,11 +272,13 @@ final class RelayQuotaService: ObservableObject {
         }
     }
 
-    func addAccount(siteURL: String, email: String, label: String = "") {
+    func addAccount(siteURL: String, email: String, label: String = "",
+                    gateway: RelayGateway = .v1) {
         var e = RelayAccountEntry()
         e.siteURL = siteURL.trimmingCharacters(in: .whitespacesAndNewlines)
         e.email = email.trimmingCharacters(in: .whitespacesAndNewlines)
         e.label = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        e.gateway = gateway
         accounts.append(e)
         selectedId = e.id
         persist()
@@ -280,7 +334,74 @@ final class RelayQuotaService: ObservableObject {
     // MARK: 登录
 
     @discardableResult
+    /// 登录。按账号记录的网关类型分流。
     func login(accountId: UUID, email: String, password: String) async -> Bool {
+        guard let idx = accounts.firstIndex(where: { $0.id == accountId }) else { return false }
+        if accounts[idx].gateway == .newAPI {
+            return await loginNewAPI(accountId: accountId, username: email, password: password)
+        }
+        return await loginV1(accountId: accountId, email: email, password: password)
+    }
+
+    /// new-api 登录：POST /api/user/login {username, password}
+    @discardableResult
+    private func loginNewAPI(accountId: UUID, username: String, password: String) async -> Bool {
+        guard let idx = accounts.firstIndex(where: { $0.id == accountId }) else { return false }
+        refreshing.insert(accountId)
+        lastError = nil
+        defer { refreshing.remove(accountId) }
+
+        let site = Self.normalizeSite(accounts[idx].siteURL)
+        guard let url = URL(string: site + "/api/user/login") else {
+            lastError = "地址无效"; return false
+        }
+        var r = URLRequest(url: url)
+        r.httpMethod = "POST"
+        r.timeoutInterval = 30
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.setValue("KyTuT", forHTTPHeaderField: "User-Agent")
+        r.httpBody = try? JSONSerialization.data(withJSONObject: ["username": username, "password": password])
+
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: r)
+            guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                lastError = "登录请求失败（HTTP \((resp as? HTTPURLResponse)?.statusCode ?? -1)）"
+                return false
+            }
+            guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                lastError = "登录响应无法解析"; return false
+            }
+            guard obj["success"] as? Bool == true, let d = obj["data"] as? [String: Any] else {
+                lastError = (obj["message"] as? String) ?? "登录被拒绝"
+                return false
+            }
+            guard let at = d["access_token"] as? String, !at.isEmpty else {
+                lastError = "登录成功但未返回 token"; return false
+            }
+            // new-api 的 access_token 有明确过期时间
+            let exp: Date
+            if let ts = d["access_expires_at"] as? Double {
+                exp = Date(timeIntervalSince1970: ts - 60)
+            } else {
+                exp = Date().addingTimeInterval(6 * 3600)
+            }
+            accessTokens[accountId] = (at, exp)
+            if let u = d["user"] as? [String: Any], let uid = Self.intValue(u["id"]) {
+                accounts[idx].remoteUserId = uid
+            }
+            accounts[idx].email = username
+            persist()
+
+            await refresh(accountId)
+            return accessTokens[accountId] != nil
+        } catch {
+            lastError = "网络错误：\(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    private func loginV1(accountId: UUID, email: String, password: String) async -> Bool {
         guard let idx = accounts.firstIndex(where: { $0.id == accountId }) else { return false }
         refreshing.insert(accountId)
         lastError = nil
@@ -341,6 +462,11 @@ final class RelayQuotaService: ObservableObject {
 
     private func refreshOne(_ id: UUID) async {
         guard let idx = accounts.firstIndex(where: { $0.id == id }) else { return }
+        // new-api 走独立拉取路径
+        if accounts[idx].gateway == .newAPI {
+            await refreshOneNewAPI(id)
+            return
+        }
         refreshing.insert(id)
         defer { refreshing.remove(id) }
 
@@ -416,6 +542,119 @@ final class RelayQuotaService: ObservableObject {
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    // MARK: - New-API 数据拉取
+
+    private func refreshOneNewAPI(_ id: UUID) async {
+        guard let idx = accounts.firstIndex(where: { $0.id == id }) else { return }
+        refreshing.insert(id)
+        defer { refreshing.remove(id) }
+
+        let site = Self.normalizeSite(accounts[idx].siteURL)
+        guard let token = accessTokens[id]?.token, !token.isEmpty else {
+            lastError = "尚未登录该账号"
+            return
+        }
+        let uid = accounts[idx].remoteUserId
+
+        // 拉一次公开设置，拿 quota_per_unit 与货币符号
+        if newAPISettings[site] == nil, let base = URL(string: site),
+           let st = await newAPIStatus(base: base) {
+            let qpu = Self.doubleValue(st["quota_per_unit"]) ?? 500000
+            let sym = (st["custom_currency_symbol"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "$"
+            newAPISettings[site] = (qpu, sym)
+        }
+        let settings = newAPISettings[site] ?? (500000, "$")
+
+        var acc = RelayAccount()
+        var usage = RelayUsage()
+        usage.quotaPerUnit = settings.quotaPerUnit
+        usage.currencySymbol = settings.symbol
+        var rawParts: [String] = []
+
+        // 用户信息（余额 / 已用 / 调用数）
+        if let selfInfo = await newAPIGet(site: site, path: "/api/user/self",
+                                          token: token, uid: uid) {
+            rawParts.append("=== /api/user/self ===\n" + Self.pretty(selfInfo))
+            acc.email = (selfInfo["email"] as? String) ?? acc.email
+            acc.username = (selfInfo["display_name"] as? String)
+                ?? (selfInfo["username"] as? String)
+            acc.subscription = selfInfo["group"] as? String
+
+            let quota = Self.doubleValue(selfInfo["quota"]) ?? 0
+            let used = Self.doubleValue(selfInfo["used_quota"]) ?? 0
+            usage.remainingQuota = quota
+            usage.usedQuotaRaw = used
+            // 换算成货币单位
+            acc.balance = (quota - used) / settings.quotaPerUnit
+
+            if let rc = Self.intValue(selfInfo["request_count"]) {
+                usage.totalRequests = rc
+            }
+            if let aid = Self.intValue(selfInfo["id"]) {
+                accounts[idx].remoteUserId = aid
+            }
+        }
+
+        // 日志统计（quota / rpm / tpm）
+        if let stat = await newAPIGet(site: site, path: "/api/log/self/stat?type=0",
+                                      token: token, uid: uid) {
+            rawParts.append("=== /api/log/self/stat ===\n" + Self.pretty(stat))
+            usage.usedQuotaRaw = Self.doubleValue(stat["quota"]) ?? usage.usedQuotaRaw
+            usage.rpm = Self.intValue(stat["rpm"]) ?? 0
+            usage.tpm = Self.intValue(stat["tpm"]) ?? 0
+            usage.totalActualCost = usage.usedQuotaRaw / settings.quotaPerUnit
+        }
+
+        // 日志明细首页（给出真实的调用次数与模型分布）
+        if let logs = await newAPIGet(site: site, path: "/api/log/self?p=0&page_size=100&type=0",
+                                      token: token, uid: uid) {
+            if let total = Self.intValue(logs["total"]) { usage.totalRequests = total }
+            let items = (logs["items"] as? [[String: Any]]) ?? []
+            if let first = items.first {
+                rawParts.append("=== /api/log/self（字段样例）===\n" + Self.pretty(first))
+            }
+            // 从明细聚合模型分布
+            var byModel: [String: RelayGroupRow] = [:]
+            for it in items {
+                guard let m = it["model_name"] as? String, !m.isEmpty else { continue }
+                var row = byModel[m] ?? RelayGroupRow(name: m)
+                row.requests += 1
+                row.tokens += (Self.intValue(it["prompt_tokens"]) ?? 0)
+                            + (Self.intValue(it["completion_tokens"]) ?? 0)
+                row.cost += (Self.doubleValue(it["quota"]) ?? 0) / settings.quotaPerUnit
+                byModel[m] = row
+            }
+            usage.byModel = byModel.values.sorted { $0.cost > $1.cost }
+        }
+
+        usage.raw = rawParts.joined(separator: "\n\n")
+
+        let now = Date()
+        data[id] = RelayData(account: acc, usage: usage, updatedAt: now)
+        accounts[idx].cachedBalance = acc.balance
+        accounts[idx].lastUpdated = now
+        persist()
+        lastError = nil
+    }
+
+    /// new-api 的 GET：需要 Authorization + New-API-User 两个头。
+    private func newAPIGet(site: String, path: String, token: String, uid: Int?) async -> [String: Any]? {
+        guard let url = URL(string: site + path) else { return nil }
+        var r = URLRequest(url: url)
+        r.timeoutInterval = 25
+        r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let uid { r.setValue(String(uid), forHTTPHeaderField: "New-API-User") }
+        r.setValue("KyTuT", forHTTPHeaderField: "User-Agent")
+        guard let (data, resp) = try? await URLSession.shared.data(for: r),
+              let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        // new-api 统一 {success, data, message}
+        guard obj["success"] as? Bool == true else { return nil }
+        return obj["data"] as? [String: Any]
+            ?? (obj["data"] as? [[String: Any]]).map { ["items": $0] }
     }
 
     private func ensureToken(id: UUID, base: String) async throws -> String {
@@ -559,6 +798,52 @@ final class RelayQuotaService: ObservableObject {
     /// 但填错时服务端只会回一个含糊的认证失败，
     /// 看起来像「账号加不了」。这里先打公开设置接口，
     /// 能区分「地址不对」和「账号密码不对」两种情况。
+    /// 探测站点并判定网关类型。
+    ///
+    /// 判据（实测确认）：
+    ///   - new-api：`GET /api/status` 返回 `{data:{...}}` 且含
+    ///     `quota_per_unit` / `HeaderNavModules` 之类字段；
+    ///     而 `/api/v1/settings/public` 是 404。
+    ///   - 自研 v1：`GET /api/v1/settings/public` 返回 `{code:0,data:{...}}`。
+    func detectGateway(_ raw: String) async -> Result<(site: String, gateway: RelayGateway), String> {
+        let site = Self.normalizeSite(raw)
+        guard let base = URL(string: site) else {
+            return .failure("地址格式不正确：\(raw)")
+        }
+
+        // 先试 new-api 的 /api/status
+        if await newAPIStatus(base: base) != nil {
+            return .success((site, .newAPI))
+        }
+        // 再试自研网关的公开设置
+        switch await probeSite(site) {
+        case .success(let normalized):
+            return .success((normalized, .v1))
+        case .failure(let why):
+            // 两个都不是：把更可能的原因报出来
+            return .failure(why + "\n（既不是 New-API，也不是自研网关）")
+        }
+    }
+
+    /// 取 new-api 的 /api/status（公开，无需登录）。返回 nil 表示不是 new-api。
+    private func newAPIStatus(base: URL) async -> [String: Any]? {
+        guard let url = URL(string: base.absoluteString + "/api/status") else { return nil }
+        var r = URLRequest(url: url)
+        r.timeoutInterval = 20
+        r.setValue("KyTuT", forHTTPHeaderField: "User-Agent")
+        guard let (data, resp) = try? await URLSession.shared.data(for: r),
+              let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let d = obj["data"] as? [String: Any]
+        else { return nil }
+        // new-api 的特征字段
+        if d["quota_per_unit"] != nil || d["HeaderNavModules"] != nil { return d }
+        return nil
+    }
+
+    /// 缓存 new-api 站点的 quota_per_unit / 货币符号
+    private var newAPISettings: [String: (quotaPerUnit: Double, symbol: String)] = [:]
+
     func probeSite(_ raw: String) async -> Result<String, String> {
         let base = apiBase(raw)
         guard let url = URL(string: base + "/settings/public") else {
