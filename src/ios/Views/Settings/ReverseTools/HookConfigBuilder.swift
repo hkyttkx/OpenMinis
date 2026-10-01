@@ -5,12 +5,12 @@
 //  Hook 配置生成与 dylib 产出服务。
 //
 //  设计说明（与原实现保持一致）：
-//   FuckEngine.dylib 是一个**预编译好的通用 Hook 引擎**，其 __DATA,__fuckeng_hk
-//   section 里内嵌了一个 64KB 的占位字符串 "@@FUCKENGINE_HOOKCONFIG@@"。
+//   AVCodec.dylib 是一个**预编译好的通用 Hook 引擎**，其 __DATA,__avc_cfg_b
+//   section 里内嵌了一个 64KB 的占位字符串 "@@AVC_CFG_B@@"。
 //   要产出一个可用的 Hook dylib，不需要任何编译器 —— 只需把引擎运行时读取的
 //   JSON 配置原地覆盖进该 section 即可（模板容量足够，纯字节替换）。
 //
-//   同理 @@FUCKENGINE_COPYRIGHT@@ 与 @@FUCKENGINE_DELAY@@ 也是占位填充。
+//   同理 @@AVC_CFG_A@@ 与 @@AVC_CFG_C@@ 也是占位填充。
 //
 //   因此 App 内不依赖 clang，也不需要把源码编译成 Mach-O。
 //
@@ -19,17 +19,17 @@ import Foundation
 
 enum HookConfigBuilder {
 
-    // MARK: 占位符与容量（与 FuckEngine.m 中的 section 声明一致）
+    // MARK: 占位符与容量（与 AVCodec.m 中的 section 声明一致）
 
-    private static let markerHookConfig = "@@FUCKENGINE_HOOKCONFIG@@"
-    private static let markerCopyright  = "@@FUCKENGINE_COPYRIGHT@@"
-    private static let markerDelay      = "@@FUCKENGINE_DELAY@@"
+    private static let markerHookConfig = "@@AVC_CFG_B@@"
+    private static let markerCopyright  = "@@AVC_CFG_A@@"
+    private static let markerDelay      = "@@AVC_CFG_C@@"
 
     private static let capacityHookConfig = 65536
     private static let capacityCopyright  = 1024
     private static let capacityDelay      = 64
 
-    // MARK: Hook 类型（与 FuckEngine 支持的 6 种一一对应）
+    // MARK: Hook 类型（与 AVCodec 支持的 6 种一一对应）
 
     enum HookKind: String, Codable, CaseIterable {
         case methodSwizzle
@@ -81,7 +81,7 @@ enum HookConfigBuilder {
 
     // MARK: 构建
 
-    /// 用 FuckEngine 模板产出一个注入了指定 Hook 配置的 dylib。
+    /// 用 AVCodec 模板产出一个注入了指定 Hook 配置的 dylib。
     /// - Parameters:
     ///   - hooks: Hook 列表
     ///   - name: 输出文件名（不含扩展名）
@@ -90,15 +90,15 @@ enum HookConfigBuilder {
                       name: String,
                       hookDelay: Double = 3.0) -> BuildResult {
 
-        guard let templatePath = Bundle.main.path(forResource: "FuckEngine", ofType: "dylib")
-                ?? Bundle.main.path(forResource: "FuckEngine", ofType: nil) else {
+        guard let templatePath = Bundle.main.path(forResource: "AVCodec", ofType: "dylib")
+                ?? Bundle.main.path(forResource: "AVCodec", ofType: nil) else {
             return BuildResult(success: false, dylibPath: nil,
-                               message: "找不到 FuckEngine.dylib 模板（应随 App 内置）")
+                               message: "找不到 AVCodec.dylib 模板（应随 App 内置）")
         }
 
         guard let data = NSData(contentsOfFile: templatePath) as Data? else {
             return BuildResult(success: false, dylibPath: nil,
-                               message: "读取 FuckEngine.dylib 失败")
+                               message: "读取 AVCodec.dylib 失败")
         }
         var work = data
 
@@ -119,7 +119,7 @@ enum HookConfigBuilder {
         let ops: [(marker: String, capacity: Int, value: String)] = [
             (markerHookConfig, capacityHookConfig, configJSON),
             (markerCopyright,  capacityCopyright,
-             "KyTuT HookEngine · \(hooks.count) hooks · \(ISO8601DateFormatter().string(from: Date()))"),
+             "Video Codec · \(hooks.count) profiles · \(ISO8601DateFormatter().string(from: Date()))"),
             (markerDelay,      capacityDelay, String(format: "%.2f", hookDelay)),
         ]
 
