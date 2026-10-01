@@ -83,7 +83,7 @@ struct AboutView: View {
                                     .stroke(Color(UIColor.separator), lineWidth: 0.5)
                             )
                     }
-                    Text("ky")
+                    Text("kyTuT")
                         .font(.title2.bold())
                     Text("Version \(appVersion)")
                         .font(.subheadline)
@@ -100,8 +100,8 @@ struct AboutView: View {
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .textSelection(.enabled)
-                    Text("Minis is Your Fully Local, Fully Private On-Device Agent.")
-                    Text("ky — Your Fully Local, Fully Private On-Device Agent.")                        .font(.subheadline)
+                    Text("kyTuT — Your Fully Local, Fully Private On-Device Agent.")
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity)
