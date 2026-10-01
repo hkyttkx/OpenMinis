@@ -389,13 +389,40 @@ enum JailbreakInjector {
 
             var effectiveDylib = dylibPath
             if mode == .clean {
-                let stageDir = (NSTemporaryDirectory() as NSString).appendingPathComponent("dyninject_stage")
-                try? FileManager.default.createDirectory(atPath: stageDir, withIntermediateDirectories: true)
-                let staged = (stageDir as NSString).appendingPathComponent((dylibPath as NSString).lastPathComponent)
+                // 暂存目录必须放在「其他用户可读」的位置。
+                //
+                // 原来用 NSTemporaryDirectory()（App 私有 tmp）：目标 App 以
+                // mobile(501) 运行，即使拿到 sandbox extension，路径本身是
+                // 0600 的私有容器目录也穿不进去 —— dlopen 会失败。
+                //
+                // 改用 App Group 共享容器（已声明 group.com.openminis.app）：
+                // 目录权限天然可放 o+x/o+r，配合下面的 chmod，目标进程能读。
+                let stageDir: String
+                if let group = FileManager.default
+                    .containerURL(forSecurityApplicationGroupIdentifier: "group.com.openminis.app") {
+                    stageDir = group.appendingPathComponent("dyninject_stage").path
+                } else {
+                    // 没有 App Group 时退回 Documents（至少不在 0600 的 tmp 下）
+                    let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                    stageDir = docs.appendingPathComponent("dyninject_stage").path
+                }
+
+                try? FileManager.default.createDirectory(atPath: stageDir,
+                                                         withIntermediateDirectories: true,
+                                                         attributes: [.posixPermissions: 0o755])
+
+                let staged = (stageDir as NSString)
+                    .appendingPathComponent((dylibPath as NSString).lastPathComponent)
                 try? FileManager.default.removeItem(atPath: staged)
+
                 if (try? FileManager.default.copyItem(atPath: dylibPath, toPath: staged)) != nil {
+                    // 目标进程要能读：文件 o+r、目录 o+x，缺一不可
+                    try? FileManager.default.setAttributes([.posixPermissions: 0o644],
+                                                           ofItemAtPath: staged)
+                    try? FileManager.default.setAttributes([.posixPermissions: 0o755],
+                                                           ofItemAtPath: stageDir)
                     effectiveDylib = staged
-                    appendLog("已暂存 dylib 到临时目录")
+                    appendLog("已暂存 dylib 到共享目录（目标进程可读）：\(staged)")
                 } else {
                     appendLog("⚠️ 暂存失败，改用原路径")
                 }
