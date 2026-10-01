@@ -261,7 +261,7 @@ final class HostAccessManager: ObservableObject {
 
     /// 新增一个自定义位置。key 用路径归一化后的稳定串，保证幂等。
     @discardableResult
-    static func addCustomLocation(path: String, title: String? = nil) -> bool {
+    static func addCustomLocation(path: String, title: String? = nil) -> Bool {
         let p = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !p.isEmpty else { return false }
         var arr = (UserDefaults.standard.array(forKey: customDefaultsKey) as? [[String: String]]) ?? []
