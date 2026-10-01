@@ -55,8 +55,8 @@ extension AIChatViewModel {
         // 解析目标位置
         let loc: HostLocation
         if let key = locationKey, !key.isEmpty {
-            guard let found = HostLocation.builtins.first(where: { $0.key == key }) else {
-                let keys = HostLocation.builtins.map(\.key).joined(separator: ", ")
+            guard let found = HostAccessManager.allLocations.first(where: { $0.key == key }) else {
+                let keys = HostAccessManager.allLocations.map(\.key).joined(separator: ", ")
                 return ("Error: 未知的 location '\(key)'。可用值：\(keys)", false)
             }
             loc = found
