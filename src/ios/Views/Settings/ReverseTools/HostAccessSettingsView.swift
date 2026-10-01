@@ -12,6 +12,8 @@ import SwiftUI
 
 struct HostAccessSettingsView: View {
     @ObservedObject private var manager = HostAccessManager.shared
+    /// 越狱根手填输入框（留空则自动探测）
+    @State private var jbrootDraft: String = ""
 
     var body: some View {
         List {
@@ -54,6 +56,58 @@ struct HostAccessSettingsView: View {
                 Text("位置权限")
             } footer: {
                 Text("逐项开启，每项可单独设为只读或读写，默认只读。开启后 AI 可经 host_file 工具访问。注意：对「整个文件系统」开启读写时，AI 的每次修改都会弹窗请你确认。")
+            }
+
+            // MARK: 越狱根
+            //
+            // roothide 的越狱根是随机目录名（形如 `.jbroot-A1B99E8FE8B71244`），
+            // 自动探测不一定命中，所以允许手填；留空时回落到自动探测。
+            Section {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("自定义越狱根")
+                        .font(.body.weight(.medium))
+                    TextField("留空则自动探测，例如 /var/containers/Bundle/Application/.jbroot-XXXXXXXX",
+                              text: $jbrootDraft)
+                        .font(.caption.monospaced())
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .onSubmit { manager.customJailbreakRoot = jbrootDraft }
+
+                    HStack(spacing: 10) {
+                        Button {
+                            manager.customJailbreakRoot = jbrootDraft
+                        } label: {
+                            Label("保存", systemImage: "checkmark")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+
+                        Button {
+                            if let d = manager.detectedJailbreakRoot {
+                                jbrootDraft = d
+                                manager.customJailbreakRoot = d
+                            }
+                        } label: {
+                            Label("自动探测", systemImage: "wand.and.stars")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(manager.detectedJailbreakRoot == nil)
+
+                        Button(role: .destructive) {
+                            jbrootDraft = ""
+                            manager.customJailbreakRoot = ""
+                        } label: {
+                            Label("清除", systemImage: "xmark")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+            } header: {
+                Text("越狱根")
+            } footer: {
+                Text("roothide 越狱根是随机目录，默认的 /var/jb 通常不存在。这里填真实路径后，「越狱根」位置与动态注入都会用它。")
             }
 
             // MARK: 写保护
@@ -120,6 +174,7 @@ struct HostAccessSettingsView: View {
         }
         .navigationTitle("宿主访问")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { jbrootDraft = manager.customJailbreakRoot }
     }
 }
 
