@@ -234,6 +234,50 @@ extension AIChatViewModel {
         return (header.joined(separator: "\n") + "\n\n" + body.joined(separator: "\n"), true)
     }
 
+    /// file_query：识别文件真实类型，必要时用 sqlite3 查询。
+    ///
+    /// 声明与分发一直都在，但实现体在早前删 Frida 工具时被一起删掉了，
+    /// 于是 case "file_query" 调用了一个不存在的函数 —— 编译期报
+    /// "cannot find 'executeFileQueryTool' in scope"。
+    func executeFileQueryTool(
+        from json: String, msgIdx: Int, blockIdx: Int
+    ) async -> (output: String, success: Bool) {
+        guard let data = json.data(using: .utf8),
+              let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return ("Error: invalid arguments for file_query", false)
+        }
+        guard var file = (args["file"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !file.isEmpty else {
+            return ("Error: 'file' is required.", false)
+        }
+        if file.hasPrefix("minis://") { file = file.replacingOccurrences(of: "minis://", with: "/var/minis/") }
+        guard !file.contains(where: { "\"';`|&$".contains($0) }) else {
+            return ("Error: invalid characters in 'file' path.", false)
+        }
+
+        // 只有 sqlite3 的 SQL 会带引号/分号，单独做一层更宽的校验，
+        // 禁止管道与重定向即可（sqlite3 的 .命令 与 SELECT 都不需要它们）。
+        var sql = (args["sql"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !sql.isEmpty {
+            guard !sql.contains(where: { "`|&$\\".contains($0) }) else {
+                return ("Error: invalid characters in 'sql'.", false)
+            }
+        }
+
+        var cmd = "file '\(file)'"
+        if !sql.isEmpty {
+            // -readonly 避免误改目标数据库；-header 让结果自带列名
+            cmd += " && echo '--- sqlite3 ---' && sqlite3 -readonly -header '\(file)' '\(sql)'"
+        } else {
+            // 没给 SQL 时，如果是 SQLite 就顺手列出表名，省一轮往返
+            cmd += " && if file '\(file)' | grep -q SQLite; then "
+                 + "echo '--- tables ---'; sqlite3 -readonly '\(file)' '.tables'; fi"
+        }
+
+        return await runStreaming(cmd, label: "file_query \((file as NSString).lastPathComponent)",
+                                  msgIdx: msgIdx, blockIdx: blockIdx)
+    }
+
     private func runStreaming(
         _ cmd: String, label: String, msgIdx: Int, blockIdx: Int
     ) async -> (output: String, success: Bool) {
