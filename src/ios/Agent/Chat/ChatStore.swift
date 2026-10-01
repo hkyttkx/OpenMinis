@@ -573,6 +573,39 @@ actor ChatStore {
         try? FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: minisBaseURL, withIntermediateDirectories: true)
 
+        // ═══════════════════════════════════════════════════════════════
+        // [聊天记录永不丢失] 跨容器旧数据库自动找回与继承机制
+        // 覆盖安装或多开会导致 iOS 分配新的 UUID 数据容器，
+        // 导致用户看起来"聊天记录没了"。这里如果检测到当前库为空/不存在，
+        // 自动凭借全盘直通特权搜寻所有历史容器中体积最大的旧 minis.db 并原地恢复！
+        // ═══════════════════════════════════════════════════════════════
+        let currentSize = (try? FileManager.default.attributesOfItem(atPath: self.dbURL.path)[.size] as? NSNumber)?.int64Value ?? 0
+        if currentSize < 100 * 1024 { // 当前数据库小于 100KB（新开空库）
+            let dataRoot = "/var/mobile/Containers/Data/Application"
+            if let containers = try? FileManager.default.contentsOfDirectory(atPath: dataRoot) {
+                var bestDBPath: String?
+                var bestSize: Int64 = currentSize
+                for c in containers {
+                    let oldDB = "\(dataRoot)/\(c)/Library/MinisChat/minis.db"
+                    if oldDB != self.dbURL.path, FileManager.default.fileExists(atPath: oldDB) {
+                        let sz = (try? FileManager.default.attributesOfItem(atPath: oldDB)[.size] as? NSNumber)?.int64Value ?? 0
+                        if sz > bestSize {
+                            bestSize = sz
+                            bestDBPath = oldDB
+                        }
+                    }
+                }
+                if let best = bestDBPath {
+                    NSLog("[ChatStore] 发现历史大容量数据库 (\(bestSize) 字节): \(best)，正在自动恢复...")
+                    try? FileManager.default.removeItem(at: self.dbURL)
+                    try? FileManager.default.copyItem(atPath: best, toPath: self.dbURL.path)
+                    // 同步拷贝 wal / shm 保证事务完整
+                    try? FileManager.default.copyItem(atPath: best + "-wal", toPath: self.dbURL.path + "-wal")
+                    try? FileManager.default.copyItem(atPath: best + "-shm", toPath: self.dbURL.path + "-shm")
+                }
+            }
+        }
+
         AppLogger.withDeferredLogging {
             openDatabase()
             createTables()
