@@ -2640,6 +2640,48 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
         }
         FLog(@"[SPAWN] target PID: %d", targetPid);
 
+        // ═══════════════════════════════════════════════════════════════
+        // 终极优先：优先使用 Relaxin 官方 BaseBin 中的 opainject
+        // 官方二进制原生支持 arm64e PAC (spawnPacChild) 和内存死循环扫描，
+        // 并且拥有系统内核完全信任链，绝不出现 EXC_BAD_ACCESS 崩溃。
+        // ═══════════════════════════════════════════════════════════════
+        NSString *jbroot = FuckRoothideJbroot();
+        NSString *officialOpainject = nil;
+        if (jbroot.length) {
+            NSString *cand1 = [jbroot stringByAppendingPathComponent:@"basebin/opainject"];
+            NSString *cand2 = [jbroot stringByAppendingPathComponent:@"usr/bin/opainject"];
+            if ([[NSFileManager defaultManager] fileExistsAtPath:cand1]) officialOpainject = cand1;
+            else if ([[NSFileManager defaultManager] fileExistsAtPath:cand2]) officialOpainject = cand2;
+        }
+
+        if (officialOpainject.length) {
+            FLogSuccess(@"[Relaxin] 发现官方 BaseBin opainject: %@", officialOpainject);
+            reportProgress(@"[3/3] 调用 Relaxin 官方引擎执行注入...");
+
+            // 1. 先通过 jbserver 将 dylib 放入 Trust Cache
+            FuckRoothideTrustDylib(dylibPath);
+            // 2. 标记目标进程可调试
+            FuckRoothideSetProcessDebugged(targetPid, YES);
+
+            // 3. 执行官方 opainject: <pid> <dylibPath>
+            NSArray<NSString *> *args = @[
+                officialOpainject,
+                [NSString stringWithFormat:@"%d", targetPid],
+                dylibPath
+            ];
+            FLog(@"[Relaxin] 启动官方注入: %@ %d %@", officialOpainject, targetPid, dylibPath);
+            int oparet = FuckSpawnArguments(args, YES);
+            FLog(@"[Relaxin] 官方 opainject 执行返回码: %d", oparet);
+            if (oparet == 0) {
+                FLogSuccess(@"[Relaxin] ✅ 官方 opainject 注入成功！");
+                finish(YES, @"Relaxin 官方引擎注入成功");
+                return;
+            } else {
+                FLogError(@"[Relaxin] ⚠️ 官方 opainject 返回异常(%d)，尝试回退内置引擎", oparet);
+            }
+        }
+
+
         // ── 在当前进程内直接执行注入，不再 spawn 子进程 ──
         //
         // 原因（实测）：
