@@ -107,35 +107,23 @@ struct InjectPanelView: View {
                 Text("将跳转到聊天会话，AI 会先分析目标 App 再与你确认 Hook 方案，确认后自动生成动态库并询问是否注入。")
             }
 
-            // MARK: 注入模式
+            // MARK: 注入通道说明
             Section {
-                ForEach(DynamicInjectMode.allCases) { m in
-                    Button {
-                        mode = m
-                    } label: {
-                        HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: m == mode ? "largecircle.fill.circle" : "circle")
-                                .foregroundStyle(m == mode ? Color.accentColor : Color.secondary)
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack(spacing: 6) {
-                                    Image(systemName: m.systemImage)
-                                        .font(.system(size: 11, weight: .semibold))
-                                    Text(m.title).font(.body.weight(.medium))
-                                }
-                                Text(m.subtitle)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
+                HStack(spacing: 12) {
+                    Image(systemName: "shield.lefthalf.filled")
+                        .font(.system(size: 20))
+                        .foregroundStyle(Color.accentColor)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("无痕沙盒注入引擎")
+                            .font(.body.weight(.medium))
+                        Text("基于 Relaxin 官方通道执行，不篡改目标 App bundle，零文件污染，杜绝签名闪退")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(running)
                 }
+                .padding(.vertical, 4)
             } header: {
-                Text("注入模式")
-            } footer: {
-                Text("两种模式的注入流程与内核交互完全一致，区别只在 dylib 的临时落点。")
+                Text("注入通道")
             }
 
             // MARK: 执行
