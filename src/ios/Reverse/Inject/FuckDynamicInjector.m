@@ -197,14 +197,46 @@ typedef char *(*FuckGetJbrootFn)(void);
 // 下面（也在 AppGroup 里放一份）。写死 /var/jb 在本机不存在 —— 实测
 // 那台设备上 /var/jb 完全没有，于是 libjailbreak 永远加载失败，
 // 拿不到 jbserver 通道，注入必然失败。
+// 判断一个候选目录是否是「完整的」越狱根。
+//
+// 为什么必须校验：Relaxin/roothide 会在**多个位置**各放一份同名
+// .jbroot-<hex>，但内容并不相同（实测这台设备）：
+//   /var/containers/Bundle/Application/.jbroot-XXX/   完整（含 basebin/usr/System…）
+//   /var/mobile/Containers/Shared/AppGroup/.jbroot-XXX/  只是部分镜像
+//                                                        （仅有 var/ 与 .jbroot）
+// 只按名字找到第一个就返回，会拿到那份不完整的，随后
+// basebin/libjailbreak.dylib 不存在，dlopen 直接失败。
+//
+// 判据：必须含 basebin/ 或 usr/lib/ 且其中确有 libjailbreak。
+static BOOL FuckIsCompleteJailbreakRoot(NSString *path) {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSArray<NSString *> *marks = @[
+        @"basebin/libjailbreak.dylib",
+        @"usr/lib/libjailbreak.dylib",
+        @"basebin/jailbreakd",
+        @"usr/bin/jbctl",
+    ];
+    for (NSString *m in marks) {
+        if ([fm fileExistsAtPath:[path stringByAppendingPathComponent:m]]) return YES;
+    }
+    return NO;
+}
+
 static NSString *FuckScanJailbreakRoot(void) {
-    // 用户可通过环境变量指定，优先
+    // 1) 环境变量显式指定（最高优先，且也做完整性校验）
     const char *envRoot = getenv("MINIS_JBROOT");
     if (envRoot && envRoot[0]) {
         NSString *e = [NSString stringWithUTF8String:envRoot];
-        if ([[NSFileManager defaultManager] fileExistsAtPath:e]) return e;
+        if (FuckIsCompleteJailbreakRoot(e)) {
+            FLog(@"[roothide] 使用 MINIS_JBROOT 指定的根: %@", e);
+            return e;
+        }
+        FLog(@"[roothide] MINIS_JBROOT=%@ 不是完整越狱根，忽略", e);
     }
 
+    // 2) 依次扫描各父目录。
+    //    顺序有意为之：App 安装目录下的那份是完整的，优先；
+    //    AppGroup 那份常是部分镜像，放最后。
     NSArray<NSString *> *parents = @[
         @"/var/containers/Bundle/Application",
         @"/var/mobile/Containers/Bundle/Application",
@@ -212,31 +244,39 @@ static NSString *FuckScanJailbreakRoot(void) {
     ];
     NSFileManager *fm = [NSFileManager defaultManager];
 
+    NSString *firstIncomplete = nil;
+
     for (NSString *parent in parents) {
         NSArray<NSString *> *items = [fm contentsOfDirectoryAtPath:parent error:nil];
         if (!items) continue;
 
-        // 首选 .jbroot-* 命名
         NSArray<NSString *> *sorted = [items sortedArrayUsingSelector:@selector(compare:)];
+
+        // 先看 .jbroot-* 命名（roothide 的标准形式）
         for (NSString *name in sorted) {
             if (![name hasPrefix:@".jbroot-"]) continue;
             NSString *p = [parent stringByAppendingPathComponent:name];
-            if ([fm fileExistsAtPath:[p stringByAppendingPathComponent:@"basebin/libjailbreak.dylib"]]
-                || [fm fileExistsAtPath:[p stringByAppendingPathComponent:@"usr/lib/libjailbreak.dylib"]]) {
-                return p;
+            if (FuckIsCompleteJailbreakRoot(p)) return p;
+            if (!firstIncomplete) {
+                firstIncomplete = p;
+                FLog(@"[roothide] %@ 是不完整的镜像（无 basebin），继续找", p);
             }
         }
-        // 兜底：任何含 libjailbreak 的隐藏目录
+        // 再兜底：任何含 libjailbreak 的隐藏目录
         for (NSString *name in sorted) {
             if (![name hasPrefix:@"."]) continue;
+            if ([name hasPrefix:@".jbroot-"]) continue;   // 上一轮已查
             NSString *p = [parent stringByAppendingPathComponent:name];
-            if ([fm fileExistsAtPath:[p stringByAppendingPathComponent:@"basebin/libjailbreak.dylib"]]
-                || [fm fileExistsAtPath:[p stringByAppendingPathComponent:@"usr/lib/libjailbreak.dylib"]]) {
-                return p;
-            }
+            if (FuckIsCompleteJailbreakRoot(p)) return p;
         }
     }
-    return nil;
+
+    // 3) 全军覆没：仍返回那个不完整的，至少 dlopen 的候选路径能拼出来，
+    //    由调用方的多候选循环去试。
+    if (firstIncomplete) {
+        FLog(@"[roothide] 未找到完整越狱根，退回不完整镜像: %@", firstIncomplete);
+    }
+    return firstIncomplete;
 }
 
 // 加载 libjailbreak（roothide 版本），返回句柄；失败返回 NULL
