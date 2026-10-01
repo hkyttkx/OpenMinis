@@ -1052,7 +1052,9 @@ extension AIChatViewModel {
             let fileResult = await executeFileQueryTool(
                 from: argsJson, msgIdx: msgIdx, blockIdx: blockIdx)
             toolOutput = fileResult.output
-            toolSuccess = fileResult.success        default:
+            toolSuccess = fileResult.success
+
+        default:
             toolOutput = "Error: Unknown tool '\(tu.name)'"
             toolSuccess = false
         }
