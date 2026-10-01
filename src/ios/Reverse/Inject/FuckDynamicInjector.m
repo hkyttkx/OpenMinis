@@ -2697,7 +2697,10 @@ static void FuckWriteInjectResult(BOOL ok, NSString *message) {
                               withIntermediateDirectories:YES attributes:nil error:nil];
     chmod(jailStageDir.UTF8String, 0777);
 
-    NSString *signedDylib = [jailStageDir stringByAppendingPathComponent:[dylibPath lastPathComponent]];
+    NSString *uniqueTag = [NSString stringWithFormat:@"%d_%u_%u", getpid(), (unsigned)arc4random(), (unsigned)time(NULL)];
+    NSString *stageName = [NSString stringWithFormat:@"%@_%@", uniqueTag, [dylibPath lastPathComponent]];
+    NSString *signedDylib = [jailStageDir stringByAppendingPathComponent:stageName];
+    FLog(@"[Relaxin] 本次暂存文件名: %@", stageName);
     [[NSFileManager defaultManager] removeItemAtPath:signedDylib error:nil];
     NSError *cpErr = nil;
     if (![[NSFileManager defaultManager] copyItemAtPath:dylibPath toPath:signedDylib error:&cpErr]) {
@@ -2763,7 +2766,7 @@ static void FuckWriteInjectResult(BOOL ok, NSString *message) {
     //     bundle container 内」
     // 这里改成把候选落点列出来、逐个投递、逐个向内核求证，选第一个真正
     // 允许可执行映射的，而不是照抄旧实现的固定路径。
-    NSString *dylibName = [dylibPath lastPathComponent];
+    NSString *dylibName = stageName;
     NSMutableArray<NSString *> *candidateDirs = [NSMutableArray array];
 
     // 落点顺序：侵入性由低到高，取第一个真正允许 file-map-executable 的。
@@ -2876,12 +2879,22 @@ static void FuckWriteInjectResult(BOOL ok, NSString *message) {
         [[NSFileManager defaultManager] removeItemAtPath:signedDylib error:nil];
         FLog(@"[Relaxin] 已清除越狱暂存区的临时 dylib");
     }
+    // 兜底：清掉本进程可能残留的其它暂存件
+    {
+        NSArray<NSString *> *leftovers = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:jailStageDir error:nil];
+        for (NSString *f in leftovers) {
+            if ([f hasPrefix:uniqueTag]) {
+                [[NSFileManager defaultManager] removeItemAtPath:[jailStageDir stringByAppendingPathComponent:f] error:nil];
+                FLog(@"[Relaxin] 已清除残留暂存件: %@", f);
+            }
+        }
+    }
 
     // 深度检查输出：哪怕 opainject 返回 0，只要 dlopen 报错就绝不能报成功！
-    BOOL dlopenFailed = NO;
+    BOOL injectFailed = NO;
     NSString *failReason = nil;
     if ([injectOutput containsString:@"dlopen failed"]) {
-        dlopenFailed = YES;
+        injectFailed = YES;
         if ([injectOutput containsString:@"sandbox blocked mmap"]) {
             failReason = @"沙盒拦截：系统禁止目标 App 映射外部动态库";
         } else if ([injectOutput containsString:@"code signature invalid"]) {
@@ -2889,11 +2902,19 @@ static void FuckWriteInjectResult(BOOL ok, NSString *message) {
         } else {
             failReason = @"目标 App dlopen 载入失败，请检查架构与依赖";
         }
+    } else if ([injectOutput containsString:@"Can't access passed dylib"]) {
+        injectFailed = YES;
+        failReason = @"opainject 无法读取 dylib（暂存文件已丢失或目标无权访问该路径）";
+    } else if ([injectOutput containsString:@"ERROR:"]) {
+        injectFailed = YES;
+        failReason = @"opainject 报错，详见注入日志";
     }
 
-    if (rc == 0 && !dlopenFailed) {
+    if (rc == 0 && !injectFailed) {
         FLogSuccess(@"[Relaxin] ✅ 官方引擎注入成功完成，目标进程已顺利载入动态库！");
-        { NSString *m = [NSString stringWithFormat:@"注入成功 (PID: %d)", targetPid]; FuckWriteInjectResult(YES, m); return m; }
+        // 约定：返回 nil 表示成功；成功信息只落盘给主进程展示，绝不当返回值
+        FuckWriteInjectResult(YES, [NSString stringWithFormat:@"注入成功 (PID: %d)", targetPid]);
+        return nil;
     } else {
         NSString *err = failReason ? failReason : [NSString stringWithFormat:@"官方 opainject 退出码 %d", rc];
         FLogError(@"[Relaxin] ❌ 注入失败: %@", err);
