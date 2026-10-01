@@ -12,7 +12,11 @@ import UniformTypeIdentifiers
 struct InjectPanelView: View {
     let app: InstalledAppInfo
 
-    @State private var selectedDylibPath: String = ""
+    /// 多选注入：一次可勾选多个 dylib，注入时按列表顺序逐个执行。
+    @State private var selectedDylibPaths: Set<String> = []
+    /// 待删除的 dylib（确认弹窗用）
+    @State private var pendingDeletePath: String? = nil
+    @State private var showDeleteConfirm = false
     @State private var mode: DynamicInjectMode = .clean
     @State private var running = false
     @State private var progressText = ""
@@ -52,12 +56,12 @@ struct InjectPanelView: View {
                 if !availableDylibs.isEmpty {
                     ForEach(availableDylibs, id: \.self) { p in
                         Button {
-                            selectedDylibPath = p
+                            toggleSelection(p)
                         } label: {
                             HStack(spacing: 10) {
-                                Image(systemName: selectedDylibPath == p
-                                      ? "largecircle.fill.circle" : "circle")
-                                    .foregroundStyle(selectedDylibPath == p
+                                Image(systemName: selectedDylibPaths.contains(p)
+                                      ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(selectedDylibPaths.contains(p)
                                                      ? Color.accentColor : Color.secondary)
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text((p as NSString).lastPathComponent)
@@ -70,15 +74,33 @@ struct InjectPanelView: View {
                             }
                         }
                         .buttonStyle(.plain)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                pendingDeletePath = p
+                                showDeleteConfirm = true
+                            } label: {
+                                Label("删除", systemImage: "trash")
+                            }
+                        }
+                    }
+
+                    if !selectedDylibPaths.isEmpty {
+                        Button {
+                            selectedDylibPaths.removeAll()
+                        } label: {
+                            Label("取消已选的 \(selectedDylibPaths.count) 个",
+                                  systemImage: "xmark.circle")
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             } header: {
                 Text("注入内容")
             } footer: {
-                if selectedDylibPath.isEmpty {
-                    Text("从「文件」App 选择 .dylib，导入后保存在本机动态库目录。")
+                if selectedDylibPaths.isEmpty {
+                    Text("从「文件」App 选择 .dylib，导入后保存在本机动态库目录。左滑可删除。")
                 } else {
-                    Text("已选择：\((selectedDylibPath as NSString).lastPathComponent)")
+                    Text("已选 \(selectedDylibPaths.count) 个，将按列表顺序依次注入。")
                 }
             }
 
@@ -92,7 +114,9 @@ struct InjectPanelView: View {
 
                 if let produced = HookChatRouter.latestProducedDylib(bundleID: app.bundleId) {
                     Button {
-                        selectedDylibPath = produced
+                        if !selectedDylibPaths.contains(produced) {
+                            selectedDylibPaths.insert(produced)
+                        }
                         reloadDylibs()
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
@@ -139,12 +163,14 @@ struct InjectPanelView: View {
                                 .font(.footnote)
                         } else {
                             Image(systemName: "bolt.fill")
-                            Text("开始动态注入")
+                            Text(selectedDylibPaths.count > 1
+                                 ? "依次注入 \(selectedDylibPaths.count) 个"
+                                 : "开始动态注入")
                         }
                         Spacer()
                     }
                 }
-                .disabled(running || selectedDylibPath.isEmpty)
+                .disabled(running || selectedDylibPaths.isEmpty)
 
                 if let ok = resultSuccess {
                     HStack(alignment: .top, spacing: 8) {
@@ -190,6 +216,15 @@ struct InjectPanelView: View {
             }
         }
         .sheet(isPresented: $showLog) { InjectLogViewer() }
+        .alert("删除动态库", isPresented: $showDeleteConfirm) {
+            Button("删除", role: .destructive) {
+                if let p = pendingDeletePath { deleteDylib(p) }
+                pendingDeletePath = nil
+            }
+            Button("取消", role: .cancel) { pendingDeletePath = nil }
+        } message: {
+            Text("将删除 \((pendingDeletePath as NSString?)?.lastPathComponent ?? "")\\n此操作不可恢复。")
+        }
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: Self.dylibTypes,
                       allowsMultipleSelection: false) { result in
@@ -203,8 +238,8 @@ struct InjectPanelView: View {
         .onAppear {
             reloadDylibs()
             if let produced = HookChatRouter.latestProducedDylib(bundleID: app.bundleId),
-               selectedDylibPath.isEmpty {
-                selectedDylibPath = produced
+               selectedDylibPaths.isEmpty {
+                selectedDylibPaths.insert(produced)
             }
         }
     }
@@ -240,9 +275,9 @@ struct InjectPanelView: View {
         }
         availableDylibs = Array(Set(found)).sorted()
 
-        if selectedDylibPath.isEmpty {
-            selectedDylibPath = availableDylibs.first ?? ""
-        }
+        // 选中项中已不存在的（被删/被移走）要剔除，避免对着失效路径注入
+        let stillValid = Set(availableDylibs)
+        selectedDylibPaths = selectedDylibPaths.intersection(stillValid)
     }
 
     private func handleImport(_ result: Result<[URL], Error>) {
@@ -252,7 +287,7 @@ struct InjectPanelView: View {
             guard let url = urls.first else { return }
             do {
                 let path = try JailbreakInjector.importDylib(from: url)
-                selectedDylibPath = path
+                selectedDylibPaths.insert(path)
                 reloadDylibs()
             } catch {
                 importError = "导入失败：\(error.localizedDescription)"
@@ -268,26 +303,83 @@ struct InjectPanelView: View {
         return ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
     }
 
+    /// 勾选/取消勾选
+    private func toggleSelection(_ path: String) {
+        if selectedDylibPaths.contains(path) {
+            selectedDylibPaths.remove(path)
+        } else {
+            selectedDylibPaths.insert(path)
+        }
+    }
+
+    /// 删除一个 dylib 文件（同时从选中集合移除）
+    private func deleteDylib(_ path: String) {
+        try? FileManager.default.removeItem(atPath: path)
+        selectedDylibPaths.remove(path)
+        reloadDylibs()
+    }
+
+    /// 依次注入所有已勾选的 dylib。
+    ///
+    /// 为什么串行而不是并发：每次注入都会 spawn 一个 root 子进程去投递/签名/
+    /// 调用 opainject，并短暂改写目标进程状态。并发会互相干扰暂存与清理，
+    /// 也会让目标进程在同一时刻承受多次远程调用。逐个来最稳。
     private func startInject() {
-        guard !selectedDylibPath.isEmpty else { return }
+        let targets = availableDylibs.filter { selectedDylibPaths.contains($0) }
+        guard !targets.isEmpty else { return }
         running = true
         resultSuccess = nil
         resultMessage = ""
         progressText = "准备中…"
 
-        JailbreakInjector.inject(
-            bundleID: app.bundleId,
-            bundleURL: app.bundleURL,
-            executableName: app.mainExecutableURL?.lastPathComponent,
-            dylibPath: selectedDylibPath,
-            mode: mode,
-            progress: { step in progressText = step },
-            completion: { outcome in
+        var succeeded: [String] = []
+        var failed: [(String, String)] = []
+
+        func step(_ index: Int) {
+            guard index < targets.count else {
                 running = false
-                resultSuccess = outcome.success
-                resultMessage = outcome.message
                 progressText = ""
+                let ok = failed.isEmpty
+                resultSuccess = ok
+                if targets.count == 1 {
+                    resultMessage = ok
+                        ? "注入成功"
+                        : (failed.first?.1 ?? "注入失败")
+                } else {
+                    var parts: [String] = ["成功 \(succeeded.count)/\(targets.count)"]
+                    for (name, reason) in failed {
+                        parts.append("\(name)：\(reason)")
+                    }
+                    resultMessage = parts.joined(separator: "\n")
+                }
+                return
             }
-        )
+
+            let path = targets[index]
+            let name = (path as NSString).lastPathComponent
+            progressText = "\(index + 1)/\(targets.count) \(name)"
+
+            JailbreakInjector.inject(
+                bundleID: app.bundleId,
+                bundleURL: app.bundleURL,
+                executableName: app.mainExecutableURL?.lastPathComponent,
+                dylibPath: path,
+                mode: mode,
+                progress: { s in progressText = s },
+                completion: { outcome in
+                    if outcome.success {
+                        succeeded.append(name)
+                    } else {
+                        failed.append((name, outcome.message))
+                    }
+                    // 逐个之间留一点间隔，让目标进程缓一口气
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        step(index + 1)
+                    }
+                }
+            )
+        }
+
+        step(0)
     }
 }
