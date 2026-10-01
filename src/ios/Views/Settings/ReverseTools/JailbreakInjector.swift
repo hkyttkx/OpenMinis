@@ -366,7 +366,26 @@ enum JailbreakInjector {
         }
 
         // ↓↓↓ 以下全部在后台线程执行，避免阻塞主线程 ↓↓↓
+        //
+        // 同时必须申请「后台执行断言」。
+        //
+        // 实测症状：点注入 → 系统把目标 App 拉起来 → 本 App 退到后台 →
+        // **用户不手动切回来，注入就完全停住**。原因是 iOS 在 App 进入后台
+        // 约 30 秒后把它**挂起**，被挂起的进程是「冻结」而不是「取消」——
+        // 代码停在原地不动，既不报错也不前进。
+        //
+        // 注入恰好天生要跨前后台：拉起目标必然把自己挤到后台。
+        // 所以这里必须拿一个 assertion，否则用户必须一直盯着本 App。
         DispatchQueue.global(qos: .userInitiated).async {
+            let bgTask = UIApplication.shared.beginBackgroundTask(withName: "DylibInject")
+            defer {
+                if bgTask != .invalid {
+                    UIApplication.shared.endBackgroundTask(bgTask)
+                }
+            }
+            if bgTask == .invalid {
+                appendLog("⚠️ 未取得后台执行时间（系统拒绝）；若切走可能中断，请保持本 App 在前台")
+            }
 
             var effectiveDylib = dylibPath
             if mode == .clean {
