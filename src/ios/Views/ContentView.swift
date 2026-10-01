@@ -8230,6 +8230,12 @@ private struct SettingsSheet: View {
                     } label: {
                         Label("Token Usage", systemImage: "chart.line.uptrend.xyaxis.circle.fill")
                     }
+
+                    NavigationLink {
+                        RelayQuotaView()
+                    } label: {
+                        Label("中转站账户", systemImage: "creditcard.fill")
+                    }
                 } header: {
                     Text("LLM Providers")
                 } footer: {
@@ -8488,11 +8494,6 @@ private struct SettingsSheet: View {
                         dtLabel("GitHub 连接", "chevron.left.forwardslash.chevron.right", .black)
                     }
                     NavigationLink {
-                        RelayQuotaView()
-                    } label: {
-                        dtLabel("中转站账户", "creditcard.fill", .green)
-                    }
-                    NavigationLink {
                         ContextLimitSettingsView()
                     } label: {
                         dtLabel("上下文窗口", "text.append", .teal)
@@ -8500,7 +8501,7 @@ private struct SettingsSheet: View {
                 } header: {
                     Text("开发者")
                 } footer: {
-                    Text("宿主访问：让 AI 读取手机上任意文件（含已装 App 与数据容器）。终端：选择命令以什么身份执行。GitHub：让 AI 直接操作仓库与代码。中转站：余额与用量。上下文窗口：对话可用的上下文上限。")
+                    Text("宿主访问：让 AI 读取手机上任意文件（含已装 App 与数据容器）。终端：选择命令以什么身份执行。GitHub：让 AI 直接操作仓库与代码。上下文窗口：对话可用的上下文上限。中转站的余额与用量已移至「LLM Providers」。")
                 }
 
                 // MARK: - 逆向工具（静态分析）
