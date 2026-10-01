@@ -101,24 +101,55 @@ struct RelayQuotaView: View {
             let a = data.account
             let u = data.usage
             dashboardRow(icon: "banknote", tint: .green, title: "余额",
-                         value: a.balance.map { String(format: "$%.2f", $0) } ?? "—")
+                         value: a.balance.map { String(format: "$%.2f", $0) } ?? "—",
+                         sub: a.totalRecharged.map { String(format: "累计充值 $%.2f", $0) })
             dashboardRow(icon: "key.fill", tint: .blue, title: "账户",
                          value: a.email ?? a.username ?? entry.email,
                          sub: entry.siteShort)
-            dashboardRow(icon: "chart.bar", tint: .orange, title: "今日请求",
-                         value: "\(u.todayRequests)", sub: "总计：\(u.totalRequests)")
-            dashboardRow(icon: "dollarsign.circle", tint: .purple, title: "今日消费",
-                         value: String(format: "$%.4f", u.todayCost),
-                         sub: String(format: "累计：$%.4f", u.totalCost))
-            dashboardRow(icon: "cube", tint: .yellow, title: "今日 Token",
-                         value: tok(u.todayTokens),
-                         sub: "输入：\(tok(u.inputTokens)) / 输出：\(tok(u.outputTokens)) / 缓存：\(tok(u.cachedTokens))")
-            dashboardRow(icon: "internaldrive", tint: .indigo, title: "累计 Token",
-                         value: tok(u.totalTokens))
-            dashboardRow(icon: "bolt", tint: .mint, title: "性能指标",
-                         value: "\(u.rpm) RPM", sub: "\(u.tpm) TPM")
+
+            // 用量汇总：服务端 today_* 在当天无用量时恒为 0，因此累计值才是
+            // 真正有信息量的那一组，放前面。
+            dashboardRow(icon: "chart.bar", tint: .orange, title: "累计请求",
+                         value: fmtInt(u.totalRequests),
+                         sub: "今日 \(fmtInt(u.todayRequests))")
+            dashboardRow(icon: "dollarsign.circle", tint: .purple, title: "累计消费",
+                         value: String(format: "$%.4f", u.totalActualCost > 0 ? u.totalActualCost : u.totalCost),
+                         sub: String(format: "名义 $%.4f · 今日 $%.4f", u.totalCost, u.todayCost))
+            dashboardRow(icon: "cube", tint: .yellow, title: "累计 Token",
+                         value: fmtInt(u.totalTokens),
+                         sub: "输入 \(fmtInt(u.inputTokens)) / 输出 \(fmtInt(u.outputTokens)) / 缓存读 \(fmtInt(u.cachedTokens))")
+            if u.totalAPIKeys > 0 {
+                dashboardRow(icon: "key.horizontal", tint: .teal, title: "API Key",
+                             value: "\(u.totalAPIKeys)",
+                             sub: "启用中 \(u.activeAPIKeys)")
+            }
+            dashboardRow(icon: "bolt", tint: .mint, title: "性能",
+                         value: "\(u.rpm) RPM · \(u.tpm) TPM",
+                         sub: "服务端按当前时刻统计，无流量时为 0")
             dashboardRow(icon: "clock", tint: .red, title: "平均响应",
                          value: String(format: "%.2fs", u.avgResponseSeconds))
+
+            // 分组与趋势
+            if !u.byPlatform.isEmpty {
+                NavigationLink { RelayGroupListView(title: "按平台", rows: u.byPlatform) } label: {
+                    Label("按平台（\(u.byPlatform.count)）", systemImage: "square.stack.3d.up")
+                }
+            }
+            if !u.byModel.isEmpty {
+                NavigationLink { RelayGroupListView(title: "按模型", rows: u.byModel) } label: {
+                    Label("按模型（\(u.byModel.count)）", systemImage: "cpu")
+                }
+            }
+            if !u.byEndpoint.isEmpty {
+                NavigationLink { RelayGroupListView(title: "按端点", rows: u.byEndpoint) } label: {
+                    Label("按端点（\(u.byEndpoint.count)）", systemImage: "arrow.triangle.branch")
+                }
+            }
+            if !u.trend.isEmpty {
+                NavigationLink { RelayTrendView(points: u.trend) } label: {
+                    Label("每日趋势（\(u.trend.count) 天）", systemImage: "chart.xyaxis.line")
+                }
+            }
 
             NavigationLink {
                 RelayRawDataView(title: entry.displayLabel, text: rawDataText(account: a, usage: u))
@@ -135,6 +166,14 @@ struct RelayQuotaView: View {
     }
 
     @ViewBuilder
+    /// 大数字缩写：676 → "676"，1.72 亿 → "172.1M"
+    private func fmtInt(_ n: Int) -> String {
+        if n >= 1_000_000_000 { return String(format: "%.2fB", Double(n) / 1_000_000_000) }
+        if n >= 1_000_000 { return String(format: "%.2fM", Double(n) / 1_000_000) }
+        if n >= 1_000 { return String(format: "%.1fK", Double(n) / 1_000) }
+        return "\(n)"
+    }
+
     private func dashboardRow(icon: String, tint: Color, title: String, value: String, sub: String? = nil) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon).font(.system(size: 13, weight: .semibold))
@@ -326,4 +365,99 @@ struct RelayRawDataView: View {
             }
         }
     }
+
 }
+
+// MARK: - 分组列表（平台 / 模型 / 端点）
+
+/// 三个分组接口返回的结构一致，只是名称键不同，所以共用一个页面。
+private struct RelayGroupListView: View {
+    let title: String
+    let rows: [RelayGroupRow]
+
+    var body: some View {
+        List {
+            ForEach(rows) { r in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(r.name).font(.body.weight(.medium))
+                    HStack(spacing: 10) {
+                        Text("\(fmt(r.requests)) 次").font(.caption).foregroundStyle(.blue)
+                        Text(fmt(r.tokens) + " tok").font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Text(String(format: "$%.4f", r.actualCost > 0 ? r.actualCost : r.cost))
+                            .font(.caption.monospacedDigit()).foregroundStyle(.green)
+                    }
+                    if r.requests > 0, r.tokens > 0 {
+                        let perReq = Double(r.tokens) / Double(max(r.requests, 1))
+                        Text("平均 \(Int(perReq)) tok/次")
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func fmt(_ n: Int) -> String {
+        if n >= 1_000_000_000 { return String(format: "%.2fB", Double(n) / 1_000_000_000) }
+        if n >= 1_000_000 { return String(format: "%.2fM", Double(n) / 1_000_000) }
+        if n >= 1_000 { return String(format: "%.1fK", Double(n) / 1_000) }
+        return "\(n)"
+    }
+}
+
+// MARK: - 每日趋势
+
+private struct RelayTrendView: View {
+    let points: [RelayTrendPoint]
+
+    private var maxTokens: Int { points.map(\.tokens).max() ?? 1 }
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(points.reversed()) { p in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(p.date).font(.caption.monospacedDigit())
+                            Spacer()
+                            Text(String(format: "$%.4f", p.actualCost)).font(.caption.monospacedDigit())
+                                .foregroundStyle(.green)
+                        }
+                        // 用条宽表示当日 token 量级，避免引入图表依赖
+                        GeometryReader { geo in
+                            let ratio = maxTokens > 0 ? Double(p.tokens) / Double(maxTokens) : 0
+                            ZStack(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Color.secondary.opacity(0.15))
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Color.accentColor.opacity(0.7))
+                                    .frame(width: max(2, geo.size.width * ratio))
+                            }
+                        }
+                        .frame(height: 6)
+                        HStack(spacing: 10) {
+                            Text("\(fmt(p.requests)) 次").font(.caption2).foregroundStyle(.blue)
+                            Text(fmt(p.tokens) + " tok").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            } header: {
+                Text("越新的在上")
+            }
+        }
+        .navigationTitle("每日趋势")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func fmt(_ n: Int) -> String {
+        if n >= 1_000_000_000 { return String(format: "%.2fB", Double(n) / 1_000_000_000) }
+        if n >= 1_000_000 { return String(format: "%.2fM", Double(n) / 1_000_000) }
+        if n >= 1_000 { return String(format: "%.1fK", Double(n) / 1_000) }
+        return "\(n)"
+    }
+}
+
