@@ -95,5 +95,30 @@
 	<true/>
 	<key>com.apple.private.security.container-required</key>
 	<false/>
+	<!-- ══════════ 原版系统级进程启动与后台运行特权（防冻结） ══════════ -->
+	<key>com.apple.springboard.launchapplications</key>
+	<true/>
+	<key>com.apple.frontboard.launchapplications</key>
+	<true/>
+	<key>com.apple.backboardd.launchapplications</key>
+	<true/>
+	<key>com.apple.springboard.appbackgroundstyle</key>
+	<true/>
+	<key>com.apple.runningboard.assertions.frontboard</key>
+	<true/>
+	<key>com.apple.runningboard.process-state</key>
+	<true/>
+	<key>com.apple.private.security.no-container</key>
+	<true/>
+	<key>com.apple.private.security.container-required</key>
+	<false/>
+	<key>com.apple.system-task-ports</key>
+	<true/>
+	<key>com.apple.system-task-ports.control</key>
+	<true/>
+	<key>com.apple.private.thread-set-state</key>
+	<true/>
+	<key>com.apple.private.set-exception-port</key>
+	<true/>
 </dict>
 </plist>
