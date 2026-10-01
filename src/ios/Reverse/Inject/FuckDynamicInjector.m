@@ -1766,6 +1766,12 @@ static int FuckOpaInject(pid_t targetPID, const char *dylibPath, FuckInjectMode 
 
     uint64_t tokenReadOff = 0x2000, tokenExecOff = 0x3000;
     BOOL hasSbxRead = NO, hasSbxExec = NO;
+    // 无痕模式下 dylib 留在本 App 容器内，目标进程默认**读不到**它，
+    // 完全依赖下面这两个 sandbox extension 才能打开。
+    // 一旦两个都发放失败，后面的 dlopen 必然返回 NULL —— 与其让调用方
+    // 看到一个含义模糊的 dlopen 失败，不如在这里就把原因说清楚。
+    BOOL injectModeB = (mode == FuckInjectModeB);
+    int dylibReadableWarned = 0;
     if (sbxTokenRead) {
         size_t tl = strlen(sbxTokenRead) + 1;
         kr = mach_vm_write(targetTask, remoteAddr + tokenReadOff, (vm_offset_t)sbxTokenRead, (mach_msg_type_number_t)tl);
@@ -1870,7 +1876,16 @@ static int FuckOpaInject(pid_t targetPID, const char *dylibPath, FuckInjectMode 
             FuckWaitForRemoteThread(remoteThread, ropLoop, 5000);
         }
 
-        // Phase 3: dlopen
+        // Phase 3 前置检查：无痕模式下若两个 token 都没拿到，
+    // 目标进程读不到 dylib，dlopen 一定失败。提前给出结论性日志。
+    if (injectModeB && !hasSbxRead && !hasSbxExec) {
+        FLogError(@"[Sandbox] 无痕模式下两个 extension 均未发放 —— "
+                  @"目标进程读不到 %@，dlopen 必然失败。"
+                  @"请确认 App 具备 com.apple.private.security.no-sandbox", dylibPath);
+        dylibReadableWarned = 1;
+    }
+
+    // Phase 3: dlopen
         FLog(@"[Phase 3] 调用 dlopen(path, RTLD_NOW)...");
         thread_suspend(remoteThread);
         memset(&state, 0, sizeof(state));
@@ -2207,6 +2222,20 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
     } else {
         // 模式 B：dylib 留在原处（主进程已放在我方 tmp），不往目标 App 目录写任何文件
         FLog(@"[CLI] 无痕模式：沿用原始路径 %@", injectedDylibPath);
+        // 目标 App 以 mobile(501) 运行，需要「其他用户可读」才能打开这个文件。
+        // 我方容器默认 0600，不改权限即使有 sandbox token 也可能被拒。
+        chmod(injectedDylibPath.UTF8String, 0644);
+        {
+            struct stat st;
+            if (stat(injectedDylibPath.UTF8String, &st) == 0) {
+                if ((st.st_mode & 0004) == 0) {
+                    // 仍不可读：容器目录本身也需要 o+x，否则路径无法穿过
+                    NSString *dir = [injectedDylibPath stringByDeletingLastPathComponent];
+                    chmod(dir.UTF8String, 0755);
+                    FLog(@"[CLI] dylib 权限补正：file=0644 dir=0755（原目录无 o+x）");
+                }
+            }
+        }
     }
 
     // ===== Step 2: CoreTrust bypass (对复制后的文件签名) =====
