@@ -2820,7 +2820,7 @@ static void FuckWriteInjectResult(BOOL ok, NSString *message) {
     }
 
     // 候选 4~6：目标数据容器的多个子目录（不止 tmp）
-    NSString *targetDataURL = FuckProxyPathFromURL(targetProxy, @"dataContainerURL");
+    // targetDataURL 已在上方定位 Data container 时取得，此处复用
     if (targetDataURL.length) {
         [candidateDirs addObject:[targetDataURL stringByAppendingPathComponent:@"Documents"]];
         [candidateDirs addObject:[targetDataURL stringByAppendingPathComponent:@"Library/Caches"]];
