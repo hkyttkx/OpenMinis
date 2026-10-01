@@ -520,6 +520,9 @@ typedef struct {
 
 // ============== 工具函数 ==============
 
+static int FuckSpawnArgumentsWithOutput(NSArray<NSString *> *arguments, BOOL asRootPersona, NSString **outLog);
+static int FuckSpawnArguments(NSArray<NSString *> *arguments, BOOL asRootPersona);
+
 static int FuckWaitForPid(pid_t pid) {
     int status = 0;
     while (waitpid(pid, &status, 0) == -1 && errno == EINTR) {}
