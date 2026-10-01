@@ -94,47 +94,6 @@ struct HostLocation: Identifiable, Hashable {
     var guestPath: String { "/var/minis/workspace/host/\(key)" }
     var isSystemPath: Bool { !allowsWrite }
 
-    /// 用户自定义位置（可任意填宿主路径）。持久化在 UserDefaults。
-    static let customDefaultsKey = "reverse.hostAccess.customLocations"
-
-    /// 读取用户自定义的位置
-    static func customLocations() -> [HostLocation] {
-        guard let arr = UserDefaults.standard.array(forKey: customDefaultsKey) as? [[String: String]] else {
-            return []
-        }
-        return arr.compactMap { d in
-            guard let key = d["key"], let path = d["path"] else { return nil }
-            let title = d["title"] ?? (path as NSString).lastPathComponent
-            return HostLocation(key: "custom:" + key,
-                                hostPath: path,
-                                title: title,
-                                detail: "自定义位置",
-                                allowsWrite: true)
-        }
-    }
-
-    /// 新增一个自定义位置。key 用路径归一化后的稳定串，保证幂等。
-    @discardableResult
-    static func addCustomLocation(path: String, title: String? = nil) -> bool {
-        let p = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !p.isEmpty else { return false }
-        var arr = (UserDefaults.standard.array(forKey: customDefaultsKey) as? [[String: String]]) ?? []
-        let key = p.replacingOccurrences(of: "/", with: "_")
-        guard !arr.contains(where: { $0["key"] == key }) else { return false }
-        arr.append(["key": key, "path": p, "title": title ?? (p as NSString).lastPathComponent])
-        UserDefaults.standard.set(arr, forKey: customDefaultsKey)
-        return true
-    }
-
-    static func removeCustomLocation(key: String) {
-        var arr = (UserDefaults.standard.array(forKey: customDefaultsKey) as? [[String: String]]) ?? []
-        arr.removeAll { $0["key"] == key }
-        UserDefaults.standard.set(arr, forKey: customDefaultsKey)
-    }
-
-    /// 全部可选位置 = 内置 + 自定义
-    static var allLocations: [HostLocation] { builtins + customLocations() }
-
     static let builtins: [HostLocation] = [
         HostLocation(key: "apps",
                      hostPath: "/var/containers/Bundle/Application",
@@ -159,8 +118,9 @@ struct HostLocation: Identifiable, Hashable {
         HostLocation(key: "jb",
                      hostPath: "/var/jb",
                      title: "越狱根",
-                     detail: "越狱环境文件（roothide 下为随机路径）",
-                     allowsWrite: true),
+                     detail: "越狱环境文件（roothide 下为随机路径，可在下方自定义覆盖）",
+                     allowsWrite: true,
+                     requiresWriteConfirmation: true),
         HostLocation(key: "root",
                      hostPath: "/",
                      title: "整个文件系统",
@@ -280,6 +240,58 @@ final class HostAccessManager: ObservableObject {
         persistGrants()
     }
 
+    /// 用户自定义位置（可任意填宿主路径）。持久化在 UserDefaults。
+    static let customDefaultsKey = "reverse.hostAccess.customLocations"
+
+    /// 读取用户自定义的位置
+    static func customLocations() -> [HostLocation] {
+        guard let arr = UserDefaults.standard.array(forKey: customDefaultsKey) as? [[String: String]] else {
+            return []
+        }
+        return arr.compactMap { d in
+            guard let key = d["key"], let path = d["path"] else { return nil }
+            let title = d["title"] ?? (path as NSString).lastPathComponent
+            return HostLocation(key: "custom:" + key,
+                                hostPath: path,
+                                title: title,
+                                detail: "自定义位置",
+                                allowsWrite: true)
+        }
+    }
+
+    /// 新增一个自定义位置。key 用路径归一化后的稳定串，保证幂等。
+    @discardableResult
+    static func addCustomLocation(path: String, title: String? = nil) -> bool {
+        let p = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !p.isEmpty else { return false }
+        var arr = (UserDefaults.standard.array(forKey: customDefaultsKey) as? [[String: String]]) ?? []
+        let key = p.replacingOccurrences(of: "/", with: "_")
+        guard !arr.contains(where: { $0["key"] == key }) else { return false }
+        arr.append(["key": key, "path": p, "title": title ?? (p as NSString).lastPathComponent])
+        UserDefaults.standard.set(arr, forKey: customDefaultsKey)
+        return true
+    }
+
+    static func removeCustomLocation(key: String) {
+        var arr = (UserDefaults.standard.array(forKey: customDefaultsKey) as? [[String: String]]) ?? []
+        arr.removeAll { $0["key"] == key }
+        UserDefaults.standard.set(arr, forKey: customDefaultsKey)
+    }
+
+    /// 全部可选位置 = 内置 + 自定义
+    static var allLocations: [HostLocation] { HostLocation.builtins + customLocations() }
+
+    /// 全盘访问是否已开启（对应内置的 root 位置）。
+    var isFullDiskEnabled: Bool { mounted["root"] != nil }
+
+    /// 打开/关闭全盘访问。这是「一个开关管全部」的入口：
+    /// 开启后 AI 可读写任意宿主路径（含越狱目录），
+    /// 每个写操作是否弹窗确认由 `confirmWrites` 决定。
+    func setFullDisk(_ on: Bool, permission: HostMountPermission = .readWrite) {
+        guard let root = HostLocation.builtins.first(where: { $0.key == "root" }) else { return }
+        if on { _ = grant(root, permission: permission) } else { revoke(root) }
+    }
+
     /// 一键授权：把全部可选位置（内置 + 自定义）一次性打开。
     /// 存在的位置直接授权成功；不存在的跳过并汇总，不阻断其它项。
     @discardableResult
@@ -356,6 +368,8 @@ final class HostAccessManager: ObservableObject {
 
     /// 某路径是否需要写确认（命中「需确认」的位置才需要）
     func needsWriteConfirmation(for path: String) -> Bool {
+        // 全盘访问开启时，任何路径的写操作都按 confirmWrites 处理
+        if isFullDiskEnabled, confirmWrites { return true }
         for loc in Self.allLocations where loc.requiresWriteConfirmation {
             guard isMounted(loc) else { continue }
             let root = resolvedPath(loc)
