@@ -370,37 +370,81 @@ final class RelayQuotaService: ObservableObject {
     // MARK: 解析
 
     private func parseUsage(_ d: [String: Any]) -> RelayUsage {
+        // 站点把统计放在子对象里（例如 snapshot 的 `stats`），前端是
+        // `d.stats && (n.value = d.stats)` 这么取的。所以先把嵌套字典摊平，
+        // 让 `today_requests` 这类键无论是顶层还是嵌一层都能命中。
+        let flat = Self.flatten(d)
+
         var u = RelayUsage()
+        func num(_ keys: [String]) -> Double? {
+            for k in keys {
+                guard let v = flat[k] else { continue }
+                if let n = Self.asDouble(v) { return n }
+            }
+            return nil
+        }
         func int(_ keys: [String]) -> Int? {
             for k in keys {
-                if let v = d[k] as? Int { return v }
-                if let v = d[k] as? Double { return Int(v) }
-                if let s = d[k] as? String, let v = Int(s) { return v }
+                guard let v = flat[k] else { continue }
+                if let n = Self.asDouble(v) { return Int(n) }
             }
             return nil
         }
-        func dbl(_ keys: [String]) -> Double? {
-            for k in keys {
-                if let v = d[k] as? Double { return v }
-                if let v = d[k] as? Int { return Double(v) }
-                if let s = d[k] as? String, let v = Double(s) { return v }
-            }
-            return nil
-        }
+
         u.todayRequests = int(["today_requests", "todayRequests", "today_request_count"]) ?? 0
-        u.totalRequests = int(["total_requests", "totalRequests", "request_count"]) ?? 0
-        u.todayCost = dbl(["today_cost", "todayCost"]) ?? 0
-        u.totalCost = dbl(["total_cost", "totalCost"]) ?? 0
+        u.totalRequests = int(["total_requests", "totalRequests", "request_count", "requests"]) ?? 0
+        u.todayCost = num(["today_cost", "todayCost", "today_actual_cost", "today_used"]) ?? 0
+        u.totalCost = num(["total_cost", "totalCost", "total_actual_cost", "total_used"]) ?? 0
         u.todayTokens = int(["today_tokens", "todayTokens"]) ?? 0
-        u.totalTokens = int(["total_tokens", "totalTokens"]) ?? 0
+        u.totalTokens = int(["total_tokens", "totalTokens", "tokens"]) ?? 0
         u.inputTokens = int(["input_tokens", "prompt_tokens"]) ?? 0
         u.outputTokens = int(["output_tokens", "completion_tokens"]) ?? 0
-        u.cachedTokens = int(["cached_tokens", "cache_tokens"]) ?? 0
-        u.rpm = int(["rpm"]) ?? 0
+        u.cachedTokens = int(["cached_tokens", "cache_tokens", "cached_input_tokens"]) ?? 0
+        u.rpm = int(["rpm", "rpm_limit"]) ?? 0
         u.tpm = int(["tpm"]) ?? 0
-        u.avgResponseSeconds = dbl(["avg_response_time", "avgResponseTime", "average_response_time"]) ?? 0
+        u.avgResponseSeconds = num(["avg_response_time", "avgResponseTime", "average_response_time",
+                                    "avg_latency", "avg_latency_ms"]) ?? 0
+        // 有的站点把平均响应给成毫秒
+        if u.avgResponseSeconds > 100 { u.avgResponseSeconds /= 1000 }
         u.raw = Self.pretty(d)
         return u
+    }
+
+    /// 把嵌套字典摊平：顶层键优先，子字典的键补进空缺。
+    /// 这样 `{"stats": {"today_requests": 3}}` 与 `{"today_requests": 3}` 等价。
+    private static func flatten(_ d: [String: Any]) -> [String: Any] {
+        var out: [String: Any] = [:]
+        var nested: [[String: Any]] = []
+        for (k, v) in d {
+            if let sub = v as? [String: Any] {
+                nested.append(sub)      // 子字典：稍后摊平，不覆盖同名的顶层键
+            } else {
+                out[k] = v
+            }
+        }
+        // 已知的统计容器优先展开，其余子字典按序补充
+        let preferred = ["stats", "summary", "usage", "data", "totals", "total", "today"]
+        nested.sort { a, b in
+            let ai = preferred.firstIndex { a[$0] != nil } ?? Int.max
+            let bi = preferred.firstIndex { b[$0] != nil } ?? Int.max
+            return ai < bi
+        }
+        for sub in nested {
+            for (k, v) in flatten(sub) where out[k] == nil { out[k] = v }
+        }
+        return out
+    }
+
+    /// 宽松数字转换：站点可能给 Int / Double / String / NSNumber。
+    private static func asDouble(_ v: Any) -> Double? {
+        if let n = v as? Double { return n }
+        if let n = v as? Int { return Double(n) }
+        if let n = v as? NSNumber { return n.doubleValue }
+        if let s = v as? String {
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let n = Double(t) { return n }
+        }
+        return nil
     }
 
     private static func pretty(_ d: [String: Any]) -> String {
