@@ -212,11 +212,33 @@ enum JailbreakInjector {
 
     /// 通过 jbclient_roothide_jailbroken 判断越狱状态
     static func isRoothideJailbroken() -> Bool? {
-        guard let h = dlopen("/var/jb/usr/lib/libjailbreak.dylib", RTLD_NOW) else { return nil }
-        defer { dlclose(h) }
-        typealias Fn = @convention(c) () -> Bool
-        guard let sym = dlsym(h, "jbclient_roothide_jailbroken") else { return nil }
-        return unsafeBitCast(sym, to: Fn.self)()
+        // 不要再写死 /var/jb —— roothide 的 libjailbreak 实际在
+        // <root>/basebin/ 与 <root>/usr/lib/，<root> 是随机名。
+        // 复用 resolveJailbreakRoot 的探测结果来拼候选路径。
+        var candidates: [String] = []
+        if let root = lastScannedRoot, !root.isEmpty {
+            candidates.append(root + "/basebin/libjailbreak.dylib")
+            candidates.append(root + "/usr/lib/libjailbreak.dylib")
+        }
+        let custom = customJailbreakRoot
+        if !custom.isEmpty {
+            candidates.append(custom + "/basebin/libjailbreak.dylib")
+            candidates.append(custom + "/usr/lib/libjailbreak.dylib")
+        }
+        candidates += [
+            "/var/jb/basebin/libjailbreak.dylib",
+            "/var/jb/usr/lib/libjailbreak.dylib",
+            "/usr/lib/libjailbreak.dylib",
+        ]
+        for path in candidates {
+            guard let h = dlopen(path, RTLD_NOW) else { continue }
+            defer { dlclose(h) }
+            typealias Fn = @convention(c) () -> Bool
+            if let sym = dlsym(h, "jbclient_roothide_jailbroken") {
+                return unsafeBitCast(sym, to: Fn.self)()
+            }
+        }
+        return nil
     }
 
     /// 探测当前设备的注入环境（供 UI 展示）
@@ -237,8 +259,14 @@ enum JailbreakInjector {
             lines.append("越狱根：本进程无法查询（注入子进程会重新探测）")
         }
 
-        let libOK = ["/var/jb/usr/lib/libjailbreak.dylib", "/usr/lib/libjailbreak.dylib"]
-            .contains { FileManager.default.fileExists(atPath: $0) }
+        // 用真实越狱根拼候选，而不是写死 /var/jb
+        var libCandidates: [String] = []
+        if let root = resolveJailbreakRoot(), !root.isEmpty {
+            libCandidates.append(root + "/basebin/libjailbreak.dylib")
+            libCandidates.append(root + "/usr/lib/libjailbreak.dylib")
+        }
+        libCandidates += ["/var/jb/usr/lib/libjailbreak.dylib", "/usr/lib/libjailbreak.dylib"]
+        let libOK = libCandidates.contains { FileManager.default.fileExists(atPath: $0) }
         lines.append("libjailbreak：\(libOK ? "存在" : "本进程不可见")")
 
         // 内置的注入辅助工具
@@ -356,27 +384,24 @@ enum JailbreakInjector {
 
             reportProgress("准备注入环境…")
 
-            var pid = findPID(bundleURL: bundleURL, executableName: executableName)
-            if pid <= 0 {
-                reportProgress("启动目标 App…")
-                appendLog("目标未运行，尝试拉起")
-                let launched = openApp(bundleID: bundleID)
-                appendLog(launched
-                          ? "已请求 SpringBoard 拉起 \(bundleID)，等待进程出现…"
-                          : "⚠️ LSApplicationWorkspace 调用失败（可能缺少 platform 权限）")
-                pid = waitForPID(bundleURL: bundleURL, executableName: executableName, timeout: 20)
+            // 只做一次「顺手」的 PID 探测，纯信息用途。
+            //
+            // 关键：不要在这里卡住或提前失败。
+            // FuckDynamicInjector.cliInjectWithDylibPath 内部已经有一套
+            // 完整的拉起流程（实测可用）：
+            //     FuckOpenApp(目标) → 等 1.5s → FuckOpenApp(自己) → 轮询查 PID
+            // 而且它是按 bundleID 查进程的。
+            //
+            // 我们这里改成「按可执行文件路径查」，且目标由 launchd 拉起时
+            // /private/var 与 /var 的写法不一致 —— 于是经常查不到。
+            // 之前一查不到就 return，把后面那套能用的流程整个掐掉了，
+            // 表现为「20 秒未见进程，注入失败」，其实注入器还没跑。
+            let pre = findPID(bundleURL: bundleURL, executableName: executableName)
+            if pre > 0 {
+                appendLog("目标已在运行，PID = \(pre)")
+            } else {
+                appendLog("目标当前未运行；交由注入器自行拉起（它内部会处理前后台切换与重试）")
             }
-
-            guard pid > 0 else {
-                cleanup(dylib: effectiveDylib, original: dylibPath, mode: mode)
-                let msg = "无法获取目标进程：已请求拉起但 \(Int(20)) 秒内未见进程。"
-                    + "请手动打开目标 App 后再试一次（首次启动较慢时常见）。"
-                appendLog("❌ \(msg)")
-                finish(DynamicInjectOutcome(success: false, message: msg))
-                return
-            }
-
-            appendLog("目标 PID = \(pid)")
             reportProgress("执行注入…")
 
             setenv("FUCK_INJECT_LOG_PATH", logPath, 1)
@@ -434,7 +459,14 @@ enum JailbreakInjector {
             let ok = buf.withUnsafeMutableBufferPointer { bp -> Int32 in
                 proc_pidpath(p, bp.baseAddress, UInt32(bp.count))
             }
-            if ok > 0, String(cString: buf) == target { return p }
+            // 比对归一化后的路径：/private/var 与 /var 是同一条路径的两种写法，
+            // 直接字符串相等会漏掉刚启动、由 launchd 拉起的进程。
+            guard ok > 0 else { continue }
+            let got = String(cString: buf)
+            if got == target
+                || got.hasPrefix("/private" + target)
+                || target.hasPrefix("/private" + got)
+                || got.replacingOccurrences(of: "/private/var/", with: "/var/") == target { return p }
         }
         return -1
     }
@@ -452,6 +484,10 @@ enum JailbreakInjector {
     // MARK: 拉起 App
 
     /// 拉起目标 App。
+    ///
+    /// 注意：主注入路径**不再使用**这个函数。FuckDynamicInjector 内部有
+    /// 一套更完整的 OC 实现（包含前后台切换），见
+    /// cliInjectWithDylibPath 里的 SPAWN 段。保留此实现仅供单独调用。
     ///
     /// 必须在主线程调用：LSApplicationWorkspace 是 SpringBoard 侧的私有 API，
     /// 从后台队列调用时它会静默失败（返回成功但不真的拉起），
