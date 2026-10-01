@@ -2586,7 +2586,6 @@ static void FuckWriteInjectResult(BOOL ok, NSString *message) {
 
     if (!dylibPath.length || !bundleID.length) {
         { NSString *m = @"参数无效：dylib 路径或 BundleID 为空"; FuckWriteInjectResult(NO, m); return m; }
-        return;
     }
 
     // 0. 先去掉本进程自身的沙盒限制（原版 CLI 入口做的第一件事）。
@@ -2603,7 +2602,6 @@ static void FuckWriteInjectResult(BOOL ok, NSString *message) {
     //
     // 新版改用 Relaxin 官方 opainject 通道时漏掉了这一步，导致投递仍以
     // uid 501 受沙盒约束的身份执行，被拒「没有访问该容器的许可」。
-    reportProgress(@"正在提权并解除沙盒限制…");
     {
         int er = FuckTryElevateToRoot();
         FLog(@"[Elevate] 预提权结果: %d (UID=%d, EUID=%d)", er, getuid(), geteuid());
@@ -2616,7 +2614,6 @@ static void FuckWriteInjectResult(BOOL ok, NSString *message) {
     NSString *jbroot = FuckRoothideJbroot();
     if (!jbroot.length) {
         { NSString *m = @"未检测到 Relaxin 越狱根环境（.jbroot）"; FuckWriteInjectResult(NO, m); return m; }
-        return;
     }
 
     // opainject 查找顺序：**App 自带优先**，越狱自带的作回退。
@@ -2650,7 +2647,6 @@ static void FuckWriteInjectResult(BOOL ok, NSString *message) {
     FLogSuccess(@"[Relaxin] 官方 opainject 就绪: %@", officialOpainject);
 
     // 2. 查找目标进程 PID（如果没运行则启动它）
-    reportProgress(@"正在查找目标进程…");
     pid_t targetPid = FuckFindPIDForBundleID(bundleID);
     // 注意：这里绝不能调用 FuckOpenApp / LSApplicationWorkspace。
     // root 子进程由 spawn 自身而来，没有 UI 环境，调 LSApplicationWorkspace
@@ -2673,13 +2669,11 @@ static void FuckWriteInjectResult(BOOL ok, NSString *message) {
     FLogSuccess(@"[Relaxin] 目标 PID: %d", targetPid);
 
     // 3. 准备可被目标进程与 opainject 共同访问的有效 dylib
-    reportProgress(@"准备插件文件与越狱信任…");
     NSString *finalDylibPath = dylibPath;
 
     // 如果用户传入的是 .deb，由 Swift 层已自动提取，这里做兜底检查
     if ([dylibPath hasSuffix:@".deb"]) {
         { NSString *m = @"请选择解包后的 .dylib 动态库，不要直接选择 .deb 压缩包"; FuckWriteInjectResult(NO, m); return m; }
-        return;
     }
 
     // 核心突破：解决严格沙盒 App（如 App Store 游戏、王牌战争）报 file system sandbox blocked mmap()
@@ -2859,7 +2853,6 @@ static void FuckWriteInjectResult(BOOL ok, NSString *message) {
     FuckRoothideSetProcessDebugged(targetPid, YES);
 
     // 6. 调用官方原生 opainject
-    reportProgress(@"正在调用 Relaxin 官方引擎执行注入…");
     FLog(@"[Relaxin] 正在执行: %@ %d %@", officialOpainject, targetPid, finalDylibPath);
 
     NSArray<NSString *> *args = @[
