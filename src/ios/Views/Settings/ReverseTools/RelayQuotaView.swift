@@ -218,7 +218,6 @@ struct RelayQuotaView: View {
         }
     }
 
-    @ViewBuilder
     /// 模型 / 平台配色的固定调色板，保证同一模型每次颜色一致
     static let modelPalette: [Color] = [
         .blue, .green, .orange, .purple, .pink, .teal, .indigo, .yellow, .mint, .red
