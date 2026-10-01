@@ -2633,15 +2633,25 @@ static void FuckWriteInjectResult(BOOL ok, NSString *message) {
     //   Dopamine 在 /var/jb/usr/bin，palera1n rootful 直接在 /usr/bin），
     //   而且并非每个越狱都带 opainject。App 自带一份就与越狱无关了 ——
     //   这也正是参考工程的做法（它把开源 opainject-main 编译后打进 bundle）。
+    // 顺序必须「越狱自带优先」，自带那份排最后 —— 这是实测结论，不是偏好：
+    //
+    //   曾经用 Relaxin 官方 opainject（/basebin/opainject）稳定成功；
+    //   改成「自带优先」后 dlopen 阶段目标进程直接崩溃，崩溃栈落在
+    //     dyld4::Loader::hasExportedSymbol / resolveSymbol /
+    //     forEachBindTarget_ChainedFixups
+    //   且远程调用线程的 SP 指向只读的 "CG raster data" 区段 —— 典型的
+    //   远程调用栈被写坏。App 自带的那个是开源 opainject-main（rop_inject /
+    //   shellcode_inject 那套），与 Relaxin 官方版在远程线程搭建上实现不同，
+    //   在 iOS 17.1.2 上会把目标进程弄死。
+    //   因此：优先用越狱自带的那份，bundle 自带仅作兜底（其他越狱没有 opainject 时）。
     NSString *officialOpainject = nil;
     NSArray<NSString *> *opainjectCandidates = @[
-        FuckResourcePath(@"opainject") ?: @"",                              // ① App bundle 自带
-        [jbroot stringByAppendingPathComponent:@"basebin/opainject"],        // ② roothide
-        [jbroot stringByAppendingPathComponent:@"usr/bin/opainject"],        // ③ rootless/其他
-        [jbroot stringByAppendingPathComponent:@"usr/bin/opainject2"],
+        [jbroot stringByAppendingPathComponent:@"basebin/opainject"],        // ① roothide（实测可用）
+        [jbroot stringByAppendingPathComponent:@"usr/bin/opainject"],        // ② rootless
         @"/var/jb/basebin/opainject",
         @"/var/jb/usr/bin/opainject",
-        @"/usr/bin/opainject",                                               // ④ rootful
+        @"/usr/bin/opainject",                                               // ③ rootful
+        FuckResourcePath(@"opainject") ?: @"",                               // ④ App 自带（最后兜底）
     ];
     for (NSString *cand in opainjectCandidates) {
         if (cand.length && [[NSFileManager defaultManager] fileExistsAtPath:cand]) {
