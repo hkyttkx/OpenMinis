@@ -181,8 +181,11 @@ final class BrowserUseManager: NSObject, ObservableObject {
                                     viewportWidth: Int? = nil,
                                     viewportHeight: Int? = nil) -> WKWebView {
         let config = WKWebViewConfiguration()
-        // 在 no-sandbox / no-container 环境下，避免强制指定带容器绑定的 .default() 数据区
-        // 允许 WebKit 走系统原生运行通道，确保页面渲染不被内核拦截
+        // 共享进程池 + 默认数据区：让所有 agent 标签、右栏 Open Browser
+        // 与聊天内预览共用同一会话（cookies / localStorage / HSTS）。
+        // 这两行是原版行为，不要移除。
+        config.processPool = sharedProcessPool
+        config.websiteDataStore = .default()
         config.defaultWebpagePreferences.allowsContentJavaScript = true
         config.setURLSchemeHandler(Self.sharedMinisSchemeHandler, forURLScheme: "minis")
 
