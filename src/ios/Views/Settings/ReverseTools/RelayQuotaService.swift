@@ -322,14 +322,21 @@ final class RelayQuotaService: ObservableObject {
             var usage = RelayUsage()
             var merged: [String: Any] = [:]
 
-            // 最全的快照接口（含今日/累计的请求数、消费、Token、性能）
-            if let snap = try await getJSON(base: base, path: "/usage/dashboard/snapshot-v2", token: token) as? [String: Any] {
-                merged.merge(snap) { a, _ in a }
-            }
-            // 兜底：基础统计
-            if merged.isEmpty,
-               let st = try await getJSON(base: base, path: "/usage/dashboard/stats", token: token) as? [String: Any] {
-                merged.merge(st) { a, _ in a }
+            // 统计接口按「信息量从多到少」依次尝试，第一个拿到内容就停。
+            // 这些端点在不同版本里名字不一样，逐个试比赌一个更稳。
+            let statPaths = [
+                "/usage/dashboard/snapshot-v2",
+                "/usage/dashboard/stats",
+                "/usage/dashboard",
+                "/usage/statistics",
+            ]
+            for path in statPaths {
+                guard let obj = try? await getJSON(base: base, path: path, token: token) as? [String: Any] else { continue }
+                // 空字典继续试下一个
+                let flattened = Self.flatten(obj)
+                if flattened.isEmpty { continue }
+                merged.merge(obj) { a, _ in a }
+                break
             }
             if !merged.isEmpty {
                 usage = parseUsage(merged)
