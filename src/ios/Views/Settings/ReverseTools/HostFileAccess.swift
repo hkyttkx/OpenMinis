@@ -30,10 +30,37 @@ import UIKit
 
 enum HostFileAccess {
 
-    /// 投递根目录（沙盒内，iSH 可读）
+    /// 投递根目录（iSH 沙盒内可见的路径，回给调用方用）
     static let guestRoot = "/var/minis/workspace/host"
 
-    private static var hostRoot: URL { URL(fileURLWithPath: guestRoot) }
+    /// 同一个目录在 **App 进程**里的真实路径。
+    ///
+    /// 这是之前 deliver 一直报「没有权限写入 host 文件夹」的根因：
+    /// App 进程里根本不存在 `/var/minis` —— 它是 iSH fakefs 的视图，
+    /// 宿主侧实际位于 App 容器的 `Documents/alpine-rootfs/data/var/minis`。
+    /// 拿沙盒 guest 路径去调用 NSFileManager，等于往一个不存在的路径写，
+    /// 系统只抛出一个含糊的权限错误。
+    ///
+    /// `RootfsManager.shared.dataPath` = `Documents/alpine-rootfs/data`，
+    /// 也就是 fakefs 的 `/`，因此 fakefs 路径 `/var/...` 对应
+    /// `dataPath/var/...`。
+    static var hostRoot: URL {
+        RootfsManager.shared.dataPath
+            .appendingPathComponent("var/minis/workspace/host", isDirectory: true)
+    }
+
+    /// 把 iSH 沙盒路径转成 App 进程可用的宿主路径。
+    /// 例：`/var/minis/workspace/host/x` → `<dataPath>/var/minis/workspace/host/x`
+    ///
+    /// 已经是绝对宿主路径（形如 /var/mobile/... 或 /var/containers/...）的原样返回，
+    /// 避免双重拼接。
+    static func hostURL(forGuestPath path: String) -> URL {
+        let dataPrefix = RootfsManager.shared.dataPath.standardized.path
+        if path.hasPrefix(dataPrefix) { return URL(fileURLWithPath: path) }
+        // 去掉开头的 /，拼到 dataPath 下
+        let rel = path.hasPrefix("/") ? String(path.dropFirst()) : path
+        return RootfsManager.shared.dataPath.appendingPathComponent(rel)
+    }
 
     // MARK: - 只读判定
 
@@ -171,6 +198,7 @@ enum HostFileAccess {
             let dst = dir.appendingPathComponent((path as NSString).lastPathComponent)
             try? fm.removeItem(at: dst)
             try fm.copyItem(atPath: path, toPath: dst.path)
+            // 让 iSH 内以任意用户身份都能读到
             chmod(dst.path, 0o644)
             return .success(guestRoot + "/" + tag + "/" + dst.lastPathComponent)
         } catch {
