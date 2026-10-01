@@ -2681,11 +2681,29 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
             FLogError(@"[Relaxin] 暂存到公共目录失败: %@, 尝试沿用原路径", cpErr.localizedDescription);
         }
 
-        // 4. 将 dylib 加入系统 Trust Cache
-        FLog(@"[Relaxin] 调用 jbclient_trust_file_by_path 加入 Trust Cache…");
+        // 4. 必须先对 dylib 进行 ad-hoc 签名，生成合法的 CodeDirectory 哈希
+        // 否则即使提交给 Trust Cache，内核加载器 dyld 校验时也会报 (code signature invalid, errno=1)
+        NSString *ldidPath = FuckResourcePath(@"ldid");
+        if (!ldidPath.length) {
+            ldidPath = [jbroot stringByAppendingPathComponent:@"usr/bin/ldid"];
+        }
+        if ([[NSFileManager defaultManager] fileExistsAtPath:ldidPath]) {
+            chmod(ldidPath.UTF8String, 0755);
+            FLog(@"[Relaxin] 正在执行 ldid -S 签名: %@", finalDylibPath);
+            int lr = FuckSpawnArguments(@[ldidPath, @"-S", finalDylibPath], YES);
+            FLog(@"[Relaxin] ldid 签名返回码: %d", lr);
+        }
+
+        // 5. 将 dylib 加入系统 Trust Cache（双重保障：jbctl + jbclient 接口）
+        NSString *jbctlPath = [jbroot stringByAppendingPathComponent:@"usr/bin/jbctl"];
+        if ([[NSFileManager defaultManager] fileExistsAtPath:jbctlPath]) {
+            FLog(@"[Relaxin] 调用 jbctl trustcache add: %@", finalDylibPath);
+            FuckSpawnArguments(@[jbctlPath, @"trustcache", @"add", finalDylibPath], YES);
+        }
+        FLog(@"[Relaxin] 调用 jbclient_trust_file_by_path 注入 Trust Cache…");
         FuckRoothideTrustDylib(finalDylibPath);
 
-        // 5. 标记目标进程可调试
+        // 6. 标记目标进程可调试
         FLog(@"[Relaxin] 标记目标 PID %d 为可调试…", targetPid);
         FuckRoothideSetProcessDebugged(targetPid, YES);
 
