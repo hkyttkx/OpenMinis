@@ -1352,12 +1352,37 @@ static void *FuckFindPthreadSetSelfByMSR(void) {
     return NULL;
 }
 
+// 归一化用于比较：iOS 上 /var 是 /private/var 的符号链接，
+// 同一文件两种写法。realpath 在沙盒内可能失败，一旦失败就退回原始字符串，
+// 而 proc_pidpath 给的是 /private/var 版本 —— strcmp 永远不相等。
+// 实测症状就是「[Path] 扫描定位到 ... ✅」紧接着
+//「❌ 未找到运行进程（可执行路径已解析: ...）」，路径明明是对的。
+static void FuckNormalizeExecPath(const char *in, char *out, size_t outLen) {
+    if (!in || !out || outLen == 0) return;
+    const char *p = in;
+    if (strncmp(p, "/private/", 9) == 0) p += 8;
+    strlcpy(out, p, outLen);
+}
+
+// 最后一道保险：比较 "Xxx.app/Xxx" 这一段。
+// 容器 UUID 或路径前缀有差异时，这一段的写法是一致的。
+static BOOL FuckSameAppExeSuffix(const char *a, const char *b) {
+    const char *sa = strstr(a, ".app/");
+    const char *sb = strstr(b, ".app/");
+    if (!sa || !sb) return NO;
+    return strcmp(sa, sb) == 0;
+}
+
 static pid_t FuckFindPIDByExecPath(const char *targetPath) {
     if (!targetPath || targetPath[0] == '\0') return -1;
 
+    // 目标路径先归一化（不依赖 realpath 是否可用）
     char resolvedTarget[PROC_PIDPATHINFO_MAXSIZE];
     if (realpath(targetPath, resolvedTarget) == NULL)
         strlcpy(resolvedTarget, targetPath, sizeof(resolvedTarget));
+
+    char normTarget[PROC_PIDPATHINFO_MAXSIZE];
+    FuckNormalizeExecPath(resolvedTarget, normTarget, sizeof(normTarget));
 
     int count = proc_listallpids(NULL, 0);
     if (count <= 0) return -1;
@@ -1368,18 +1393,41 @@ static pid_t FuckFindPIDByExecPath(const char *targetPath) {
     int actual = proc_listallpids(pids, count * sizeof(pid_t));
     pid_t found = -1;
     char pathBuf[PROC_PIDPATHINFO_MAXSIZE];
+    int scanned = 0;
+
+    // 诊断样本：可执行名相同但完整路径没匹配上的进程
+    char sample[PROC_PIDPATHINFO_MAXSIZE];
+    sample[0] = '\0';
+    const char *wantExe = strrchr(normTarget, '/');
 
     for (int i = 0; i < actual; i++) {
         if (pids[i] <= 0) continue;
         memset(pathBuf, 0, sizeof(pathBuf));
-        if (proc_pidpath(pids[i], pathBuf, sizeof(pathBuf)) > 0) {
-            if (strcmp(pathBuf, resolvedTarget) == 0) {
-                found = pids[i];
-                break;
-            }
+        if (proc_pidpath(pids[i], pathBuf, sizeof(pathBuf)) <= 0) continue;
+        scanned++;
+
+        char normBuf[PROC_PIDPATHINFO_MAXSIZE];
+        FuckNormalizeExecPath(pathBuf, normBuf, sizeof(normBuf));
+
+        if (strcmp(normBuf, normTarget) == 0
+            || FuckSameAppExeSuffix(normBuf, normTarget)
+            || strcmp(pathBuf, targetPath) == 0) {
+            found = pids[i];
+            break;
+        }
+        if (wantExe && !sample[0] && strstr(pathBuf, wantExe)) {
+            strlcpy(sample, pathBuf, sizeof(sample));
         }
     }
     free(pids);
+
+    if (found < 0) {
+        // 把「期望路径」和「实际看到的同名字进程」都打出来，
+        // 下次失败时一眼能看出差在哪一段。
+        FLogError(@"扫描了 %d 个进程，未匹配。期望: %s%s",
+                  scanned, normTarget,
+                  sample[0] ? [NSString stringWithFormat:@"，同名进程实际路径: %s", sample].UTF8String : "");
+    }
     return found;
 }
 
