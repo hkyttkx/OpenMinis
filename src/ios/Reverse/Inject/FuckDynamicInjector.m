@@ -2932,6 +2932,17 @@ static void FuckWriteInjectResult(BOOL ok, NSString *message) {
     int rc = FuckSpawnArgumentsWithOutput(args, YES, &injectOutput);
     FLog(@"[Relaxin] 官方 opainject 返回码: %d", rc);
 
+    // 撤掉注入前打上的「可调试」标记，抹掉最直接的检测痕迹。
+    //
+    // 为了拿 task port，注入前必须 set_process_debugged(pid, YES)，这会把目标
+    // 进程的 CS_DEBUGGED 置位；实测日志里 22 次调用全是 YES、从未复位。
+    // 任何 App 只需一次 csops(pid, CS_OPS_STATUS) 就能读到该标志，进而判断
+    // 「本进程被调试/被注入过」。注入完成后立即复位，成本极低且不依赖任何
+    // hook —— 这是性价比最高的一步。
+    FLog(@"[Relaxin] 复位目标 PID %d 的可调试标记…", targetPid);
+    BOOL restored = FuckRoothideSetProcessDebugged(targetPid, NO);
+    FLog(@"[Relaxin] 复位结果: %@", restored ? @"成功" : @"失败（接口不可用，跳过）");
+
     // 注入完成后立即清理所有暂存件（各处投递副本 + 越狱暂存区），保持无痕
     for (NSString *copyPath in deliveredCopies) {
         if ([copyPath isEqualToString:dylibPath]) continue;
