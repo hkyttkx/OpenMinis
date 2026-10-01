@@ -292,7 +292,18 @@ enum JailbreakInjector {
 
     // MARK: 主流程
 
-    /// 执行动态注入
+    /// 执行动态注入。
+    ///
+    /// 线程模型：这个方法从 SwiftUI 视图的主线程调用（调用方直接在 completion
+    /// 里改 @State），但流程里有**两处长时间阻塞**：
+    ///   1. `openApp` 用 LSApplicationWorkspace 把目标 App 拉到前台 —— 我们这个
+    ///      App 会被切到后台；
+    ///   2. `waitForPID` 在主线程上 `Thread.sleep(0.3)` 轮询最多 12 秒。
+    /// 两者叠加的结果：用户切回本 App 时主线程仍卡在轮询里，界面完全无响应，
+    /// 表现为「返回后就卡死」。日志也正好停在「目标未运行，尝试拉起」那两行。
+    ///
+    /// 因此把整个阻塞流程放到后台队列，progress / completion 统一回主线程，
+    /// 调用方无需改动。
     static func inject(bundleID: String,
                        bundleURL: URL,
                        executableName: String?,
@@ -300,6 +311,14 @@ enum JailbreakInjector {
                        mode: DynamicInjectMode,
                        progress: @escaping (String) -> Void,
                        completion: @escaping (DynamicInjectOutcome) -> Void) {
+
+        // 回调统一回主线程（调用方在主线程改 @State）
+        let reportProgress: (String) -> Void = { step in
+            DispatchQueue.main.async { progress(step) }
+        }
+        let finish: (DynamicInjectOutcome) -> Void = { outcome in
+            DispatchQueue.main.async { completion(outcome) }
+        }
 
         appendLog("""
 
@@ -314,61 +333,65 @@ enum JailbreakInjector {
         guard FileManager.default.fileExists(atPath: dylibPath) else {
             let msg = "dylib 文件不存在"
             appendLog("❌ \(msg)：\(dylibPath)")
-            completion(DynamicInjectOutcome(success: false, message: msg))
+            finish(DynamicInjectOutcome(success: false, message: msg))
             return
         }
 
-        var effectiveDylib = dylibPath
-        if mode == .clean {
-            let stageDir = (NSTemporaryDirectory() as NSString).appendingPathComponent("dyninject_stage")
-            try? FileManager.default.createDirectory(atPath: stageDir, withIntermediateDirectories: true)
-            let staged = (stageDir as NSString).appendingPathComponent((dylibPath as NSString).lastPathComponent)
-            try? FileManager.default.removeItem(atPath: staged)
-            if (try? FileManager.default.copyItem(atPath: dylibPath, toPath: staged)) != nil {
-                effectiveDylib = staged
-                appendLog("已暂存 dylib 到临时目录")
-            } else {
-                appendLog("⚠️ 暂存失败，改用原路径")
-            }
-        }
+        // ↓↓↓ 以下全部在后台线程执行，避免阻塞主线程 ↓↓↓
+        DispatchQueue.global(qos: .userInitiated).async {
 
-        progress("准备注入环境…")
-
-        var pid = findPID(bundleURL: bundleURL, executableName: executableName)
-        if pid <= 0 {
-            progress("启动目标 App…")
-            appendLog("目标未运行，尝试拉起")
-            openApp(bundleID: bundleID)
-            pid = waitForPID(bundleURL: bundleURL, executableName: executableName, timeout: 12)
-        }
-
-        guard pid > 0 else {
-            cleanup(dylib: effectiveDylib, original: dylibPath, mode: mode)
-            let msg = "无法获取目标进程（App 未启动或已退出）"
-            appendLog("❌ \(msg)")
-            completion(DynamicInjectOutcome(success: false, message: msg))
-            return
-        }
-
-        appendLog("目标 PID = \(pid)")
-        progress("执行注入…")
-
-        setenv("FUCK_INJECT_LOG_PATH", logPath, 1)
-
-        FuckDynamicInjector.injectDylib(
-            effectiveDylib,
-            intoBundleID: bundleID,
-            mode: Int32(mode.rawValue),
-            progress: { step in progress(step) },
-            completion: { success, message in
-                if !success {
-                    captureCrashLog(executableName: executableName, bundleID: bundleID)
+            var effectiveDylib = dylibPath
+            if mode == .clean {
+                let stageDir = (NSTemporaryDirectory() as NSString).appendingPathComponent("dyninject_stage")
+                try? FileManager.default.createDirectory(atPath: stageDir, withIntermediateDirectories: true)
+                let staged = (stageDir as NSString).appendingPathComponent((dylibPath as NSString).lastPathComponent)
+                try? FileManager.default.removeItem(atPath: staged)
+                if (try? FileManager.default.copyItem(atPath: dylibPath, toPath: staged)) != nil {
+                    effectiveDylib = staged
+                    appendLog("已暂存 dylib 到临时目录")
+                } else {
+                    appendLog("⚠️ 暂存失败，改用原路径")
                 }
-                cleanup(dylib: effectiveDylib, original: dylibPath, mode: mode)
-                appendLog(success ? "✅ 注入成功：\(message ?? "")" : "❌ 注入失败：\(message ?? "")")
-                completion(DynamicInjectOutcome(success: success, message: message ?? ""))
             }
-        )
+
+            reportProgress("准备注入环境…")
+
+            var pid = findPID(bundleURL: bundleURL, executableName: executableName)
+            if pid <= 0 {
+                reportProgress("启动目标 App…")
+                appendLog("目标未运行，尝试拉起")
+                openApp(bundleID: bundleID)
+                pid = waitForPID(bundleURL: bundleURL, executableName: executableName, timeout: 12)
+            }
+
+            guard pid > 0 else {
+                cleanup(dylib: effectiveDylib, original: dylibPath, mode: mode)
+                let msg = "无法获取目标进程（App 未启动或已退出）"
+                appendLog("❌ \(msg)")
+                finish(DynamicInjectOutcome(success: false, message: msg))
+                return
+            }
+
+            appendLog("目标 PID = \(pid)")
+            reportProgress("执行注入…")
+
+            setenv("FUCK_INJECT_LOG_PATH", logPath, 1)
+
+            FuckDynamicInjector.injectDylib(
+                effectiveDylib,
+                intoBundleID: bundleID,
+                mode: Int32(mode.rawValue),
+                progress: { step in reportProgress(step) },
+                completion: { success, message in
+                    if !success {
+                        captureCrashLog(executableName: executableName, bundleID: bundleID)
+                    }
+                    cleanup(dylib: effectiveDylib, original: dylibPath, mode: mode)
+                    appendLog(success ? "✅ 注入成功：\(message ?? "")" : "❌ 注入失败：\(message ?? "")")
+                    finish(DynamicInjectOutcome(success: success, message: message ?? ""))
+                }
+            )
+        }
     }
 
     // MARK: 清理
