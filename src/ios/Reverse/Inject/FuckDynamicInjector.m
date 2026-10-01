@@ -235,15 +235,39 @@ static NSString *FuckScanJailbreakRoot(void) {
         FLog(@"[roothide] MINIS_JBROOT=%@ 不是完整越狱根，忽略", e);
     }
 
-    // 2) 依次扫描各父目录。
-    //    顺序有意为之：App 安装目录下的那份是完整的，优先；
-    //    AppGroup 那份常是部分镜像，放最后。
+    // 顺序有意为之：App 安装目录下的那份是完整的，优先；
+    // AppGroup 那份常是部分镜像，放最后。
+    NSFileManager *fm = [NSFileManager defaultManager];
+
+    // 2a) 先试各越狱的「约定根路径」。
+    //
+    // 不同越狱把根放在完全不同的位置，不能假定只有 roothide 那种随机
+    // .jbroot-<hex> 形式：
+    //   · rootless（Dopamine / palera1n rootless / roothide）→ /var/jb 是标准前缀
+    //   · rootful（unc0ver / checkra1n / palera1n rootful）→ 直接覆盖真实根 /
+    //   · Xina → /var/xina
+    // 这里逐个做完整性校验（FuckIsCompleteJailbreakRoot），不满足就跳过，
+    // 避免把普通目录误判成越狱根导致后续拼出错误路径。
+    NSArray<NSString *> *conventionalRoots = @[
+        @"/var/jb",
+        @"/var/jb/basebin",
+        @"/var/xina",
+        @"/",
+    ];
+    for (NSString *candidate in conventionalRoots) {
+        if (![fm fileExistsAtPath:candidate]) continue;
+        if (FuckIsCompleteJailbreakRoot(candidate)) {
+            FLog(@"[jbroot] 命中约定越狱根: %@", candidate);
+            return candidate;
+        }
+    }
+
+    // 2b) roothide 风格：随机 .jbroot-<hex>，散落在各容器父目录下
     NSArray<NSString *> *parents = @[
         @"/var/containers/Bundle/Application",
         @"/var/mobile/Containers/Bundle/Application",
         @"/var/mobile/Containers/Shared/AppGroup",
     ];
-    NSFileManager *fm = [NSFileManager defaultManager];
 
     NSString *firstIncomplete = nil;
 
@@ -2518,229 +2542,388 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
     FuckInjectMode mode = (modeInt == 1) ? FuckInjectModeB : FuckInjectModeA;
     FLog(@"========== FuckInject CLI mode (root subprocess) ==========");
 
-    // 先尝试提权：即便用户选了别的通道，拿到 root 也会让后续每一步更顺。
-    // 失败不阻断——原有逐项修补的路径依然保留。
+    // 本进程由「主进程 spawn 自身」而来，继承了本 App 的 TrollStore entitlements，
+    // 再叠加 persona(uid=0)，因此是一个「带 no-sandbox 特权的 root 进程」。
+    // 这正是能把 dylib 写进目标 App Bundle container（App Store 正版 App 唯一被
+    // 允许 file-map-executable 的位置）的前提。
     {
-        int er = FuckTryElevateToRoot();
-        FLog(@"[Elevate] 预提权结果: %d (EUID=%d)", er, geteuid());
-    }
-    FLog(@"dylib: %@, bundleID: %@", dylibPath, bundleID);
-    FLog(@"注入模式: %s", mode == FuckInjectModeA ? "A/严格复刻（拷入目标 bundle 同级目录）" : "B/无痕（仅在 tmp，注入后清除）");
-    FLog(@"UID: %d, EUID: %d", getuid(), geteuid());
-
-    if (!dylibPath.length || !bundleID.length) {
-        FLogError(@"invalid arguments");
-        return 1;
-    }
-    if (![[NSFileManager defaultManager] fileExistsAtPath:dylibPath]) {
-        FLogError(@"dylib not found: %@", dylibPath);
-        return 2;
-    }
-
-    // ===== Step 1: 复制 dylib 到目标 App 的 .app 同级目录 =====
-    // 参考项目: DGCopyAndSignPayloadDylib → DGCoreTargetPath = bundleContainer/Core
-    // dlopen 会被沙盒拦截 mmap(PROT_EXEC)，文件必须在目标 App 的 bundle container 内
-    NSString *targetBundlePath = FuckProxyPathFromURL(FuckProxyForBundleID(bundleID), @"bundleURL");
-    NSString *injectedDylibPath = dylibPath; // fallback
-    if (mode == FuckInjectModeA && targetBundlePath.length) {
-        NSString *containerPath = [targetBundlePath stringByDeletingLastPathComponent];
-        NSString *dylibName = [dylibPath lastPathComponent];
-        NSString *destPath = [containerPath stringByAppendingPathComponent:dylibName];
-        FLog(@"[CLI] Step 1: copy dylib to bundle container");
-        FLog(@"[CLI]   src: %@", dylibPath);
-        FLog(@"[CLI]   dst: %@", destPath);
-
-        NSFileManager *fm = [NSFileManager defaultManager];
-        [fm removeItemAtPath:destPath error:nil];
-        NSError *copyErr = nil;
-        if ([fm copyItemAtPath:dylibPath toPath:destPath error:&copyErr]) {
-            chmod(destPath.UTF8String, 0755);
-            chown(destPath.UTF8String, 0, 0);
-            injectedDylibPath = destPath;
-            FLogSuccess(@"[CLI] copied to: %@", destPath);
-        } else {
-            // 目标 App 的 bundle 同级目录由 container-manager 管控，
-            // 普通 App 进程即使有 no-sandbox 也可能被拒（实测报
-            //「没有访问该容器的许可」）。此时自动降级为无痕模式：
-            // dylib 留在原处，靠 sandbox extension 让目标进程能读。
-            FLogError(@"[CLI] copy failed: %@", copyErr.localizedDescription);
-            FLog(@"[CLI] ⤵️ 自动降级为无痕模式：dylib 保持原路径，改用 sandbox extension 授权");
-            mode = FuckInjectModeB;
-            injectedDylibPath = dylibPath;
+        FuckDynamicInjector *runner = [[FuckDynamicInjector alloc] init];
+        NSString *fail = [runner runInjectWorkWithDylib:dylibPath bundleID:bundleID];
+        if (fail.length) {
+            FLogError(@"[CLI] 注入失败: %@", fail);
+            return 10;
         }
-    } else if (mode == FuckInjectModeA) {
-        FLogError(@"[CLI] cannot get target bundle path");
-    } else {
-        // 模式 B：dylib 留在原处（主进程已放在我方 tmp），不往目标 App 目录写任何文件
-        FLog(@"[CLI] 无痕模式：沿用原始路径 %@", injectedDylibPath);
-        // 目标 App 以 mobile(501) 运行，需要「其他用户可读」才能打开这个文件。
-        // 我方容器默认 0600，不改权限即使有 sandbox token 也可能被拒。
-        chmod(injectedDylibPath.UTF8String, 0644);
-        {
-            struct stat st;
-            if (stat(injectedDylibPath.UTF8String, &st) == 0) {
-                if ((st.st_mode & 0004) == 0) {
-                    // 仍不可读：容器目录本身也需要 o+x，否则路径无法穿过
-                    NSString *dir = [injectedDylibPath stringByDeletingLastPathComponent];
-                    chmod(dir.UTF8String, 0755);
-                    FLog(@"[CLI] dylib 权限补正：file=0644 dir=0755（原目录无 o+x）");
-                }
-            }
-        }
+        FLogSuccess(@"[CLI] 注入成功");
+        return 0;
     }
-
-    // ===== Step 2: CoreTrust bypass (对复制后的文件签名) =====
-    NSString *targetTeamID = FuckExtractTeamIDFromApp(bundleID);
-    FLog(@"[CLI] target TeamID: %@", targetTeamID ?: @"(none)");
-
-    // 模式 B 仅做 ldid ad-hoc 签名（trust cache 由 roothide jbserver 负责），
-    // 不跑 ct_bypass —— 该漏洞在 iOS 17.0 起已收紧，跑了只会引入失败分支。
-    if (mode == FuckInjectModeB) {
-        NSString *ldidPathOnly = FuckResourcePath(@"ldid");
-        if (ldidPathOnly.length) {
-            chmod(ldidPathOnly.UTF8String, 0755);
-            // 注意：进程内注入时，spawn bundle 内的可执行文件会与注入子进程
-            // 遇到同一个问题（被信号 1 掐掉）。这里把签名视为「尽力而为」，
-            // 失败不影响后续信任链 —— roothide jbserver 走的是 launchd，
-            // 不依赖本地签名结果。
-            int lr = FuckSpawnArguments(@[ldidPathOnly, @"-S", injectedDylibPath], YES);
-            FLog(@"[CLI] (模式B) ldid -S => ret=%d（失败不影响 roothide 信任链）", lr);
-        } else {
-            FLog(@"[CLI] (模式B) ldid 不在 bundle 内，跳过 ad-hoc 签名");
-        }
-    }
-
-    // 签名步骤依赖 spawn 本 bundle 内的 ldid / ct_bypass，而 spawn 在本环境
-    // 不可用（实测 ret=1 且文件大小无变化，说明工具根本没有执行）。
-    // roothide 信任链由 jbserver 完成，不依赖本地签名结果，因此直接跳过。
-    BOOL needLocalSign = NO;
-    if (needLocalSign && targetTeamID.length > 0) {
-        NSString *ctBypassPath = FuckResourcePath(@"ct_bypass");
-        NSString *ldidPath = FuckResourcePath(@"ldid");
-
-        if (ctBypassPath.length && ldidPath.length) {
-            chmod(ldidPath.UTF8String, 0755);
-            chmod(ctBypassPath.UTF8String, 0755);
-
-            NSDictionary *preAttrs = [[NSFileManager defaultManager] attributesOfItemAtPath:injectedDylibPath error:NULL];
-            unsigned long long preSz = [preAttrs fileSize];
-
-            // ldid -S (ad-hoc sign)
-            FLog(@"[CLI] Step 2a: ldid -S %@", injectedDylibPath);
-            int ldidRet = FuckSpawnArguments(@[ldidPath, @"-S", injectedDylibPath], YES);
-            FLog(@"[CLI] ldid -S => ret=%d（失败不影响 roothide 信任链）", ldidRet);
-
-            NSDictionary *midAttrs = [[NSFileManager defaultManager] attributesOfItemAtPath:injectedDylibPath error:NULL];
-            unsigned long long midSz = [midAttrs fileSize];
-            FLog(@"[CLI] after ldid: %llu bytes (delta=%+lld)", midSz, (long long)(midSz - preSz));
-
-            // ct_bypass -i <dylib> -r -t <teamID>
-            FLog(@"[CLI] Step 2b: ct_bypass -i %@ -r -t %@", injectedDylibPath, targetTeamID);
-            int ctRet = FuckSpawnArguments(@[ctBypassPath, @"-i", injectedDylibPath, @"-r", @"-t", targetTeamID], YES);
-            FLog(@"[CLI] ct_bypass => ret=%d", ctRet);
-
-            NSDictionary *postAttrs = [[NSFileManager defaultManager] attributesOfItemAtPath:injectedDylibPath error:NULL];
-            unsigned long long postSz = [postAttrs fileSize];
-            FLog(@"[CLI] after ct_bypass: %llu bytes (delta=%+lld)", postSz, (long long)(postSz - midSz));
-
-            if (ctRet != 0) {
-                FLogError(@"ct_bypass failed (ret=%d)", ctRet);
-            } else if (postSz <= midSz) {
-                FLogError(@"ct_bypass returned 0 but file size did not increase");
-            } else {
-                FLogSuccess(@"CoreTrust bypass OK: TeamID=%@, +%lld bytes", targetTeamID, (long long)(postSz - midSz));
-            }
-        } else {
-            FLogError(@"tools missing: ct_bypass=%@, ldid=%@", ctBypassPath ?: @"nil", ldidPath ?: @"nil");
-        }
-    } else {
-        FLog(@"[CLI] 已跳过本地签名（roothide 信任链不依赖）");
-    }
-
-    // ===== Step 3: chmod/chown =====
-    chmod(injectedDylibPath.UTF8String, 0755);
-    chown(injectedDylibPath.UTF8String, 0, 0);
-    FLog(@"[CLI] chmod 0755, chown 0:0");
-
-    // ===== Step 4: find target, inject =====
-    // 注意: CLI 子进程没有 UI 环境，不能调用 LSApplicationWorkspace (会 SIGSEGV)
-    // 目标 App 必须由主进程在 spawn 之前启动
-    pid_t pid = FuckFindPIDForBundleID(bundleID);
-    if (pid <= 0) {
-        // 重试几次，目标可能正在启动中
-        for (int retry = 0; retry < 5 && pid <= 0; retry++) {
-            FLog(@"[CLI] target not running, waiting... (retry %d/5)", retry + 1);
-            usleep(1000000); // 1s
-            pid = FuckFindPIDForBundleID(bundleID);
-        }
-        if (pid <= 0) {
-            FLogError(@"target process not found after retries");
-            // 清理已复制的 dylib 后再退出
-            if (![injectedDylibPath isEqualToString:dylibPath]) {
-                [[NSFileManager defaultManager] removeItemAtPath:injectedDylibPath error:nil];
-                FLog(@"[CLI] cleaned up (PID not found): %@", injectedDylibPath);
-            }
-            return 3;
-        }
-    }
-
-    // ===== Step 5: 执行注入（失败重试最多 3 次）=====
-    int ret = -1;
-    for (int attempt = 1; attempt <= 3; attempt++) {
-        FLog(@"[CLI] inject attempt %d/3, PID=%d", attempt, pid);
-        ret = FuckOpaInject(pid, injectedDylibPath.UTF8String, mode);
-        if (ret == 0) {
-            FLogSuccess(@"injection succeeded!");
-            break;
-        }
-        FLogError(@"injection failed (code: %d) attempt %d/3", ret, attempt);
-        if (attempt < 3) {
-            // 等待后刷新 PID（进程可能被系统重启）
-            usleep(800000); // 0.8s
-            pid_t newPid = FuckFindPIDForBundleID(bundleID);
-            if (newPid > 0 && newPid != pid) {
-                FLog(@"[CLI] PID changed: %d -> %d", pid, newPid);
-                pid = newPid;
-            } else if (newPid <= 0) {
-                FLogError(@"[CLI] target process gone, stop retrying");
-                break;
-            }
-        }
-    }
-
-    // 清理: 删除复制到 bundle container 的 dylib（无论成功失败都清理）
-    if (![injectedDylibPath isEqualToString:dylibPath]) {
-        if ([[NSFileManager defaultManager] removeItemAtPath:injectedDylibPath error:nil]) {
-            FLog(@"[CLI] cleaned up: %@", injectedDylibPath);
-        } else {
-            FLogError(@"[CLI] cleanup failed: %@", injectedDylibPath);
-        }
-    }
-
-    return ret;
 }
 
-// ===== Public API: spawn root subprocess to do injection =====
-// Reference: DGHandleThreadDynamicAction spawns self with kDGHelperSet2cd as root
+// ===== 结果文件：root 子进程 → 主进程 的反馈通道 =====
+static NSString *FuckInjectResultPath(void) {
+    NSArray *dirs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+    NSString *docs = dirs.firstObject;
+    if (!docs.length) docs = NSTemporaryDirectory();
+    return [docs stringByAppendingPathComponent:@"inject_last_result.txt"];
+}
+
+static void FuckWriteInjectResult(BOOL ok, NSString *message) {
+    NSString *text = [NSString stringWithFormat:@"%@\n%@", ok ? @"OK" : @"FAIL", message ?: @""];
+    [text writeToFile:FuckInjectResultPath() atomically:YES encoding:NSUTF8StringEncoding error:nil];
+}
+
+/// 同步执行一次完整注入。返回 nil 表示成功，非 nil 为失败原因。
+///
+/// 必须在 root 子进程里跑：只有 spawn 我们自己的可执行文件，才能继承本 App
+/// 的 TrollStore entitlements（CS_PLATFORM_BINARY / no-sandbox），再叠加
+/// persona(uid=0)，才会被内核视为「带 no-sandbox 特权的 root 进程」。
+/// 主进程是 uid 501 且受自身沙盒约束，直接投递会被拒「没有访问该容器的许可」；
+/// 改用越狱自带的 cp 也不行 —— 它是独立二进制，不继承我们的 entitlement。
+/// 这正是原版「spawn 自身 + 在子进程里直接拷贝」能写进目标 Bundle container 的原因。
+- (NSString *)runInjectWorkWithDylib:(NSString *)dylibPath bundleID:(NSString *)bundleID {
+    FLog(@"========== Relaxin 官方唯一通道注入开始 ==========");
+    FLog(@"输入路径: %@", dylibPath);
+    FLog(@"目标 App: %@", bundleID);
+
+    if (!dylibPath.length || !bundleID.length) {
+        { NSString *m = @"参数无效：dylib 路径或 BundleID 为空"; FuckWriteInjectResult(NO, m); return m; }
+        return;
+    }
+
+    // 0. 先去掉本进程自身的沙盒限制（原版 CLI 入口做的第一件事）。
+    //
+    // 原版所谓「通过容器授权」并不是申请某个容器的许可，而是把自己整个
+    // 去沙盒化 —— FuckTryElevateToRoot 内部走 roothide 官方的三步：
+    //   ① jbclient_root_steal_ucred(0, &token)      偷 root 凭据
+    //   ② jbclient_root_sign_thread(token)          让凭据在本线程生效
+    //   ③ jbclient_root_set_mac_label("sandbox", t) 换掉沙盒标签 → 摆脱沙盒
+    // 摘掉沙盒后，才能以 root 身份往目标 App 的 Bundle container 写文件，
+    // 而 Bundle container 是 App Store 正版 App 唯一被允许
+    // file-map-executable 的位置（Data container 已实测：即便拿到扩展授权
+    // 仍然 blocked mmap，那条路走不通）。
+    //
+    // 新版改用 Relaxin 官方 opainject 通道时漏掉了这一步，导致投递仍以
+    // uid 501 受沙盒约束的身份执行，被拒「没有访问该容器的许可」。
+    reportProgress(@"正在提权并解除沙盒限制…");
+    {
+        int er = FuckTryElevateToRoot();
+        FLog(@"[Elevate] 预提权结果: %d (UID=%d, EUID=%d)", er, getuid(), geteuid());
+        if (er != 0) {
+            FLog(@"[Elevate] ⚠️ 提权未完全成功（%d），后续仍尝试 root cp 兜底投递", er);
+        }
+    }
+
+    // 1. 定位 Relaxin 越狱根与官方 opainject 二进制
+    NSString *jbroot = FuckRoothideJbroot();
+    if (!jbroot.length) {
+        { NSString *m = @"未检测到 Relaxin 越狱根环境（.jbroot）"; FuckWriteInjectResult(NO, m); return m; }
+        return;
+    }
+
+    // opainject 查找顺序：**App 自带优先**，越狱自带的作回退。
+    //
+    // 为什么不硬依赖越狱提供：
+    //   不同越狱放的位置完全不同（roothide 在 .jbroot-<hex>/basebin，
+    //   Dopamine 在 /var/jb/usr/bin，palera1n rootful 直接在 /usr/bin），
+    //   而且并非每个越狱都带 opainject。App 自带一份就与越狱无关了 ——
+    //   这也正是参考工程的做法（它把开源 opainject-main 编译后打进 bundle）。
+    NSString *officialOpainject = nil;
+    NSArray<NSString *> *opainjectCandidates = @[
+        FuckResourcePath(@"opainject") ?: @"",                              // ① App bundle 自带
+        [jbroot stringByAppendingPathComponent:@"basebin/opainject"],        // ② roothide
+        [jbroot stringByAppendingPathComponent:@"usr/bin/opainject"],        // ③ rootless/其他
+        [jbroot stringByAppendingPathComponent:@"usr/bin/opainject2"],
+        @"/var/jb/basebin/opainject",
+        @"/var/jb/usr/bin/opainject",
+        @"/usr/bin/opainject",                                               // ④ rootful
+    ];
+    for (NSString *cand in opainjectCandidates) {
+        if (cand.length && [[NSFileManager defaultManager] fileExistsAtPath:cand]) {
+            officialOpainject = cand;
+            break;
+        }
+    }
+    if (!officialOpainject.length) {
+        NSString *m = @"未找到可用 opainject（App 自带与越狱路径均无）";
+        FuckWriteInjectResult(NO, m);
+        return m;
+    }
+    FLogSuccess(@"[Relaxin] 官方 opainject 就绪: %@", officialOpainject);
+
+    // 2. 查找目标进程 PID（如果没运行则启动它）
+    reportProgress(@"正在查找目标进程…");
+    pid_t targetPid = FuckFindPIDForBundleID(bundleID);
+    // 注意：这里绝不能调用 FuckOpenApp / LSApplicationWorkspace。
+    // root 子进程由 spawn 自身而来，没有 UI 环境，调 LSApplicationWorkspace
+    // 会直接 SIGSEGV（崩溃点在本 App 自己身上，表现为「注入时闪退」）。
+    // 目标 App 必须由主进程在 spawn 之前拉起 —— 主进程侧已做，此处只做短轮询等待。
+    if (targetPid <= 0) {
+        FLog(@"[SPAWN] 子进程内未见目标进程，短轮询等待（不主动拉起，避免无 UI 环境崩溃）");
+        for (int i = 0; i < 10; i++) {
+            usleep(500000);
+            targetPid = FuckFindPIDForBundleID(bundleID);
+            if (targetPid > 0) break;
+        }
+    }
+
+    if (targetPid <= 0) {
+        NSString *m = [NSString stringWithFormat:@"目标 %@ 未在运行，请先在桌面打开它再注入", bundleID];
+        FuckWriteInjectResult(NO, m);
+        return m;
+    }
+    FLogSuccess(@"[Relaxin] 目标 PID: %d", targetPid);
+
+    // 3. 准备可被目标进程与 opainject 共同访问的有效 dylib
+    reportProgress(@"准备插件文件与越狱信任…");
+    NSString *finalDylibPath = dylibPath;
+
+    // 如果用户传入的是 .deb，由 Swift 层已自动提取，这里做兜底检查
+    if ([dylibPath hasSuffix:@".deb"]) {
+        { NSString *m = @"请选择解包后的 .dylib 动态库，不要直接选择 .deb 压缩包"; FuckWriteInjectResult(NO, m); return m; }
+        return;
+    }
+
+    // 核心突破：解决严格沙盒 App（如 App Store 游戏、王牌战争）报 file system sandbox blocked mmap()
+    // 苹果沙盒机制：目标 App 唯一天然具有执行权限（mmap RX）的路径是它自己的容器目录（Data Container tmp 或 Bundle 目录）。
+    // 尝试定位目标 App 的 Data Container 路径
+    NSString *targetContainerTmp = nil;
+    id targetProxy = FuckProxyForBundleID(bundleID);
+    NSString *targetDataURL = FuckProxyPathFromURL(targetProxy, @"dataContainerURL");
+    if (targetDataURL.length) {
+        targetContainerTmp = [targetDataURL stringByAppendingPathComponent:@"tmp"];
+    }
+
+    // ── 阶段一：先在「越狱公共目录」完成签名与信任缓存 ──
+    //
+    // 顺序很关键。实测把 ldid / jbctl 指向目标 App 容器内的路径时，
+    // 这一步会从正常 <0.1 秒膨胀到 8 秒（App 容器对越狱 root 工具的写入/重校验
+    // 代价极高，且可能被容器 ACL 半拒绝）。因此签名与信任缓存一律在越狱目录完成，
+    // 完成后再把「已签名、已进信任缓存」的成品投递进目标沙盒。
+    NSString *jailStageDir = [jbroot stringByAppendingPathComponent:@"tmp/minis_stage"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:jailStageDir
+                              withIntermediateDirectories:YES attributes:nil error:nil];
+    chmod(jailStageDir.UTF8String, 0777);
+
+    NSString *signedDylib = [jailStageDir stringByAppendingPathComponent:[dylibPath lastPathComponent]];
+    [[NSFileManager defaultManager] removeItemAtPath:signedDylib error:nil];
+    NSError *cpErr = nil;
+    if (![[NSFileManager defaultManager] copyItemAtPath:dylibPath toPath:signedDylib error:&cpErr]) {
+        FLogError(@"[Relaxin] 暂存到越狱目录失败: %@，退回直接用原路径", cpErr.localizedDescription);
+        signedDylib = dylibPath;
+    }
+    chmod(signedDylib.UTF8String, 0755);
+
+    // 4. ad-hoc 签名：生成合法 CodeDirectory 哈希
+    // 否则即使进了 Trust Cache，dyld 校验仍会报 (code signature invalid, errno=1)
+    // ldid 同样「自带优先」：bundle 里已打包一份（Resources/Reverse/ldid），
+    // 越狱那份的位置各越狱不一，不硬依赖。
+    NSString *ldidPath = nil;
+    NSArray<NSString *> *ldidCandidates = @[
+        FuckResourcePath(@"ldid") ?: @"",
+        [jbroot stringByAppendingPathComponent:@"usr/bin/ldid"],
+        [jbroot stringByAppendingPathComponent:@"usr/local/bin/ldid"],
+        @"/var/jb/usr/bin/ldid",
+        @"/usr/bin/ldid",
+    ];
+    for (NSString *cand in ldidCandidates) {
+        if (cand.length && [[NSFileManager defaultManager] fileExistsAtPath:cand]) {
+            ldidPath = cand;
+            break;
+        }
+    }
+    if ([[NSFileManager defaultManager] fileExistsAtPath:ldidPath]) {
+        chmod(ldidPath.UTF8String, 0755);
+        FLog(@"[Relaxin] 正在执行 ldid -S 签名: %@", signedDylib);
+        int lr = FuckSpawnArguments(@[ldidPath, @"-S", signedDylib], YES);
+        FLog(@"[Relaxin] ldid 签名返回码: %d", lr);
+    }
+
+    // 5. 写入系统 Trust Cache（jbctl + jbclient 双通道）
+    NSString *jbctlPath = nil;
+    NSArray<NSString *> *jbctlCandidates = @[
+        [jbroot stringByAppendingPathComponent:@"usr/bin/jbctl"],
+        @"/var/jb/usr/bin/jbctl",
+        @"/usr/bin/jbctl",
+    ];
+    for (NSString *cand in jbctlCandidates) {
+        if (cand.length && [[NSFileManager defaultManager] fileExistsAtPath:cand]) {
+            jbctlPath = cand;
+            break;
+        }
+    }
+    if (jbctlPath.length) {
+        FLog(@"[Relaxin] 调用 jbctl trustcache add: %@", signedDylib);
+        FuckSpawnArguments(@[jbctlPath, @"trustcache", @"add", signedDylib], YES);
+    }
+    FLog(@"[Relaxin] 调用 jbclient_trust_file_by_path 注入 Trust Cache…");
+    FuckRoothideTrustDylib(signedDylib);
+
+    // ── 阶段二：把成品投递到「目标进程真的能 mmap-executable」的位置 ──
+    //
+    // 这一步是 dlopen 成败的关键。签名已在阶段一完成，此处纯拷贝 + 探测。
+    //
+    // 为什么不照搬旧实现：旧实现固定投 Data container 的 tmp/，那是目标 App
+    // 的「数据区」——读没问题，但 iOS 不把它当作可执行区，于是
+    // file-map-executable 被拒、dlopen 报 sandbox blocked mmap()。
+    // 旧代码注释里其实早就写明了正确落点：
+    //   「dlopen 会被沙盒拦截 mmap(PROT_EXEC)，文件必须在目标 App 的
+    //     bundle container 内」
+    // 这里改成把候选落点列出来、逐个投递、逐个向内核求证，选第一个真正
+    // 允许可执行映射的，而不是照抄旧实现的固定路径。
+    NSString *dylibName = [dylibPath lastPathComponent];
+    NSMutableArray<NSString *> *candidateDirs = [NSMutableArray array];
+
+    // 落点顺序：侵入性由低到高，取第一个真正允许 file-map-executable 的。
+    //
+    // 实测规律（与用户观察一致）：
+    //   · TrollStore / 巨魔 安装的 App 带 platform-application，基本不受 App Sandbox
+    //     约束，越狱公共目录就能直接 mmap → 命中候选 1，完全不碰目标的任何目录；
+    //   · App Store 正版 App 受沙盒约束，Data container 只给读不给 exec，
+    //     唯有它自己的代码区（Bundle container）被允许 file-map-executable
+    //     → 才会升级到候选 2。
+    // 把越狱目录放在最前，就是为了让无沙盒目标保持零侵入 —— 上一版把 Bundle
+    // container 排第一，会对巨魔 App 无谓地写入其安装包目录，可能触发完整性自检。
+    [candidateDirs addObject:jailStageDir];                                      // 候选 1：越狱公共目录（零侵入）
+
+    NSString *targetBundlePath = FuckProxyPathFromURL(targetProxy, @"bundleURL");
+    if (targetBundlePath.length) {
+        NSString *bundleContainer = [targetBundlePath stringByDeletingLastPathComponent];
+        if (bundleContainer.length) [candidateDirs addObject:bundleContainer];   // 候选 2：目标 App 自身代码区
+    }
+    if (targetContainerTmp.length) [candidateDirs addObject:targetContainerTmp];  // 候选 3：目标数据容器 tmp
+
+    FLog(@"[SandboxBypass] 目标 bundle: %@", targetBundlePath ?: @"(nil)");
+    FLog(@"[SandboxBypass] 候选落点 %lu 个，开始逐个投递并探测 file-map-executable",
+         (unsigned long)candidateDirs.count);
+
+    NSMutableArray<NSString *> *deliveredCopies = [NSMutableArray array];
+    NSString *stagedDylib = nil;
+    NSString *chosenDir = nil;
+    BOOL chosenAllowsExec = NO;
+
+    for (NSString *dir in candidateDirs) {
+        NSFileManager *fm = [NSFileManager defaultManager];
+        if (![fm fileExistsAtPath:dir]) {
+            FLog(@"[SandboxBypass] 跳过不存在的落点: %@", dir);
+            continue;
+        }
+
+        NSString *dest = [dir stringByAppendingPathComponent:dylibName];
+
+        // 关键改动：一律用「越狱 cp + root persona」投递，而不是 NSFileManager。
+        // 主进程 uid 501 往目标 Bundle container 拷贝会被沙盒拒绝，root cp 不会。
+        int cpRC = FuckRootCopyFile(signedDylib, dest, jbroot);
+        if (cpRC != 0) {
+            FLog(@"[SandboxBypass] 投递失败 %@ → %@（root cp 返回 %d，回退 NSFileManager）",
+                 dir, dylibName, cpRC);
+            NSError *cpErr = nil;
+            if (![fm copyItemAtPath:signedDylib toPath:dest error:&cpErr]) {
+                FLog(@"[SandboxBypass]   NSFileManager 亦失败：%@", cpErr.localizedDescription);
+                continue;
+            }
+            chmod(dest.UTF8String, 0755);
+        }
+        [deliveredCopies addObject:dest];
+
+        BOOL allows = FuckSandboxAllowsMapExec(targetPid, dest);
+        FLog(@"[SandboxBypass] 投递成功: %@ → file-map-executable %@",
+             dest, allows ? @"允许 ✅" : @"被拒 ❌");
+
+        if (allows && !chosenDir) {
+            chosenDir = dir;
+            stagedDylib = dest;
+            chosenAllowsExec = YES;
+            FLogSuccess(@"[SandboxBypass] 命中可用落点: %@", dest);
+            break;   // 已有可执行落点，无需继续尝试
+        }
+        if (!stagedDylib) {
+            // 记下第一个投递成功的，作为「都不允许」时的兜底
+            stagedDylib = dest;
+        }
+    }
+
+    if (stagedDylib) {
+        finalDylibPath = stagedDylib;
+        if (chosenAllowsExec) {
+            FLogSuccess(@"[Relaxin] 使用落点: %@", finalDylibPath);
+        } else {
+            FLog(@"[Relaxin] ⚠️ 所有候选落点均未获可执行权限，仍用 %@ 尝试（交由 opainject 补发扩展）",
+                 finalDylibPath);
+        }
+    } else {
+        FLogError(@"[Relaxin] 全部候选落点投递失败，退回越狱暂存路径");
+        finalDylibPath = signedDylib;
+    }
+
+    // 6. 标记目标进程可调试
+    FLog(@"[Relaxin] 标记目标 PID %d 为可调试…", targetPid);
+    FuckRoothideSetProcessDebugged(targetPid, YES);
+
+    // 6. 调用官方原生 opainject
+    reportProgress(@"正在调用 Relaxin 官方引擎执行注入…");
+    FLog(@"[Relaxin] 正在执行: %@ %d %@", officialOpainject, targetPid, finalDylibPath);
+
+    NSArray<NSString *> *args = @[
+        officialOpainject,
+        [NSString stringWithFormat:@"%d", targetPid],
+        finalDylibPath
+    ];
+
+    NSString *injectOutput = nil;
+    int rc = FuckSpawnArgumentsWithOutput(args, YES, &injectOutput);
+    FLog(@"[Relaxin] 官方 opainject 返回码: %d", rc);
+
+    // 注入完成后立即清理所有暂存件（各处投递副本 + 越狱暂存区），保持无痕
+    for (NSString *copyPath in deliveredCopies) {
+        if ([copyPath isEqualToString:dylibPath]) continue;
+        if ([[NSFileManager defaultManager] removeItemAtPath:copyPath error:nil]) {
+            FLog(@"[Relaxin] 已清除投递副本: %@", copyPath);
+        }
+    }
+    if (signedDylib && ![signedDylib isEqualToString:dylibPath]) {
+        [[NSFileManager defaultManager] removeItemAtPath:signedDylib error:nil];
+        FLog(@"[Relaxin] 已清除越狱暂存区的临时 dylib");
+    }
+
+    // 深度检查输出：哪怕 opainject 返回 0，只要 dlopen 报错就绝不能报成功！
+    BOOL dlopenFailed = NO;
+    NSString *failReason = nil;
+    if ([injectOutput containsString:@"dlopen failed"]) {
+        dlopenFailed = YES;
+        if ([injectOutput containsString:@"sandbox blocked mmap"]) {
+            failReason = @"沙盒拦截：系统禁止目标 App 映射外部动态库";
+        } else if ([injectOutput containsString:@"code signature invalid"]) {
+            failReason = @"签名错误：目标 App 内核拒绝未经 PAC 签名的代码";
+        } else {
+            failReason = @"目标 App dlopen 载入失败，请检查架构与依赖";
+        }
+    }
+
+    if (rc == 0 && !dlopenFailed) {
+        FLogSuccess(@"[Relaxin] ✅ 官方引擎注入成功完成，目标进程已顺利载入动态库！");
+        { NSString *m = [NSString stringWithFormat:@"注入成功 (PID: %d)", targetPid]; FuckWriteInjectResult(YES, m); return m; }
+    } else {
+        NSString *err = failReason ? failReason : [NSString stringWithFormat:@"官方 opainject 退出码 %d", rc];
+        FLogError(@"[Relaxin] ❌ 注入失败: %@", err);
+        { NSString *m = err; FuckWriteInjectResult(NO, m); return m; }
+    }
+    return nil;
+}
+
 + (void)injectDylib:(NSString *)dylibPath
         intoBundleID:(NSString *)bundleID
                 mode:(int)mode
             progress:(void (^)(NSString *step))progress
           completion:(void (^)(BOOL success, NSString *message))completion {
 
-    void (^finish)(BOOL, NSString *) = ^(BOOL success, NSString *message) {
-        if (completion) {
-            completion(success, message);
-        }
-    };
     void (^reportProgress)(NSString *) = ^(NSString *step) {
-        if (progress) {
-            progress(step);
-        }
+        if (progress) dispatch_async(dispatch_get_main_queue(), ^{ progress(step); });
+    };
+    void (^finish)(BOOL, NSString *) = ^(BOOL ok, NSString *msg) {
+        if (completion) dispatch_async(dispatch_get_main_queue(), ^{ completion(ok, msg); });
     };
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        FLog(@"========== Relaxin 官方唯一通道注入开始 ==========");
+        FLog(@"========== 注入开始（主进程调度，root 子进程执行）==========");
         FLog(@"输入路径: %@", dylibPath);
         FLog(@"目标 App: %@", bundleID);
 
@@ -2749,281 +2932,71 @@ static void FuckCaptureTargetCrashLog(NSString *bundleID, NSString *execName) {
             return;
         }
 
-        // 0. 先去掉本进程自身的沙盒限制（原版 CLI 入口做的第一件事）。
-        //
-        // 原版所谓「通过容器授权」并不是申请某个容器的许可，而是把自己整个
-        // 去沙盒化 —— FuckTryElevateToRoot 内部走 roothide 官方的三步：
-        //   ① jbclient_root_steal_ucred(0, &token)      偷 root 凭据
-        //   ② jbclient_root_sign_thread(token)          让凭据在本线程生效
-        //   ③ jbclient_root_set_mac_label("sandbox", t) 换掉沙盒标签 → 摆脱沙盒
-        // 摘掉沙盒后，才能以 root 身份往目标 App 的 Bundle container 写文件，
-        // 而 Bundle container 是 App Store 正版 App 唯一被允许
-        // file-map-executable 的位置（Data container 已实测：即便拿到扩展授权
-        // 仍然 blocked mmap，那条路走不通）。
-        //
-        // 新版改用 Relaxin 官方 opainject 通道时漏掉了这一步，导致投递仍以
-        // uid 501 受沙盒约束的身份执行，被拒「没有访问该容器的许可」。
-        reportProgress(@"正在提权并解除沙盒限制…");
-        {
-            int er = FuckTryElevateToRoot();
-            FLog(@"[Elevate] 预提权结果: %d (UID=%d, EUID=%d)", er, getuid(), geteuid());
-            if (er != 0) {
-                FLog(@"[Elevate] ⚠️ 提权未完全成功（%d），后续仍尝试 root cp 兜底投递", er);
-            }
-        }
+        [[NSFileManager defaultManager] removeItemAtPath:FuckInjectResultPath() error:nil];
 
-        // 1. 定位 Relaxin 越狱根与官方 opainject 二进制
-        NSString *jbroot = FuckRoothideJbroot();
-        if (!jbroot.length) {
-            finish(NO, @"未检测到 Relaxin 越狱根环境（.jbroot）");
-            return;
-        }
-
-        NSString *officialOpainject = [jbroot stringByAppendingPathComponent:@"basebin/opainject"];
-        if (![[NSFileManager defaultManager] fileExistsAtPath:officialOpainject]) {
-            officialOpainject = [jbroot stringByAppendingPathComponent:@"usr/bin/opainject"];
-        }
-        if (![[NSFileManager defaultManager] fileExistsAtPath:officialOpainject]) {
-            finish(NO, [NSString stringWithFormat:@"未在越狱根找到官方 opainject: %@", officialOpainject]);
-            return;
-        }
-        FLogSuccess(@"[Relaxin] 官方 opainject 就绪: %@", officialOpainject);
-
-        // 2. 查找目标进程 PID（如果没运行则启动它）
-        reportProgress(@"正在查找目标进程…");
+        reportProgress(@"正在确认目标进程…");
         pid_t targetPid = FuckFindPIDForBundleID(bundleID);
         if (targetPid <= 0) {
-            reportProgress(@"目标未启动，正在调起…");
-            FLog(@"[SPAWN] 正在拉起目标 App: %@", bundleID);
+            FLog(@"[SPAWN] 目标未运行，先拉起: %@", bundleID);
             FuckOpenApp(bundleID);
-            // 给目标 App 充分的启动时间，特别是 Unity / 大型游戏，不要暴力拉回自己导致 watchdog 强杀
             for (int i = 0; i < 20; i++) {
                 usleep(500000);
                 targetPid = FuckFindPIDForBundleID(bundleID);
-                if (targetPid > 0) {
-                    FLog(@"[SPAWN] 目标 App 已启动，PID = %d，稍作等待使其主窗口就绪…", targetPid);
-                    usleep(1000000);
-                    break;
-                }
+                if (targetPid > 0) break;
             }
+            if (targetPid > 0) usleep(1000000);
         }
-
         if (targetPid <= 0) {
             finish(NO, [NSString stringWithFormat:@"无法获取目标 %@ 的运行 PID，请先在桌面打开它", bundleID]);
             return;
         }
-        FLogSuccess(@"[Relaxin] 目标 PID: %d", targetPid);
+        FLogSuccess(@"[SPAWN] 目标 PID: %d", targetPid);
 
-        // 3. 准备可被目标进程与 opainject 共同访问的有效 dylib
-        reportProgress(@"准备插件文件与越狱信任…");
-        NSString *finalDylibPath = dylibPath;
-
-        // 如果用户传入的是 .deb，由 Swift 层已自动提取，这里做兜底检查
-        if ([dylibPath hasSuffix:@".deb"]) {
-            finish(NO, @"请选择解包后的 .dylib 动态库，不要直接选择 .deb 压缩包");
+        reportProgress(@"正在以 root 身份执行注入…");
+        NSString *exe = [[NSBundle mainBundle] executablePath];
+        if (!exe.length) {
+            finish(NO, @"无法定位本 App 可执行文件");
             return;
         }
-
-        // 核心突破：解决严格沙盒 App（如 App Store 游戏、王牌战争）报 file system sandbox blocked mmap()
-        // 苹果沙盒机制：目标 App 唯一天然具有执行权限（mmap RX）的路径是它自己的容器目录（Data Container tmp 或 Bundle 目录）。
-        // 尝试定位目标 App 的 Data Container 路径
-        NSString *targetContainerTmp = nil;
-        id targetProxy = FuckProxyForBundleID(bundleID);
-        NSString *targetDataURL = FuckProxyPathFromURL(targetProxy, @"dataContainerURL");
-        if (targetDataURL.length) {
-            targetContainerTmp = [targetDataURL stringByAppendingPathComponent:@"tmp"];
-        }
-
-        // ── 阶段一：先在「越狱公共目录」完成签名与信任缓存 ──
-        //
-        // 顺序很关键。实测把 ldid / jbctl 指向目标 App 容器内的路径时，
-        // 这一步会从正常 <0.1 秒膨胀到 8 秒（App 容器对越狱 root 工具的写入/重校验
-        // 代价极高，且可能被容器 ACL 半拒绝）。因此签名与信任缓存一律在越狱目录完成，
-        // 完成后再把「已签名、已进信任缓存」的成品投递进目标沙盒。
-        NSString *jailStageDir = [jbroot stringByAppendingPathComponent:@"tmp/minis_stage"];
-        [[NSFileManager defaultManager] createDirectoryAtPath:jailStageDir
-                                  withIntermediateDirectories:YES attributes:nil error:nil];
-        chmod(jailStageDir.UTF8String, 0777);
-
-        NSString *signedDylib = [jailStageDir stringByAppendingPathComponent:[dylibPath lastPathComponent]];
-        [[NSFileManager defaultManager] removeItemAtPath:signedDylib error:nil];
-        NSError *cpErr = nil;
-        if (![[NSFileManager defaultManager] copyItemAtPath:dylibPath toPath:signedDylib error:&cpErr]) {
-            FLogError(@"[Relaxin] 暂存到越狱目录失败: %@，退回直接用原路径", cpErr.localizedDescription);
-            signedDylib = dylibPath;
-        }
-        chmod(signedDylib.UTF8String, 0755);
-
-        // 4. ad-hoc 签名：生成合法 CodeDirectory 哈希
-        // 否则即使进了 Trust Cache，dyld 校验仍会报 (code signature invalid, errno=1)
-        NSString *ldidPath = FuckResourcePath(@"ldid");
-        if (!ldidPath.length) {
-            ldidPath = [jbroot stringByAppendingPathComponent:@"usr/bin/ldid"];
-        }
-        if ([[NSFileManager defaultManager] fileExistsAtPath:ldidPath]) {
-            chmod(ldidPath.UTF8String, 0755);
-            FLog(@"[Relaxin] 正在执行 ldid -S 签名: %@", signedDylib);
-            int lr = FuckSpawnArguments(@[ldidPath, @"-S", signedDylib], YES);
-            FLog(@"[Relaxin] ldid 签名返回码: %d", lr);
-        }
-
-        // 5. 写入系统 Trust Cache（jbctl + jbclient 双通道）
-        NSString *jbctlPath = [jbroot stringByAppendingPathComponent:@"usr/bin/jbctl"];
-        if ([[NSFileManager defaultManager] fileExistsAtPath:jbctlPath]) {
-            FLog(@"[Relaxin] 调用 jbctl trustcache add: %@", signedDylib);
-            FuckSpawnArguments(@[jbctlPath, @"trustcache", @"add", signedDylib], YES);
-        }
-        FLog(@"[Relaxin] 调用 jbclient_trust_file_by_path 注入 Trust Cache…");
-        FuckRoothideTrustDylib(signedDylib);
-
-        // ── 阶段二：把成品投递到「目标进程真的能 mmap-executable」的位置 ──
-        //
-        // 这一步是 dlopen 成败的关键。签名已在阶段一完成，此处纯拷贝 + 探测。
-        //
-        // 为什么不照搬旧实现：旧实现固定投 Data container 的 tmp/，那是目标 App
-        // 的「数据区」——读没问题，但 iOS 不把它当作可执行区，于是
-        // file-map-executable 被拒、dlopen 报 sandbox blocked mmap()。
-        // 旧代码注释里其实早就写明了正确落点：
-        //   「dlopen 会被沙盒拦截 mmap(PROT_EXEC)，文件必须在目标 App 的
-        //     bundle container 内」
-        // 这里改成把候选落点列出来、逐个投递、逐个向内核求证，选第一个真正
-        // 允许可执行映射的，而不是照抄旧实现的固定路径。
-        NSString *dylibName = [dylibPath lastPathComponent];
-        NSMutableArray<NSString *> *candidateDirs = [NSMutableArray array];
-
-        // 落点顺序：侵入性由低到高，取第一个真正允许 file-map-executable 的。
-        //
-        // 实测规律（与用户观察一致）：
-        //   · TrollStore / 巨魔 安装的 App 带 platform-application，基本不受 App Sandbox
-        //     约束，越狱公共目录就能直接 mmap → 命中候选 1，完全不碰目标的任何目录；
-        //   · App Store 正版 App 受沙盒约束，Data container 只给读不给 exec，
-        //     唯有它自己的代码区（Bundle container）被允许 file-map-executable
-        //     → 才会升级到候选 2。
-        // 把越狱目录放在最前，就是为了让无沙盒目标保持零侵入 —— 上一版把 Bundle
-        // container 排第一，会对巨魔 App 无谓地写入其安装包目录，可能触发完整性自检。
-        [candidateDirs addObject:jailStageDir];                                      // 候选 1：越狱公共目录（零侵入）
-
-        NSString *targetBundlePath = FuckProxyPathFromURL(targetProxy, @"bundleURL");
-        if (targetBundlePath.length) {
-            NSString *bundleContainer = [targetBundlePath stringByDeletingLastPathComponent];
-            if (bundleContainer.length) [candidateDirs addObject:bundleContainer];   // 候选 2：目标 App 自身代码区
-        }
-        if (targetContainerTmp.length) [candidateDirs addObject:targetContainerTmp];  // 候选 3：目标数据容器 tmp
-
-        FLog(@"[SandboxBypass] 目标 bundle: %@", targetBundlePath ?: @"(nil)");
-        FLog(@"[SandboxBypass] 候选落点 %lu 个，开始逐个投递并探测 file-map-executable",
-             (unsigned long)candidateDirs.count);
-
-        NSMutableArray<NSString *> *deliveredCopies = [NSMutableArray array];
-        NSString *stagedDylib = nil;
-        NSString *chosenDir = nil;
-        BOOL chosenAllowsExec = NO;
-
-        for (NSString *dir in candidateDirs) {
-            NSFileManager *fm = [NSFileManager defaultManager];
-            if (![fm fileExistsAtPath:dir]) {
-                FLog(@"[SandboxBypass] 跳过不存在的落点: %@", dir);
-                continue;
-            }
-
-            NSString *dest = [dir stringByAppendingPathComponent:dylibName];
-
-            // 关键改动：一律用「越狱 cp + root persona」投递，而不是 NSFileManager。
-            // 主进程 uid 501 往目标 Bundle container 拷贝会被沙盒拒绝，root cp 不会。
-            int cpRC = FuckRootCopyFile(signedDylib, dest, jbroot);
-            if (cpRC != 0) {
-                FLog(@"[SandboxBypass] 投递失败 %@ → %@（root cp 返回 %d，回退 NSFileManager）",
-                     dir, dylibName, cpRC);
-                NSError *cpErr = nil;
-                if (![fm copyItemAtPath:signedDylib toPath:dest error:&cpErr]) {
-                    FLog(@"[SandboxBypass]   NSFileManager 亦失败：%@", cpErr.localizedDescription);
-                    continue;
-                }
-                chmod(dest.UTF8String, 0755);
-            }
-            [deliveredCopies addObject:dest];
-
-            BOOL allows = FuckSandboxAllowsMapExec(targetPid, dest);
-            FLog(@"[SandboxBypass] 投递成功: %@ → file-map-executable %@",
-                 dest, allows ? @"允许 ✅" : @"被拒 ❌");
-
-            if (allows && !chosenDir) {
-                chosenDir = dir;
-                stagedDylib = dest;
-                chosenAllowsExec = YES;
-                FLogSuccess(@"[SandboxBypass] 命中可用落点: %@", dest);
-                break;   // 已有可执行落点，无需继续尝试
-            }
-            if (!stagedDylib) {
-                // 记下第一个投递成功的，作为「都不允许」时的兜底
-                stagedDylib = dest;
-            }
-        }
-
-        if (stagedDylib) {
-            finalDylibPath = stagedDylib;
-            if (chosenAllowsExec) {
-                FLogSuccess(@"[Relaxin] 使用落点: %@", finalDylibPath);
-            } else {
-                FLog(@"[Relaxin] ⚠️ 所有候选落点均未获可执行权限，仍用 %@ 尝试（交由 opainject 补发扩展）",
-                     finalDylibPath);
-            }
-        } else {
-            FLogError(@"[Relaxin] 全部候选落点投递失败，退回越狱暂存路径");
-            finalDylibPath = signedDylib;
-        }
-
-        // 6. 标记目标进程可调试
-        FLog(@"[Relaxin] 标记目标 PID %d 为可调试…", targetPid);
-        FuckRoothideSetProcessDebugged(targetPid, YES);
-
-        // 6. 调用官方原生 opainject
-        reportProgress(@"正在调用 Relaxin 官方引擎执行注入…");
-        FLog(@"[Relaxin] 正在执行: %@ %d %@", officialOpainject, targetPid, finalDylibPath);
+        FLog(@"[SPAWN] executable: %@", exe);
+        FLog(@"[SPAWN] args: -FuckInject %@ %@ %d", dylibPath, bundleID, mode);
 
         NSArray<NSString *> *args = @[
-            officialOpainject,
-            [NSString stringWithFormat:@"%d", targetPid],
-            finalDylibPath
+            exe, @"-FuckInject", dylibPath, bundleID,
+            [NSString stringWithFormat:@"%d", mode]
         ];
+        int rawStatus = FuckSpawnArguments(args, YES);
+        int ret = WIFEXITED(rawStatus) ? WEXITSTATUS(rawStatus) : -1;
+        FLog(@"[SPAWN] root 子进程 raw=%d, exit=%d", rawStatus, ret);
 
-        NSString *injectOutput = nil;
-        int rc = FuckSpawnArgumentsWithOutput(args, YES, &injectOutput);
-        FLog(@"[Relaxin] 官方 opainject 返回码: %d", rc);
-
-        // 注入完成后立即清理所有暂存件（各处投递副本 + 越狱暂存区），保持无痕
-        for (NSString *copyPath in deliveredCopies) {
-            if ([copyPath isEqualToString:dylibPath]) continue;
-            if ([[NSFileManager defaultManager] removeItemAtPath:copyPath error:nil]) {
-                FLog(@"[Relaxin] 已清除投递副本: %@", copyPath);
-            }
+        NSString *resultText = [NSString stringWithContentsOfFile:FuckInjectResultPath()
+                                                        encoding:NSUTF8StringEncoding
+                                                           error:NULL];
+        BOOL ok = NO;
+        NSString *msg = nil;
+        if (resultText.length) {
+            NSArray<NSString *> *parts = [resultText componentsSeparatedByString:@"\n"];
+            ok = [parts.firstObject isEqualToString:@"OK"];
+            msg = parts.count > 1
+                ? [[parts subarrayWithRange:NSMakeRange(1, parts.count - 1)] componentsJoinedByString:@"\n"]
+                : nil;
         }
-        if (signedDylib && ![signedDylib isEqualToString:dylibPath]) {
-            [[NSFileManager defaultManager] removeItemAtPath:signedDylib error:nil];
-            FLog(@"[Relaxin] 已清除越狱暂存区的临时 dylib");
-        }
 
-        // 深度检查输出：哪怕 opainject 返回 0，只要 dlopen 报错就绝不能报成功！
-        BOOL dlopenFailed = NO;
-        NSString *failReason = nil;
-        if ([injectOutput containsString:@"dlopen failed"]) {
-            dlopenFailed = YES;
-            if ([injectOutput containsString:@"sandbox blocked mmap"]) {
-                failReason = @"沙盒拦截：系统禁止目标 App 映射外部动态库";
-            } else if ([injectOutput containsString:@"code signature invalid"]) {
-                failReason = @"签名错误：目标 App 内核拒绝未经 PAC 签名的代码";
+        if (!msg.length) {
+            if (WIFSIGNALED(rawStatus)) {
+                msg = [NSString stringWithFormat:@"注入子进程被信号 %d 杀死", WTERMSIG(rawStatus)];
             } else {
-                failReason = @"目标 App dlopen 载入失败，请检查架构与依赖";
+                msg = (ret == 0) ? @"注入成功" : [NSString stringWithFormat:@"注入失败（子进程退出码 %d）", ret];
             }
+            ok = (ret == 0);
         }
 
-        if (rc == 0 && !dlopenFailed) {
-            FLogSuccess(@"[Relaxin] ✅ 官方引擎注入成功完成，目标进程已顺利载入动态库！");
-            finish(YES, [NSString stringWithFormat:@"注入成功 (PID: %d)", targetPid]);
+        if (ok) {
+            FLogSuccess(@"[SPAWN] ✅ %@", msg);
+            finish(YES, msg);
         } else {
-            NSString *err = failReason ? failReason : [NSString stringWithFormat:@"官方 opainject 退出码 %d", rc];
-            FLogError(@"[Relaxin] ❌ 注入失败: %@", err);
-            finish(NO, err);
+            FLogError(@"[SPAWN] ❌ %@", msg);
+            finish(NO, msg);
         }
     });
 }
