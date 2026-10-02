@@ -3,76 +3,15 @@
 //  KyTuT
 //
 //  已安装 App 枚举：通过 LSApplicationWorkspace（私有类，NSClassFromString 动态调用）
-//  列出全部应用及各自的 Bundle / 数据容器路径，并判定安装来源。
-//  依赖 TrollStore 签发的扩展 entitlements（container-manager /
-//  MobileContainerManager.allowed / 全盘读写白名单等，见 Minis-Extended.entitlements）。
+//  列出全部应用及各自的 Bundle / 数据容器路径。
+//  依赖 TrollStore 签发的扩展 entitlements（no-sandbox / container-manager /
+//  MobileContainerManager.allowed 等，见 Minis-Extended.entitlements）。
 //
 
 import Foundation
 import UIKit
 
 private let appsLogger = AppLogger(category: "Frida")
-
-/// 安装来源。
-///
-/// 判定依据（按可信度从高到低）：
-///   1. bundle 路径 —— 系统 App 装在系统分区，路径形态与用户 App 完全不同，最可靠；
-///   2. FairPlay 加密位（LC_ENCRYPTION_INFO_64 的 cryptid）——  App Store 下载的包
-///      带 DRM 加密，cryptid != 0；巨魔安装的包是已解密的，cryptid == 0；
-///   3. 描述文件里的 TeamID —— 巨魔/自签名包通常没有描述文件或没有团队 ID，
-///      App Store 包带真实开发者团队 ID。
-///
-/// 三者组合判断，避免单一信号误判（例如自签名的开发包 cryptid 也是 0，
-/// 但它没有巨魔特征，会被归入「其他」而不是误报成巨魔）。
-enum AppInstallSource: String, CaseIterable, Identifiable {
-    case appStore
-    case trollStore
-    case system
-    case other
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .appStore:   return "App Store"
-        case .trollStore: return "巨魔"
-        case .system:     return "系统"
-        case .other:      return "其他"
-        }
-    }
-
-    var shortTitle: String {
-        switch self {
-        case .appStore:   return "商店"
-        case .trollStore: return "巨魔"
-        case .system:     return "系统"
-        case .other:      return "其他"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .appStore:   return "bag.fill"
-        case .trollStore: return "wand.and.stars"
-        case .system:     return "gearshape.2.fill"
-        case .other:      return "questionmark.circle.fill"
-        }
-    }
-
-    /// 这类来源能不能做动态注入（给用户一个直观提示）
-    var injectionHint: String {
-        switch self {
-        case .appStore:
-            return "App Store 包带 FairPlay 加密。动态注入不依赖砸壳（代码在内存里已解密），可直接注入。"
-        case .trollStore:
-            return "巨魔安装的包通常无沙盒限制，注入兼容性最好。"
-        case .system:
-            return "系统 App 受保护较强，注入可能被系统拒绝或影响稳定性。"
-        case .other:
-            return "来源不明（可能是自签名或企业签）。注入兼容性不确定。"
-        }
-    }
-}
 
 struct InstalledAppInfo: Identifiable {
     var id: String { bundleId }
@@ -87,10 +26,6 @@ struct InstalledAppInfo: Identifiable {
     /// 在 listApps 时后台算好存字段 —— 曾是 computed property，列表每行
     /// 每次渲染都全量读主二进制，是"目标 App 管理卡顿"的根因。
     let isEncrypted: Bool
-    /// 安装来源（列表可按此筛选）
-    let source: AppInstallSource
-    /// 签名 TeamID（为空表示无描述文件 / 无团队签名）
-    let teamID: String?
 
     var mainExecutableURL: URL? {
         guard let plist = NSDictionary(contentsOf: bundleURL.appendingPathComponent("Info.plist")),
@@ -138,15 +73,6 @@ enum InstalledAppsService {
             let version = kvcString(proxy, "shortVersionString") ?? ""
             let container = kvcURL(proxy, "dataContainerURL")
 
-            let encrypted = computeEncrypted(bundleURL: bundleURL)
-            let teamID = readTeamID(bundleURL: bundleURL)
-            let source = classifyInstallSource(
-                isSystem: isSystem,
-                bundleURL: bundleURL,
-                isEncrypted: encrypted,
-                teamID: teamID
-            )
-
             result.append(InstalledAppInfo(
                 bundleId: bundleId,
                 name: name,
@@ -155,67 +81,11 @@ enum InstalledAppsService {
                 dataContainerURL: container,
                 isSystem: isSystem,
                 icon: loadIcon(bundleURL: bundleURL),
-                isEncrypted: encrypted,
-                source: source,
-                teamID: teamID
+                isEncrypted: computeEncrypted(bundleURL: bundleURL)
             ))
         }
         appsLogger.info("已列出 \(result.count) 个 App（含系统: \(includeSystem)）")
         return result.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    // MARK: - 安装来源判定
-
-    /// 综合三个信号判定来源。
-    ///
-    /// 为什么不能只看加密位：巨魔装的包 cryptid=0（已解密），但**自签名/企业签
-    /// 的开发包也是 0**。只看 crypto 会把开发包误报成巨魔。
-    /// 加上描述文件里的 TeamID 才能区分。
-    static func classifyInstallSource(isSystem: Bool,
-                                      bundleURL: URL,
-                                      isEncrypted: Bool,
-                                      teamID: String?) -> AppInstallSource {
-        // ① 系统分区 = 系统 App（最可靠，直接返回）
-        if isSystem { return .system }
-
-        // ② FairPlay 加密 = App Store 下载（DRM 只在商店发行时施加）
-        if isEncrypted { return .appStore }
-
-        // ③ 描述文件里带真实团队 ID：走的是正规签名渠道，归为商店来源；
-        //    巨魔/自签名包一般没有描述文件，或没有 TeamIdentifier。
-        if let t = teamID, !t.isEmpty {
-            return .appStore
-        }
-
-        // ④ 无加密、无描述文件：巨魔安装最典型的形态（ad-hoc 签名）。
-        //    再确认没有商店收据，排除"商店包被处理后重装"的少数情况。
-        let hasStoreReceipt = FileManager.default.fileExists(
-            atPath: bundleURL.appendingPathComponent("_MASReceipt/receipt").path
-        )
-        return hasStoreReceipt ? .appStore : .trollStore
-    }
-
-    /// 读描述文件里的 TeamID。
-    ///
-    /// 注意可选链优先级：`try? X as? [String: Any]` 会被解析成
-    /// `try? (X as? [String: Any])`，得到 `[String: Any]??`（双重可选），
-    /// 解一层后仍是可选，紧接着下标访问就会编译失败。
-    /// 必须拆成两步：先 try? 再 as?。
-    private static func readTeamID(bundleURL: URL) -> String? {
-        let provPath = bundleURL.appendingPathComponent("embedded.mobileprovision").path
-        guard let data = FileManager.default.contents(atPath: provPath),
-              let raw = String(data: data, encoding: .ascii),
-              let start = raw.range(of: "<plist"),
-              let end = raw.range(of: "</plist>") else { return nil }
-
-        let xml = String(raw[start.lowerBound..<end.upperBound])
-        guard let xmlData = xml.data(using: .utf8),
-              let obj = try? PropertyListSerialization.propertyList(
-                  from: xmlData, options: [], format: nil),
-              let plist = obj as? [String: Any],
-              let teams = plist["TeamIdentifier"] as? [String],
-              let first = teams.first else { return nil }
-        return first
     }
 
     // MARK: - 私有属性动态读取
