@@ -8,21 +8,32 @@
 	<key>com.apple.developer.team-identifier</key>
 	<string>OPENMINIS01</string>
 
-	<!-- ══════════ TrollStore 绝对免沙盒与全盘直通特权 ══════════ -->
+	<!-- ══════════ TrollStore 全盘直通特权（保持沙盒） ══════════ -->
+	<!--
+	  特意【不】声明下面这三项：
+	      com.apple.private.security.no-sandbox
+	      com.apple.private.security.no-container
+	      com.apple.private.security.container-required = false
+
+	  原因（早期提交 b15488d847 已验证并留有记录）：
+	  逃逸沙盒会让本 App 失去容器，于是 WKWebView 的 WebContent 子进程
+	  拿不到「本 App 容器」的沙盒扩展，表现为内置浏览器任何页面都打不开
+	  —— 本地文件同样经 WebContent 渲染，所以本地预览也一起失效。
+
+	  读其它 App 容器、读写目标 App 目录，改用下面的沙盒例外实现：
+	  它们在保持沙盒的前提下同样能枚举容器、读写任意绝对路径，
+	  因此不再需要靠「逃逸沙盒」换取这些能力。
+	-->
 	<key>platform-application</key>
 	<true/>
-	<key>com.apple.private.security.no-sandbox</key>
-	<true/>
-	<key>com.apple.private.security.no-container</key>
-	<true/>
-	<key>com.apple.private.security.container-required</key>
-	<false/>
 	<key>com.apple.private.security.storage-exempt.heritable</key>
 	<true/>
 	<key>com.apple.private.persona-mgmt</key>
 	<true/>
 
 	<!-- ══════════ 全盘绝对路径读写白名单（/ = 全系统） ══════════ -->
+	<!-- 注入投递（写目标 App 的 Bundle container）、读其它 App 容器、
+	     读越狱目录，都靠这一条在沙盒内完成，无需逃逸沙盒。 -->
 	<key>com.apple.security.exception.files.absolute-path.read-write</key>
 	<array>
 		<string>/</string>
