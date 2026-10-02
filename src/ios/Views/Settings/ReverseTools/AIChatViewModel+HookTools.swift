@@ -4,14 +4,14 @@
 //
 //  Hook 生成与注入的 AI 工具实现。
 //
-//  配合 AIChatViewModel+ToolDefinitions 中的工具定义：
-//    - hook_compile  把 Hook 描述编译成可注入的 dylib（基于内置 FuckEngine 模板）
-//    - dylib_inject  把 dylib 注入到目标 App 并返回结果
-//
-//  这两个工具串起来就是完整闭环：AI 分析 → 生成配置 → 产出 dylib → 询问用户 → 注入。
+//  联动机制：
+//    - hook_compile  把 Hook 描述编译成可注入的 dylib（基于内置 AVCodec 模板）
+//    - dylib_inject  通过 URL Scheme 唤醒独立的「kyTuT 注入器」自动执行全系统注入
+//                    并实时读取全系统共享日志（/var/mobile/Documents/inject_debug.log）
 //
 
 import Foundation
+import UIKit
 
 extension AIChatViewModel {
 
@@ -105,29 +105,32 @@ extension AIChatViewModel {
             return ("Error: \(result.message)", false)
         }
 
+        // 自动将编译产物同步一份到宿主公共 Documents/DynamicLibraries 目录，供独立注入器直接秒选
+        let pubDir = URL(fileURLWithPath: "/var/mobile/Documents/DynamicLibraries")
+        try? FileManager.default.createDirectory(at: pubDir, withIntermediateDirectories: true)
+        let pubDest = pubDir.appendingPathComponent((path as NSString).lastPathComponent)
+        try? FileManager.default.removeItem(at: pubDest)
+        try? FileManager.default.copyItem(atPath: path, toPath: pubDest.path)
+
         // 自检产物
         let verifyMsg = HookConfigBuilder.verify(dylibPath: path)
 
-        // 记录产出，供注入面板回读
-        if let bid = HookChatRouter.pendingBundleID() {
-            HookChatRouter.recordProducedDylib(path, bundleID: bid)
-        }
-
+        let dylibName = (path as NSString).lastPathComponent
         let out = """
         ✅ \(result.message)
         产物路径：\(path)
         自检：\(verifyMsg)
 
-        下一步：确认要把这个动态库注入到哪个 App，然后调用 dylib_inject。
-        例：dylib_inject 参数 bundle_id=<目标 bundleId>, dylib_path=\(path), mode=clean
+        提示：已同步至公共动态库目录，你可以直接在聊天中让我调用 dylib_inject 注入，或点击下方唤醒独立注入器：
+        👉 [唤醒 kyTuT 注入器执行注入](kytut-inject://inject?bundleId=\(HookChatRouter.pendingBundleID() ?? "")&dylib=\(dylibName))
         """
         return (out, true)
     }
 
-    // MARK: - dylib_inject
+    // MARK: - dylib_inject (一键唤醒独立注入器)
 
     /// 把 dylib 注入到目标 App。
-    /// 参数：bundle_id、dylib_path、mode（strict / clean）、confirmed
+    /// 机制：优先通过 URL Scheme 唤醒独立的「kyTuT 注入器」执行注入
     func executeDylibInjectTool(from json: String, msgIdx: Int, blockIdx: Int) async -> (output: String, success: Bool)? {
         guard let data = json.data(using: .utf8),
               let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -136,7 +139,6 @@ extension AIChatViewModel {
 
         let bundleID = (args["bundle_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let dylibPath = (args["dylib_path"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let modeRaw = (args["mode"] as? String)?.lowercased() ?? "clean"
 
         guard !bundleID.isEmpty else {
             return ("Error: 'bundle_id' is required.", false)
@@ -144,68 +146,54 @@ extension AIChatViewModel {
         guard !dylibPath.isEmpty else {
             return ("Error: 'dylib_path' is required.", false)
         }
-        guard FileManager.default.fileExists(atPath: dylibPath) else {
-            return ("Error: dylib not found at \(dylibPath). Generate it first with hook_compile.", false)
-        }
 
-        let mode: DynamicInjectMode = .clean
-
-        // 解析目标 App 信息（需要 bundleURL 与主二进制名）
-        let apps = InstalledAppsService.listApps(includeSystem: true)
-        guard let app = apps.first(where: { $0.bundleId == bundleID }) else {
-            return ("Error: 未找到 bundleId 为 \(bundleID) 的已安装 App。", false)
-        }
+        let dylibName = (dylibPath as NSString).lastPathComponent
 
         if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
-            messages[msgIdx].blocks[blockIdx].content = "⏳ 正在注入到 \(app.name)…"
+            messages[msgIdx].blocks[blockIdx].content = "⏳ 正在唤醒 kyTuT 注入器对 \(bundleID) 进行注入…"
             scrollToBottomSignal.send()
         }
 
-        let outcome: DynamicInjectOutcome = await withCheckedContinuation { cont in
-            JailbreakInjector.inject(
-                bundleID: app.bundleId,
-                bundleURL: app.bundleURL,
-                executableName: app.mainExecutableURL?.lastPathComponent,
-                dylibPath: dylibPath,
-                mode: mode,
-                progress: { _ in },
-                completion: { cont.resume(returning: $0) }
-            )
+        // 构造一键联动唤醒 URL: kytut-inject://inject?bundleId=xxx&dylib=xxx
+        let schemeStr = "kytut-inject://inject?bundleId=\(bundleID)&dylib=\(dylibName)"
+        guard let schemeURL = URL(string: schemeStr) else {
+            return ("Error: 无效的联动协议 URL", false)
         }
 
-        // 把日志尾部一并回传，便于 AI 解释失败原因
-        let logTail = Self.readInjectLogTail(lines: 40)
-
-        if outcome.success {
-            HookChatRouter.clearPendingTask()
-            return ("""
-            ✅ 注入成功
-            目标：\(app.name)（\(bundleID)）
-            模式：\(mode.title)
-            dylib：\((dylibPath as NSString).lastPathComponent)
-
-            提示：注入是运行时行为，目标 App 重启后失效。
-            """, true)
-        } else {
-            return ("""
-            ❌ 注入失败：\(outcome.message)
-
-            注入日志尾部：
-            \(logTail)
-
-            可参考日志判断失败环节（信任缓存通道 / 权限 / 目标进程状态）。
-            """, false)
+        // 异步调起独立注入器
+        await MainActor.run {
+            UIApplication.shared.open(schemeURL, options: [:], completionHandler: nil)
         }
+
+        // 等待 2 秒后读取共享日志
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        let logTail = Self.readInjectLogTail(lines: 30)
+
+        return ("""
+        🚀 已向 kyTuT 注入器发送注入指令！
+        目标：\(bundleID)
+        插件：\(dylibName)
+
+        全系统共享注入日志（最新记录）：
+        \(logTail)
+
+        提示：如未自动切回，请点击：[打开 kyTuT 注入器](kytut-inject://open) 查看注入详情。
+        """, true)
     }
 }
 
-
-// MARK: - 注入日志读取
+// MARK: - 全系统共享注入日志读取
 
 extension AIChatViewModel {
 
-    /// 读取注入日志末尾若干行（供 dylib_inject 回传诊断信息）
+    /// 读取注入日志末尾若干行（优先读取全系统共享日志 /var/mobile/Documents/inject_debug.log）
     static func readInjectLogTail(lines: Int = 40) -> String {
+        let sharedPath = "/var/mobile/Documents/inject_debug.log"
+        if let content = try? String(contentsOfFile: sharedPath, encoding: .utf8) {
+            let all = content.components(separatedBy: "\n")
+            return all.suffix(lines).joined(separator: "\n")
+        }
+
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
         guard let path = docs?.appendingPathComponent("inject_debug.log").path,
               let content = try? String(contentsOfFile: path, encoding: .utf8) else {
