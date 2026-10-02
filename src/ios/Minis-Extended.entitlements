@@ -47,6 +47,37 @@
 	<key>com.apple.private.security.container-manager</key>
 	<true/>
 
+	<!-- ══════════ 尝试：不逃逸沙盒也能跨进程枚举 ══════════ -->
+	<!--
+	  为什么需要这一组：
+	    动态注入第一步是「找到目标 App 的 PID」，实现依赖
+	    proc_listallpids + proc_pidpath，两者都需要跨进程读取权限。
+	    实测对比：逃逸沙盒版本枚举到 392 个进程；保持沙盒版本返回 0，
+	    于是注入在第一步就失败。
+
+	  这一组是尝试用「私有授权 + 沙盒例外」替代逃逸沙盒：
+	    proc-info-allow       跨进程信息读取
+	    proc_modify-allow     读进程可执行路径
+	    mach-lookup 例外      连接系统 XPC（含 WebKit / SpringBoard / runningboard）
+
+	  注意 mach-lookup 那组同时覆盖了 WebKit 的三个服务，
+	  目的是：万一后续仍需给 WebContent 单独放行，这里已经预置好。
+	-->
+	<key>com.apple.private.proc-info</key>
+	<true/>
+	<key>proc_modify-allow</key>
+	<true/>
+
+	<key>com.apple.security.exception.mach-lookup.global-name</key>
+	<array>
+		<string>com.apple.WebKit.WebContent</string>
+		<string>com.apple.WebKit.Networking</string>
+		<string>com.apple.WebKit.GPU</string>
+		<string>com.apple.springboard.services</string>
+		<string>com.apple.frontboard.systemappservices</string>
+		<string>com.apple.runningboardd</string>
+	</array>
+
 	<!-- ══════════ Relaxin / Dopamine / 系统内核调试与注入特权 ══════════ -->
 	<key>get-task-allow</key>
 	<true/>
