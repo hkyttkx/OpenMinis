@@ -94,16 +94,18 @@ struct FridaAppsView: View {
 
     /// 横向滚动的来源筛选。做成横向滚动而不是 segmented，是为了容纳
     /// 5 个分类 + 数量角标而不挤压文字（小屏 segmented 会截断标题）。
+    ///
+    /// 注意 ViewBuilder 不允许在闭包里写裸 `let` 语句 —— 计数必须直接
+    /// 内联进 sourceChip 的参数，不能先 let n = ... 再传。
     private var sourceFilterBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 sourceChip(title: "全部", count: apps.count, source: nil)
 
                 ForEach(AppInstallSource.allCases) { src in
-                    let n = counts[src] ?? 0
-                    sourceChip(title: src.shortTitle, count: n, source: src)
-                        .opacity(n == 0 ? 0.4 : 1.0)
-                        .disabled(n == 0)
+                    sourceChip(title: src.shortTitle,
+                               count: counts[src] ?? 0,
+                               source: src)
                 }
             }
             .padding(.horizontal, 16)
@@ -114,6 +116,7 @@ struct FridaAppsView: View {
 
     private func sourceChip(title: String, count: Int, source: AppInstallSource?) -> some View {
         let active = sourceFilter == source
+        let empty = (count == 0 && source != nil)
         return Button {
             withAnimation(.easeInOut(duration: 0.15)) { sourceFilter = source }
         } label: {
@@ -134,6 +137,8 @@ struct FridaAppsView: View {
             .foregroundStyle(active ? Color.white : Color.primary)
         }
         .buttonStyle(.plain)
+        .opacity(empty ? 0.4 : 1.0)
+        .disabled(empty)
     }
 
     // MARK: 列表
@@ -396,27 +401,7 @@ struct SandboxBrowserView: View {
             }
             Section {
                 ForEach(entries, id: \.name) { e in
-                    let url = currentURL.appendingPathComponent(e.name)
-                    if e.isDir {
-                        Button {
-                            dirStack.append(url)
-                            reload()
-                        } label: {
-                            Label(e.name, systemImage: "folder.fill")
-                                .foregroundStyle(.primary)
-                        }
-                    } else {
-                        Button { previewFile = FilePreview(url: url) } label: {
-                            HStack {
-                                Label(e.name, systemImage: fileIcon(e.name))
-                                    .foregroundStyle(.primary)
-                                    .lineLimit(1)
-                                Spacer()
-                                Text(ByteCountFormatter.string(fromByteCount: e.size, countStyle: .file))
-                                    .font(.caption2).foregroundStyle(.tertiary)
-                            }
-                        }
-                    }
+                    entryRow(e)
                 }
             } header: {
                 Text("/" + currentURL.path.replacingOccurrences(of: root.path + "/", with: ""))
@@ -441,6 +426,34 @@ struct SandboxBrowserView: View {
         .onAppear { if dirStack.isEmpty { dirStack = [root] }; reload() }
         .sheet(item: $previewFile) { p in
             SandboxFilePreviewSheet(file: p)
+        }
+    }
+
+    /// 抽成独立方法：原实现在 ForEach 闭包里写了 `let url = ...`，
+    /// ViewBuilder 不接受裸 let 语句，会编译失败。
+    @ViewBuilder
+    private func entryRow(_ e: (name: String, isDir: Bool, size: Int64)) -> some View {
+        if e.isDir {
+            Button {
+                dirStack.append(currentURL.appendingPathComponent(e.name))
+                reload()
+            } label: {
+                Label(e.name, systemImage: "folder.fill")
+                    .foregroundStyle(.primary)
+            }
+        } else {
+            Button {
+                previewFile = FilePreview(url: currentURL.appendingPathComponent(e.name))
+            } label: {
+                HStack {
+                    Label(e.name, systemImage: fileIcon(e.name))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Spacer()
+                    Text(ByteCountFormatter.string(fromByteCount: e.size, countStyle: .file))
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
         }
     }
 
