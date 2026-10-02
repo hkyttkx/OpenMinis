@@ -3,10 +3,10 @@
 //  KyTuT
 //
 //  目标 App 管理：
-//   - 列出全部已安装 App（LSApplicationWorkspace，图标/名称/版本/加密状态）
+//   - 列出全部已安装 App（图标/名称/版本/加密状态/安装来源）
+//   - 顶部按安装来源筛选：全部 / 商店 / 巨魔 / 系统 / 其他
 //   - 详情页：路径信息 / 浏览沙盒（数据容器 + Bundle）/ 复制到沙盒供 AI 分析
-//   - 详情页内置「动态注入」面板：选择 dylib 与注入模式后可对当前 App 注入
-//     （运行时可逆，重启后失效；注入日志可在 App 内查看）
+//   - 详情页内置「动态注入」面板
 //
 
 import SwiftUI
@@ -19,15 +19,26 @@ struct FridaAppsView: View {
     @State private var apps: [InstalledAppInfo] = []
     @State private var loading = true
     @State private var search = ""
-    @State private var includeSystem = false
+    @State private var sourceFilter: AppInstallSource? = nil   // nil = 全部
     @State private var selected: InstalledAppInfo?
 
     private var filtered: [InstalledAppInfo] {
-        guard !search.isEmpty else { return apps }
-        return apps.filter {
+        var list = apps
+        if let f = sourceFilter {
+            list = list.filter { $0.source == f }
+        }
+        guard !search.isEmpty else { return list }
+        return list.filter {
             $0.name.localizedCaseInsensitiveContains(search) ||
             $0.bundleId.localizedCaseInsensitiveContains(search)
         }
+    }
+
+    /// 各来源的数量（用于筛选条上的角标与禁用空分类）
+    private var counts: [AppInstallSource: Int] {
+        var m: [AppInstallSource: Int] = [:]
+        for a in apps { m[a.source, default: 0] += 1 }
+        return m
     }
 
     var body: some View {
@@ -41,36 +52,16 @@ struct FridaAppsView: View {
                         Image(systemName: "exclamationmark.shield")
                             .font(.system(size: 40)).foregroundStyle(.secondary)
                         Text("未读到任何 App").font(.headline)
-                        Text("需要以扩展权限（no-sandbox）签名。\n若刚更新，请先卸载再重装本 App。")
+                        Text("需要以扩展权限签名。\n若刚更新，请先卸载再重装本 App。")
                             .font(.caption).foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    List {
-                        ForEach(filtered) { app in
-                            Button { selected = app } label: {
-                                HStack(spacing: 12) {
-                                    AppIconView(icon: app.icon)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(app.name).font(.body.weight(.medium))
-                                            .foregroundStyle(.primary)
-                                        Text(app.bundleId).font(.caption2.monospaced())
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(1)
-                                    }
-                                    Spacer()
-                                    if app.isEncrypted {
-                                        Text("🔒加密").font(.caption2)
-                                            .padding(.horizontal, 6).padding(.vertical, 2)
-                                            .background(Capsule().fill(.red.opacity(0.15)))
-                                            .foregroundStyle(.red)
-                                    }
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption).foregroundStyle(.tertiary)
-                                }
-                            }
-                        }
+                    VStack(spacing: 0) {
+                        sourceFilterBar
+                        Divider()
+                        appList
                     }
                 }
             }
@@ -80,9 +71,16 @@ struct FridaAppsView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Toggle("系统", isOn: $includeSystem)
-                        .toggleStyle(.button)
-                        .onChange(of: includeSystem) { _ in reload() }
+                    Menu {
+                        Button {
+                            sourceFilter = nil
+                            reload()
+                        } label: {
+                            Label("重新读取全部 App", systemImage: "arrow.clockwise")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
                 }
             }
             .sheet(item: $selected) { app in
@@ -92,10 +90,110 @@ struct FridaAppsView: View {
         }
     }
 
+    // MARK: 来源筛选条
+
+    /// 横向滚动的来源筛选。做成横向滚动而不是 segmented，是为了容纳
+    /// 5 个分类 + 数量角标而不挤压文字（小屏 segmented 会截断标题）。
+    private var sourceFilterBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                sourceChip(title: "全部", count: apps.count, source: nil)
+
+                ForEach(AppInstallSource.allCases) { src in
+                    let n = counts[src] ?? 0
+                    sourceChip(title: src.shortTitle, count: n, source: src)
+                        .opacity(n == 0 ? 0.4 : 1.0)
+                        .disabled(n == 0)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+        }
+        .background(Color(UIColor.secondarySystemGroupedBackground))
+    }
+
+    private func sourceChip(title: String, count: Int, source: AppInstallSource?) -> some View {
+        let active = sourceFilter == source
+        return Button {
+            withAnimation(.easeInOut(duration: 0.15)) { sourceFilter = source }
+        } label: {
+            HStack(spacing: 5) {
+                if let s = source {
+                    Image(systemName: s.systemImage).font(.system(size: 10, weight: .semibold))
+                }
+                Text(title).font(.system(size: 13, weight: .medium))
+                Text("\(count)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Capsule().fill(active ? Color.white.opacity(0.25) : Color.secondary.opacity(0.15)))
+            }
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .background(
+                Capsule().fill(active ? Color.accentColor : Color(UIColor.tertiarySystemFill))
+            )
+            .foregroundStyle(active ? Color.white : Color.primary)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: 列表
+
+    private var appList: some View {
+        List {
+            if filtered.isEmpty {
+                Text("该分类下没有 App")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(filtered) { app in
+                Button { selected = app } label: {
+                    HStack(spacing: 12) {
+                        AppIconView(icon: app.icon)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(app.name).font(.body.weight(.medium))
+                                .foregroundStyle(.primary)
+                            Text(app.bundleId).font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        sourceBadge(app.source)
+                        if app.isEncrypted {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.red)
+                        }
+                        Image(systemName: "chevron.right")
+                            .font(.caption).foregroundStyle(.tertiary)
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
+    }
+
+    private func sourceBadge(_ src: AppInstallSource) -> some View {
+        Text(src.shortTitle)
+            .font(.system(size: 10, weight: .semibold))
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(Capsule().fill(badgeColor(src).opacity(0.15)))
+            .foregroundStyle(badgeColor(src))
+    }
+
+    private func badgeColor(_ src: AppInstallSource) -> Color {
+        switch src {
+        case .appStore:   return .blue
+        case .trollStore: return .purple
+        case .system:     return .gray
+        case .other:      return .orange
+        }
+    }
+
     private func reload() {
         loading = true
+        // 来源筛选包含系统 App，所以始终带 includeSystem 拉全量，
+        // 由 sourceFilter 决定展示哪些（避免切换分类时反复重扫磁盘）。
         Task.detached(priority: .userInitiated) {
-            let list = InstalledAppsService.listApps(includeSystem: includeSystem)
+            let list = InstalledAppsService.listApps(includeSystem: true)
             await MainActor.run {
                 apps = list
                 loading = false
@@ -151,12 +249,35 @@ struct FridaAppDetailView: View {
                 }
 
                 Section {
+                    HStack(spacing: 10) {
+                        Image(systemName: app.source.systemImage)
+                            .foregroundStyle(.secondary)
+                        Text(app.source.title).font(.body.weight(.medium))
+                        Spacer()
+                        if let t = app.teamID, !t.isEmpty {
+                            Text(t).font(.caption2.monospaced())
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    Text(app.source.injectionHint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } header: {
+                    Text("安装来源")
+                }
+
+                Section {
                     if app.isEncrypted {
-                        Label("该 App 带 FairPlay 加密，二进制在磁盘上是密文，静态分析意义有限",
+                        Label("二进制在磁盘上仍带 FairPlay 加密（静态分析意义有限）",
                               systemImage: "lock.fill")
                             .font(.caption).foregroundStyle(.red)
+                        Text("注意：动态注入不依赖砸壳 —— 目标进程运行时，代码在内核里已解密。加密不影响注入。")
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     } else {
-                        Label("磁盘上已解密，可直接复制二进制做静态分析", systemImage: "lock.open.fill")
+                        Label("磁盘上已解密，可直接复制二进制做静态分析",
+                              systemImage: "lock.open.fill")
                             .font(.caption).foregroundStyle(.green)
                     }
                 } header: {
@@ -355,117 +476,6 @@ struct SandboxBrowserView: View {
         case "dylib": return "puzzlepiece.extension"
         case "ipa": return "shippingbox"
         default: return "doc"
-        }
-    }
-}
-
-// MARK: - 文件预览
-
-struct FilePreview: Identifiable {
-    let url: URL
-    var id: String { url.path }
-}
-
-struct SandboxFilePreviewSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    let file: FilePreview
-    @State private var text: String?
-    @State private var tooLarge = false
-    @State private var copiedToSandbox = false
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                Group {
-                    if let text {
-                        ScrollView {
-                            Text(text)
-                                .font(.system(size: 11, design: .monospaced))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal)
-                                .textSelection(.enabled)
-                        }
-                    } else if tooLarge {
-                        VStack(spacing: 10) {
-                            Image(systemName: "doc").font(.largeTitle).foregroundStyle(.secondary)
-                            Text("文件过大或为二进制，不支持预览")
-                            ShareLink(item: file.url) { Label("导出分享", systemImage: "square.and.arrow.up") }
-                                .buttonStyle(.bordered)
-                        }
-                    } else {
-                        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                }
-                // [T-r2-deep-analysis] 把目标文件送进沙盒 /var/minis/shared/，
-                // 供 AI 用 strings/radare2 分析（深度分析引擎的输入通道）。
-                VStack(spacing: 6) {
-                    Button {
-                        copyToSandbox()
-                    } label: {
-                        Label(copiedToSandbox
-                              ? "已复制，可在对话中让 AI 分析它"
-                              : "复制到沙盒（供 AI 分析）",
-                              systemImage: copiedToSandbox ? "checkmark.circle.fill" : "arrow.triangle.branch")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(copiedToSandbox)
-                    Text("沙盒路径: /var/minis/shared/\(file.url.lastPathComponent)")
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 10)
-            }
-            .navigationTitle(file.url.lastPathComponent)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    ShareLink(item: file.url) { Image(systemName: "square.and.arrow.up") }
-                }
-            }
-            .task { load() }
-        }
-    }
-
-    private func copyToSandbox() {
-        let dest = SandboxRunner.hostSharedDir.appendingPathComponent(file.url.lastPathComponent)
-        do {
-            try? FileManager.default.removeItem(at: dest)
-            try FileManager.default.copyItem(at: file.url, to: dest)
-            copiedToSandbox = true
-            AppAnalysisLog.logger.info("已复制到沙盒: /var/minis/shared/\(file.url.lastPathComponent)")
-        } catch {
-            AppAnalysisLog.logger.error("复制到沙盒失败: \(error.localizedDescription)")
-        }
-    }
-
-    private func load() {
-        let fm = FileManager.default
-        guard let size = try? fm.attributesOfItem(atPath: file.url.path)[.size] as? Int64,
-              size < 2_000_000 else {
-            tooLarge = true
-            return
-        }
-        let ext = file.url.pathExtension.lowercased()
-        if ext == "plist" {
-            if let dict = NSDictionary(contentsOf: file.url),
-               let d = try? PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0),
-               let s = String(data: d, encoding: .utf8) {
-                text = s
-                return
-            }
-        }
-        // 二进制 plist / 任意文本兜底
-        if let s = try? String(contentsOf: file.url, encoding: .utf8) {
-            text = s
-        } else if let d = try? Data(contentsOf: file.url),
-                  let dict = try? PropertyListSerialization.propertyList(from: d, format: nil) {
-            if let data = try? PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0),
-               let s = String(data: data, encoding: .utf8) {
-                text = s
-            }
-        } else {
-            tooLarge = true
         }
     }
 }
