@@ -19,8 +19,8 @@ private let appsLogger = AppLogger(category: "Frida")
 ///   1. bundle 路径 —— 系统 App 装在系统分区，路径形态与用户 App 完全不同，最可靠；
 ///   2. FairPlay 加密位（LC_ENCRYPTION_INFO_64 的 cryptid）——  App Store 下载的包
 ///      带 DRM 加密，cryptid != 0；巨魔安装的包是已解密的，cryptid == 0；
-///   3. 签名 TeamID —— 巨魔装的包由 TrollStore 用 ad-hoc / 伪团队签名，
-///      常见 TROLLTROLL 或空 TeamID；App Store 包是真实开发者团队 ID。
+///   3. 描述文件里的 TeamID —— 巨魔/自签名包通常没有描述文件或没有团队 ID，
+///      App Store 包带真实开发者团队 ID。
 ///
 /// 三者组合判断，避免单一信号误判（例如自签名的开发包 cryptid 也是 0，
 /// 但它没有巨魔特征，会被归入「其他」而不是误报成巨魔）。
@@ -59,16 +59,6 @@ enum AppInstallSource: String, CaseIterable, Identifiable {
         }
     }
 
-    /// 列表里的小标签配色
-    var tintName: String {
-        switch self {
-        case .appStore:   return "blue"
-        case .trollStore: return "purple"
-        case .system:     return "gray"
-        case .other:      return "orange"
-        }
-    }
-
     /// 这类来源能不能做动态注入（给用户一个直观提示）
     var injectionHint: String {
         switch self {
@@ -99,7 +89,7 @@ struct InstalledAppInfo: Identifiable {
     let isEncrypted: Bool
     /// 安装来源（列表可按此筛选）
     let source: AppInstallSource
-    /// 签名 TeamID（为空表示 ad-hoc / 无团队签名）
+    /// 签名 TeamID（为空表示无描述文件 / 无团队签名）
     let teamID: String?
 
     var mainExecutableURL: URL? {
@@ -149,7 +139,7 @@ enum InstalledAppsService {
             let container = kvcURL(proxy, "dataContainerURL")
 
             let encrypted = computeEncrypted(bundleURL: bundleURL)
-            let teamID = readTeamID(bundleURL: bundleURL, bundleId: bundleId)
+            let teamID = readTeamID(bundleURL: bundleURL)
             let source = classifyInstallSource(
                 isSystem: isSystem,
                 bundleURL: bundleURL,
@@ -180,8 +170,7 @@ enum InstalledAppsService {
     ///
     /// 为什么不能只看加密位：巨魔装的包 cryptid=0（已解密），但**自签名/企业签
     /// 的开发包也是 0**。只看 crypto 会把开发包误报成巨魔。
-    /// 加上 TeamID 才能区分：巨魔用伪团队（TROLLTROLL / 空），
-    /// App Store 用真实开发者团队 ID（10 位大写字母数字）。
+    /// 加上描述文件里的 TeamID 才能区分。
     static func classifyInstallSource(isSystem: Bool,
                                       bundleURL: URL,
                                       isEncrypted: Bool,
@@ -192,47 +181,41 @@ enum InstalledAppsService {
         // ② FairPlay 加密 = App Store 下载（DRM 只在商店发行时施加）
         if isEncrypted { return .appStore }
 
-        // ③ 未加密 + 巨魔特征签名 = 巨魔安装
+        // ③ 描述文件里带真实团队 ID：走的是正规签名渠道，归为商店来源；
+        //    巨魔/自签名包一般没有描述文件，或没有 TeamIdentifier。
         if let t = teamID, !t.isEmpty {
-            let upper = t.uppercased()
-            if upper.contains("TROLL") { return .trollStore }
+            return .appStore
         }
 
-        // ④ 未加密、无团队签名（ad-hoc）：巨魔安装最常见的形态。
-        //    再确认一下 bundle 里没有商店收据，排除"商店包但没加密"的少数情况。
+        // ④ 无加密、无描述文件：巨魔安装最典型的形态（ad-hoc 签名）。
+        //    再确认没有商店收据，排除"商店包被处理后重装"的少数情况。
         let hasStoreReceipt = FileManager.default.fileExists(
             atPath: bundleURL.appendingPathComponent("_MASReceipt/receipt").path
         )
-        if !hasStoreReceipt {
-            // ad-hoc 且无收据 —— 巨魔/自签名。两者从用户视角都是「越狱侧安装」，
-            // 归入巨魔更符合使用预期。
-            return .trollStore
-        }
-
-        // ⑤ 有商店收据但未加密：商店包被处理过（砸壳后重装），仍算商店来源
-        return .appStore
+        return hasStoreReceipt ? .appStore : .trollStore
     }
 
-    /// 读签名 TeamID。优先查 embedded.mobileprovision，其次 ldid -e 不可用时
-    /// 退化为检测 bundle 内的签名特征文件。
-    private static func readTeamID(bundleURL: URL, bundleId: String) -> String? {
-        // 商店包：_MASReceipt 存在即视为商店渠道（TeamID 不参与判定）
-        // 巨魔包：无描述文件；能拿到的团队信息通常在签名段里
+    /// 读描述文件里的 TeamID。
+    ///
+    /// 注意可选链优先级：`try? X as? [String: Any]` 会被解析成
+    /// `try? (X as? [String: Any])`，得到 `[String: Any]??`（双重可选），
+    /// 解一层后仍是可选，紧接着下标访问就会编译失败。
+    /// 必须拆成两步：先 try? 再 as?。
+    private static func readTeamID(bundleURL: URL) -> String? {
         let provPath = bundleURL.appendingPathComponent("embedded.mobileprovision").path
-        if let data = FileManager.default.contents(atPath: provPath),
-           let raw = String(data: data, encoding: .ascii),
-           let start = raw.range(of: "<plist"),
-           let end = raw.range(of: "</plist>") {
-            let xml = String(raw[start.lowerBound..<end.upperBound])
-            if let xmlData = xml.data(using: .utf8),
-               let plist = try? PropertyListSerialization.propertyList(
-                   from: xmlData, options: [], format: nil) as? [String: Any],
-               let teams = plist["TeamIdentifier"] as? [String],
-               let first = teams.first {
-                return first
-            }
-        }
-        return nil
+        guard let data = FileManager.default.contents(atPath: provPath),
+              let raw = String(data: data, encoding: .ascii),
+              let start = raw.range(of: "<plist"),
+              let end = raw.range(of: "</plist>") else { return nil }
+
+        let xml = String(raw[start.lowerBound..<end.upperBound])
+        guard let xmlData = xml.data(using: .utf8),
+              let obj = try? PropertyListSerialization.propertyList(
+                  from: xmlData, options: [], format: nil),
+              let plist = obj as? [String: Any],
+              let teams = plist["TeamIdentifier"] as? [String],
+              let first = teams.first else { return nil }
+        return first
     }
 
     // MARK: - 私有属性动态读取
